@@ -80,71 +80,89 @@ export class ProviderRegistry {
 
   /**
    * 生成 opencode.json provider 配置片段
+   * 使用字符串拼接避免 ArkTS 对象字面量限制
    */
   generateProviderConfig(providerId: string): string {
     const p = this.getById(providerId)
     if (!p || !p.enabled) return ''
 
-    const modelsObj: Record<string, Object> = {}
+    const modelsEntries: string[] = []
     for (const m of p.models) {
-      modelsObj[m.id] = { name: m.name }
+      modelsEntries.push(`      "${m.id}": {\n        "name": "${this.escapeJson(m.name)}"\n      }`)
     }
+    const modelsStr = modelsEntries.join(',\n')
 
-    const providerEntry: Record<string, Object> = {
-      npm: p.npm,
-      name: p.name,
-      options: {
-        baseURL: p.baseURL,
-        apiKey: `{env:${p.authEnv}}`
-      },
-      models: modelsObj
+    return `{
+  "${p.id}": {
+    "npm": "${this.escapeJson(p.npm)}",
+    "name": "${this.escapeJson(p.name)}",
+    "options": {
+      "baseURL": "${this.escapeJson(p.baseURL)}",
+      "apiKey": "{env:${p.authEnv}}"
+    },
+    "models": {
+${modelsStr}
     }
-
-    return JSON.stringify({ [p.id]: providerEntry }, null, 2)
+  }
+}`
   }
 
   /**
    * 生成完整 opencode.json
+   * 使用字符串拼接避免 ArkTS 对象字面量限制
    */
   generateFullConfig(defaultModel: string, smallModel: string): string {
-    const providersMap: Record<string, Object> = {}
+    const providerEntries: string[] = []
 
     for (const p of this.getEnabled()) {
-      const modelsObj: Record<string, Object> = {}
+      const modelsEntries: string[] = []
       for (const m of p.models) {
-        modelsObj[m.id] = { name: m.name }
+        modelsEntries.push(`        "${m.id}": {\n          "name": "${this.escapeJson(m.name)}"\n        }`)
       }
-      providersMap[p.id] = {
-        npm: p.npm,
-        name: p.name,
-        options: {
-          baseURL: p.baseURL,
-          apiKey: `{env:${p.authEnv}}`
-        },
-        models: modelsObj
+      const modelsStr = modelsEntries.join(',\n')
+
+      providerEntries.push(`    "${p.id}": {
+      "npm": "${this.escapeJson(p.npm)}",
+      "name": "${this.escapeJson(p.name)}",
+      "options": {
+        "baseURL": "${this.escapeJson(p.baseURL)}",
+        "apiKey": "{env:${p.authEnv}}"
+      },
+      "models": {
+${modelsStr}
       }
+    }`)
     }
 
-    const config: Record<string, Object> = {
-      '$schema': 'https://opencode.ai/config.json',
-      server: {
-        port: 4096,
-        hostname: '127.0.0.1'
-      },
-      permission: {
-        bash: 'ask',
-        edit: 'ask',
-        write: 'ask',
-        webfetch: 'allow'
-      },
-      model: defaultModel,
-      small_model: smallModel,
-      provider: providersMap,
-      autoupdate: false,
-      snapshot: true
-    }
+    const providersStr = providerEntries.join(',\n')
 
-    return JSON.stringify(config, null, 2)
+    return `{
+  "$schema": "https://opencode.ai/config.json",
+  "server": {
+    "port": 4096,
+    "hostname": "127.0.0.1"
+  },
+  "permission": {
+    "bash": "ask",
+    "edit": "ask",
+    "write": "ask",
+    "webfetch": "allow"
+  },
+  "model": "${this.escapeJson(defaultModel)}",
+  "small_model": "${this.escapeJson(smallModel)}",
+  "provider": {
+${providersStr}
+  },
+  "autoupdate": false,
+  "snapshot": true
+}`
+  }
+
+  /**
+   * JSON 字符串转义
+   */
+  private escapeJson(s: string): string {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')
   }
 
   async save(): Promise<void> {

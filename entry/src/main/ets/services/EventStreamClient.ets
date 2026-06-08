@@ -1,157 +1,193 @@
-import { http } from '@kit.NetworkKit'
-import { ServerEvent, GlobalEvent, EventTypes } from '../models/Event'
+import { ServerEvent, GlobalEvent, EventTypes, MessageInfo, PermissionRequest } from '../models/Event'
+import { OpenCodeClient } from './OpenCodeClient'
 
 /**
- * SSE 事件流客户端
- * 连接 OpenCode Server 的 /event 端点，实时接收事件
+ * 轮询式事件客户端
+ * 定期从 OpenCode Server 获取新消息和权限请求
+ * 替代 SSE 方案，兼容 ArkTS HTTP 模块限制
  */
 export class EventStreamClient {
-  private url: string = ''
-  private headers: Record<string, string> = {}
-  private request: http.HttpRequest | null = null
-  private connected: boolean = false
-  private reconnectTimer: number = -1
-  private reconnectDelay: number = 3000
-  private maxReconnectDelay: number = 30000
+  private client: OpenCodeClient
+  private sessionId: string = ''
+  private polling: boolean = false
+  private pollingTimer: number = -1
+  private pollingInterval: number = 2000
+  private seenMessageIds: string[] = []
+  private seenPermissionIds: string[] = []
   private listeners: Map<string, EventCallback[]> = new Map()
-  private buffer: string = ''
+  private initialized: boolean = false
 
-  constructor(url: string, headers: Record<string, string>) {
-    this.url = url
-    this.headers = headers
+  constructor(client: OpenCodeClient, sessionId: string) {
+    this.client = client
+    this.sessionId = sessionId
   }
 
   /**
-   * 连接到 SSE 事件流
+   * 设置监听的会话 ID
+   */
+  setSessionId(id: string): void {
+    this.sessionId = id
+    this.seenMessageIds = []
+    this.seenPermissionIds = []
+    this.initialized = false
+  }
+
+  /**
+   * 开始轮询
    */
   connect(): void {
-    if (this.connected) return
-    this.doConnect()
+    if (this.polling) return
+    this.polling = true
+    this.doPoll()
   }
 
-  private doConnect(): void {
+  /**
+   * 停止轮询
+   */
+  close(): void {
+    this.polling = false
+    if (this.pollingTimer !== -1) {
+      clearTimeout(this.pollingTimer)
+      this.pollingTimer = -1
+    }
+    this.emit('closed', new ServerEvent())
+  }
+
+  /**
+   * 手动触发一次轮询
+   */
+  reconnect(): void {
+    this.close()
+    this.seenMessageIds = []
+    this.seenPermissionIds = []
+    this.initialized = false
+    this.connect()
+  }
+
+  isConnected(): boolean {
+    return this.polling
+  }
+
+  private async doPoll(): Promise<void> {
+    if (!this.polling) return
+
     try {
-      this.request = http.createHttp()
-      const req = this.request
+      await this.pollMessages()
+      await this.pollPermissions()
 
-      req.on('headerReceive', (header: Object) => {
-        // 连接建立
-        this.connected = true
-        this.reconnectDelay = 3000
-        this.emit('connected', new ServerEvent())
-      })
+      // 首次轮询完成后发送 connected 事件
+      if (!this.initialized) {
+        this.initialized = true
+        const connectedEvent = new ServerEvent()
+        connectedEvent.type = EventTypes.SERVER_CONNECTED
+        this.emit(EventTypes.SERVER_CONNECTED, connectedEvent)
+        this.emit('connected', connectedEvent)
+      }
 
-      req.on('dataEnd', () => {
-        // 流结束，尝试重连
-        this.connected = false
-        this.emit('disconnected', new ServerEvent())
-        this.scheduleReconnect()
-      })
-
-      req.on('error', (err: Object) => {
-        this.connected = false
-        const errEvent = new ServerEvent()
-        errEvent.type = 'error'
-        errEvent.properties = { message: String(err) }
-        this.emit('error', errEvent)
-        this.scheduleReconnect()
-      })
-
-      // 使用 requestInStream 接收 SSE 数据
-      req.requestInStream(this.url, {
-        method: http.RequestMethod.GET,
-        header: this.headers,
-        connectTimeout: 10000,
-        readTimeout: 0, // SSE 不设读超时
-        expectDataType: http.HttpDataType.STRING,
-      }, (err: Error, data: string) => {
-        if (err) {
-          this.connected = false
-          const errEvent = new ServerEvent()
-          errEvent.type = 'error'
-          errEvent.properties = { message: err.message }
-          this.emit('error', errEvent)
-          return
-        }
-        this.processData(data)
-      })
+      // 发送心跳事件保持连接状态
+      const heartbeat = new ServerEvent()
+      heartbeat.type = EventTypes.SERVER_HEARTBEAT
+      this.emit(EventTypes.SERVER_HEARTBEAT, heartbeat)
     } catch (e) {
-      this.connected = false
       const errEvent = new ServerEvent()
       errEvent.type = 'error'
-      errEvent.properties = { message: String(e) }
+      errEvent.properties['message'] = String(e)
       this.emit('error', errEvent)
-      this.scheduleReconnect()
+    }
+
+    // 安排下一次轮询
+    if (this.polling) {
+      this.pollingTimer = setTimeout((): void => {
+        this.doPoll()
+      }, this.pollingInterval)
     }
   }
 
-  /**
-   * 处理接收到的 SSE 数据
-   */
-  private processData(data: string): void {
-    this.buffer += data
-    // SSE 格式：以双换行分隔事件
-    const parts = this.buffer.split('\n\n')
-    // 最后一个可能不完整，保留在 buffer
-    this.buffer = parts[parts.length - 1]
+  private async pollMessages(): Promise<void> {
+    if (this.sessionId.length === 0) return
 
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i].trim()
-      if (!part) continue
+    const messages = await this.client.getMessages(this.sessionId)
 
-      let eventType = 'message'
-      let eventData = ''
-
-      const lines = part.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          eventType = line.substring(7).trim()
-        } else if (line.startsWith('data: ')) {
-          eventData += line.substring(6)
-        }
+    // 首次轮询记录已有消息 ID，不触发事件
+    if (this.seenMessageIds.length === 0 && messages.length > 0) {
+      for (const msg of messages) {
+        this.seenMessageIds.push(msg.id)
       }
-
-      if (eventData) {
-        try {
-          const event = JSON.parse(eventData) as ServerEvent
-          this.handleEvent(event)
-        } catch (e) {
-          // 忽略解析错误
-        }
-      }
-    }
-  }
-
-  /**
-   * 处理解析后的事件
-   */
-  private handleEvent(event: ServerEvent): void {
-    // 忽略心跳
-    if (event.type === EventTypes.SERVER_HEARTBEAT) {
       return
     }
 
-    // 按类型分发
-    this.emit(event.type, event)
+    for (const msg of messages) {
+      if (!this.containsString(this.seenMessageIds, msg.id)) {
+        this.seenMessageIds.push(msg.id)
 
-    // 同时分发到通配符
-    this.emit('*', event)
+        // 触发消息更新事件
+        const msgEvent = new ServerEvent()
+        msgEvent.id = msg.id
+        msgEvent.type = EventTypes.SESSION_MESSAGE_UPDATED
+        msgEvent.properties['sessionID'] = this.sessionId
+        msgEvent.properties['message'] = msg as Object
+        this.emit(EventTypes.SESSION_MESSAGE_UPDATED, msgEvent)
 
-    // 按大类分发
-    if (event.type.startsWith('session.')) {
-      this.emit('session.*', event)
-    } else if (event.type.startsWith('permission.')) {
-      this.emit('permission.*', event)
-    } else if (event.type.startsWith('session.tool.')) {
-      this.emit('session.tool.*', event)
-    } else if (event.type.startsWith('session.llm.')) {
-      this.emit('session.llm.*', event)
+        // 根据消息内容推断 LLM 事件
+        if (msg.role === 'assistant') {
+          const llmEvent = new ServerEvent()
+          llmEvent.id = msg.id
+          llmEvent.type = EventTypes.SESSION_LLM_DELTA
+          llmEvent.properties['sessionID'] = this.sessionId
+          llmEvent.properties['messageID'] = msg.id
+          // 从 parts 中提取文本内容作为 delta
+          let deltaText = ''
+          for (const part of msg.parts) {
+            if (part.type === 'text') {
+              deltaText += part.content
+            }
+          }
+          llmEvent.properties['delta'] = deltaText
+          this.emit(EventTypes.SESSION_LLM_DELTA, llmEvent)
+        }
+
+        // 检查工具调用 parts
+        for (const part of msg.parts) {
+          if (part.type === 'tool-invocation') {
+            const toolEvent = new ServerEvent()
+            toolEvent.id = `${msg.id}_${part.id}`
+            toolEvent.type = EventTypes.SESSION_TOOL_SUCCESS
+            toolEvent.properties['sessionID'] = this.sessionId
+            toolEvent.properties['toolName'] = part.metadata['toolName'] as string
+            toolEvent.properties['input'] = part.content
+            toolEvent.properties['step'] = part.metadata['step'] as number
+            this.emit(EventTypes.SESSION_TOOL_SUCCESS, toolEvent)
+          }
+        }
+      }
     }
+  }
 
-    // 实例销毁时断开
-    if (event.type === EventTypes.SERVER_INSTANCE_DISPOSED) {
-      this.close()
+  private async pollPermissions(): Promise<void> {
+    const permissions = await this.client.listPermissions()
+
+    for (const perm of permissions) {
+      if (!this.containsString(this.seenPermissionIds, perm.id) && perm.status === 'pending') {
+        this.seenPermissionIds.push(perm.id)
+
+        const permEvent = new ServerEvent()
+        permEvent.id = perm.id
+        permEvent.type = EventTypes.PERMISSION_ASKED
+        permEvent.properties['sessionID'] = perm.sessionID
+        permEvent.properties['permType'] = perm.type
+        permEvent.properties['title'] = perm.title
+        permEvent.properties['description'] = perm.description
+        permEvent.properties['riskLevel'] = perm.riskLevel
+        this.emit(EventTypes.PERMISSION_ASKED, permEvent)
+      }
     }
+  }
+
+  private containsString(arr: string[], value: string): boolean {
+    for (const item of arr) {
+      if (item === value) return true
+    }
+    return false
   }
 
   /**
@@ -159,7 +195,8 @@ export class EventStreamClient {
    */
   on(eventType: string, callback: EventCallback): void {
     if (!this.listeners.has(eventType)) {
-      this.listeners.set(eventType, [])
+      const emptyArr: EventCallback[] = []
+      this.listeners.set(eventType, emptyArr)
     }
     this.listeners.get(eventType)!.push(callback)
   }
@@ -195,53 +232,17 @@ export class EventStreamClient {
         }
       }
     }
-  }
-
-  /**
-   * 关闭连接
-   */
-  close(): void {
-    this.connected = false
-    this.clearReconnect()
-    if (this.request) {
-      try {
-        this.request.destroy()
-      } catch (e) {
-        // ignore
+    // 通配符监听器
+    const wildcardList = this.listeners.get('*')
+    if (wildcardList) {
+      for (const cb of wildcardList) {
+        try {
+          cb(event)
+        } catch (e) {
+          // ignore
+        }
       }
-      this.request = null
     }
-    this.emit('closed', new ServerEvent())
-  }
-
-  /**
-   * 手动重连
-   */
-  reconnect(): void {
-    this.close()
-    this.buffer = ''
-    this.doConnect()
-  }
-
-  private scheduleReconnect(): void {
-    this.clearReconnect()
-    this.reconnectTimer = setTimeout(() => {
-      this.buffer = ''
-      this.doConnect()
-    }, this.reconnectDelay)
-    // 指数退避
-    this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxReconnectDelay)
-  }
-
-  private clearReconnect(): void {
-    if (this.reconnectTimer !== -1) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = -1
-    }
-  }
-
-  isConnected(): boolean {
-    return this.connected
   }
 }
 

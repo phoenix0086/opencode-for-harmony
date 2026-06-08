@@ -93,9 +93,7 @@ export struct ChatAgentPage {
   connectEventStream(): void {
     if (this.activeRunner === null) return
     const client = new OpenCodeClient(this.activeRunner!)
-    const url = client.getEventStreamUrl()
-    const headers = client.getAuthHeaders()
-    this.eventClient = new EventStreamClient(url, headers)
+    this.eventClient = new EventStreamClient(client, this.sessionId)
 
     // 监听 LLM 流式输出
     this.eventClient.on(EventTypes.SESSION_LLM_DELTA, (event: ServerEvent) => {

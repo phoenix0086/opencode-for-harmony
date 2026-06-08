@@ -176,39 +176,39 @@ export class AgentInfo {
 }
 
 /** 事件类型常量 */
-export const EventTypes = {
+export class EventTypes {
   // Server
-  SERVER_CONNECTED: 'server.connected',
-  SERVER_HEARTBEAT: 'server.heartbeat',
-  SERVER_INSTANCE_DISPOSED: 'server.instance.disposed',
+  static readonly SERVER_CONNECTED: string = 'server.connected'
+  static readonly SERVER_HEARTBEAT: string = 'server.heartbeat'
+  static readonly SERVER_INSTANCE_DISPOSED: string = 'server.instance.disposed'
 
   // Session
-  SESSION_CREATED: 'session.created',
-  SESSION_UPDATED: 'session.updated',
-  SESSION_DELETED: 'session.deleted',
-  SESSION_MESSAGE_UPDATED: 'session.message.updated',
-  SESSION_PART_UPDATED: 'session.part.updated',
-  SESSION_PROMPTED: 'session.prompted',
-  SESSION_RUN_STARTED: 'session.run.started',
-  SESSION_RUN_ENDED: 'session.run.ended',
-  SESSION_LLM_STARTED: 'session.llm.started',
-  SESSION_LLM_ENDED: 'session.llm.ended',
-  SESSION_LLM_DELTA: 'session.llm.delta',
-  SESSION_TOOL_STARTED: 'session.tool.started',
-  SESSION_TOOL_ENDED: 'session.tool.ended',
-  SESSION_TOOL_CALLED: 'session.tool.called',
-  SESSION_TOOL_SUCCESS: 'session.tool.success',
-  SESSION_TOOL_FAILED: 'session.tool.failed',
-  SESSION_DIFF: 'session.diff',
-  SESSION_ERROR: 'session.error',
-  SESSION_IDLE: 'session.idle',
-  SESSION_STATUS: 'session.status',
+  static readonly SESSION_CREATED: string = 'session.created'
+  static readonly SESSION_UPDATED: string = 'session.updated'
+  static readonly SESSION_DELETED: string = 'session.deleted'
+  static readonly SESSION_MESSAGE_UPDATED: string = 'session.message.updated'
+  static readonly SESSION_PART_UPDATED: string = 'session.part.updated'
+  static readonly SESSION_PROMPTED: string = 'session.prompted'
+  static readonly SESSION_RUN_STARTED: string = 'session.run.started'
+  static readonly SESSION_RUN_ENDED: string = 'session.run.ended'
+  static readonly SESSION_LLM_STARTED: string = 'session.llm.started'
+  static readonly SESSION_LLM_ENDED: string = 'session.llm.ended'
+  static readonly SESSION_LLM_DELTA: string = 'session.llm.delta'
+  static readonly SESSION_TOOL_STARTED: string = 'session.tool.started'
+  static readonly SESSION_TOOL_ENDED: string = 'session.tool.ended'
+  static readonly SESSION_TOOL_CALLED: string = 'session.tool.called'
+  static readonly SESSION_TOOL_SUCCESS: string = 'session.tool.success'
+  static readonly SESSION_TOOL_FAILED: string = 'session.tool.failed'
+  static readonly SESSION_DIFF: string = 'session.diff'
+  static readonly SESSION_ERROR: string = 'session.error'
+  static readonly SESSION_IDLE: string = 'session.idle'
+  static readonly SESSION_STATUS: string = 'session.status'
 
   // Permission
-  PERMISSION_ASKED: 'permission.asked',
-  PERMISSION_REPLIED: 'permission.replied',
+  static readonly PERMISSION_ASKED: string = 'permission.asked'
+  static readonly PERMISSION_REPLIED: string = 'permission.replied'
 
   // Auth
-  AUTH_ADDED: 'auth.added',
-  AUTH_REMOVED: 'auth.removed',
+  static readonly AUTH_ADDED: string = 'auth.added'
+  static readonly AUTH_REMOVED: string = 'auth.removed'
 }

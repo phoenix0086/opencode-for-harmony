@@ -33,8 +33,8 @@ export class OpenCodeClient {
       return ''
     }
     // Basic auth: base64(username:password)
-    const encoder = new TextEncoder()
-    const data = encoder.encode(`${this.username}:${this.password}`)
+    const encoder = new util.TextEncoder()
+    const data = encoder.encodeInto(`${this.username}:${this.password}`)
     // ArkTS 环境下使用简化的 base64 编码
     const base64Helper = new util.Base64Helper()
     const encoded = base64Helper.encodeToStringSync(data)
@@ -42,14 +42,13 @@ export class OpenCodeClient {
   }
 
   private buildHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
+    const headers: Record<string, string> = {}
+    headers['Content-Type'] = 'application/json'
     const auth = this.buildAuthHeader()
-    if (auth) {
+    if (auth.length > 0) {
       headers['Authorization'] = auth
     }
-    if (this.directory) {
+    if (this.directory.length > 0) {
       headers['x-opencode-directory'] = this.directory
     }
     return headers
@@ -86,7 +85,22 @@ export class OpenCodeClient {
   }
 
   private async doPatch(path: string, body?: string): Promise<http.HttpResponse> {
-    return this.doRequest(`${this.baseUrl}${path}`, http.RequestMethod.PATCH, body)
+    // ArkTS HTTP 枚举不包含 PATCH，使用 POST + X-HTTP-Method-Override
+    const headers = this.buildHeaders()
+    headers['X-HTTP-Method-Override'] = 'PATCH'
+    const req = http.createHttp()
+    const options: http.HttpRequestOptions = {
+      method: http.RequestMethod.POST,
+      header: headers,
+      connectTimeout: 10000,
+      readTimeout: 60000,
+    }
+    if (body) {
+      options.extraData = body
+    }
+    const resp = await req.request(`${this.baseUrl}${path}`, options)
+    req.destroy()
+    return resp
   }
 
   private async doDelete(path: string): Promise<http.HttpResponse> {
@@ -103,12 +117,21 @@ export class OpenCodeClient {
     try {
       const resp = await this.doGet('/global/health')
       if (resp.responseCode !== 200) {
-        return { ok: false, version: '', error: `HTTP ${resp.responseCode}` }
+        const r = new HealthResult()
+        r.ok = false
+        r.error = `HTTP ${resp.responseCode}`
+        return r
       }
       const data = JSON.parse(resp.result as string) as HealthInfo
-      return { ok: true, version: data.version, error: '' }
+      const r = new HealthResult()
+      r.ok = true
+      r.version = data.version
+      return r
     } catch (e) {
-      return { ok: false, version: '', error: String(e) }
+      const r = new HealthResult()
+      r.ok = false
+      r.error = String(e)
+      return r
     }
   }
 
@@ -145,11 +168,13 @@ export class OpenCodeClient {
   // ══════════ Auth ══════════
 
   async setAuth(providerID: string, apiKey: string): Promise<boolean> {
-    const body = JSON.stringify({ type: 'api', key: apiKey })
+    const authBody = new AuthBody()
+    authBody.type = 'api'
+    authBody.key = apiKey
     const resp = await this.doRequest(
       `${this.baseUrl}/auth/${providerID}`,
       http.RequestMethod.PUT,
-      body
+      JSON.stringify(authBody)
     )
     return resp.responseCode === 200
   }
@@ -213,17 +238,29 @@ export class OpenCodeClient {
   }
 
   async sendMessage(sessionID: string, content: string, parts?: MessagePart[]): Promise<Object> {
-    const body: Record<string, Object> = {
-      parts: parts || [{ type: 'text', text: content }],
+    const body = new SendMessageBody()
+    if (parts) {
+      body.parts = parts
+    } else {
+      const textPart = new MessagePart()
+      textPart.type = 'text'
+      textPart.content = content
+      const partsArr: MessagePart[] = []
+      partsArr.push(textPart)
+      body.parts = partsArr
     }
     const resp = await this.doPost(`/session/${sessionID}/message`, JSON.stringify(body))
     return this.parseJson<Object>(resp)
   }
 
   async sendMessageAsync(sessionID: string, content: string): Promise<boolean> {
-    const body: Record<string, Object> = {
-      parts: [{ type: 'text', text: content }],
-    }
+    const body = new SendMessageBody()
+    const textPart = new MessagePart()
+    textPart.type = 'text'
+    textPart.content = content
+    const partsArr: MessagePart[] = []
+    partsArr.push(textPart)
+    body.parts = partsArr
     const resp = await this.doPost(`/session/${sessionID}/prompt_async`, JSON.stringify(body))
     return resp.responseCode === 202 || resp.responseCode === 200
   }
@@ -236,9 +273,10 @@ export class OpenCodeClient {
   }
 
   async replyPermission(requestID: string, reply: string, message?: string): Promise<boolean> {
-    const body: Record<string, Object> = { reply: reply }
+    const body = new PermissionReplyBody()
+    body.reply = reply
     if (message) {
-      body['message'] = message
+      body.message = message
     }
     const resp = await this.doPost(`/permission/${requestID}/reply`, JSON.stringify(body))
     return resp.responseCode === 200
@@ -313,4 +351,18 @@ export class HealthResult {
   ok: boolean = false
   version: string = ''
   error: string = ''
+}
+
+class AuthBody {
+  type: string = ''
+  key: string = ''
+}
+
+class SendMessageBody {
+  parts: MessagePart[] = []
+}
+
+class PermissionReplyBody {
+  reply: string = ''
+  message: string = ''
 }
