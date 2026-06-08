@@ -115,6 +115,13 @@ struct Index {
     this.isInitialized = true
   }
 
+  async activateRunnerFromUi(runner: Runner): Promise<void> {
+    this.activeRunner = runner
+    this.serverUrl = `${runner.protocol}://${runner.host}:${runner.port}`
+    this.addLog(`runner.activated ${this.serverUrl}`, 'info', 'server')
+    await this.testConnection()
+  }
+
   async testConnection(): Promise<void> {
     const client = this.getClient()
     if (client === null) return
@@ -865,6 +872,9 @@ struct Index {
             ToastManager.show('reconnecting...', 'info')
           }
           this.testConnection()
+        },
+        onRunnerActivated: (runner: Runner) => {
+          this.activateRunnerFromUi(runner)
         }
       })
     }

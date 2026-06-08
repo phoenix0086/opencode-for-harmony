@@ -19,6 +19,7 @@ import { ToastContainer, ToastData, ToastManager } from './ToastNotification'
 import { StatusPopover } from './StatusPopover'
 import { DirectoryPicker, ProjectEntry } from './DirectoryPicker'
 import { OpenCodeHomeLaunch } from './home/OpenCodeHomeLaunch'
+import { ServerSettingsPage } from '../pages/ServerSettingsPage'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -66,6 +67,7 @@ export struct AppShell {
   onCloseTab: (id: string) => void = () => {}
   onNewTab: () => void = () => {}
   onReconnect: () => void = () => {}
+  onRunnerActivated: (runner: Runner) => void = () => {}
   @State showContextMenu: boolean = false
   @State contextMenuSessionId: string = ''
   @State contextMenuX: number = 0
@@ -253,6 +255,17 @@ export struct AppShell {
             ModelSettingsPage({
               activeRunner: this.activeRunner,
               isConnected: this.isConnected
+            })
+          } else if (this.activeActivity === 'server') {
+            ServerSettingsPage({
+              activeRunner: this.activeRunner,
+              isConnected: this.isConnected,
+              onRunnerActivated: (runner: Runner) => {
+                this.onRunnerActivated(runner)
+              },
+              onReconnect: () => {
+                this.onReconnect()
+              }
             })
           } else if (this.activeActivity === 'files') {
             FilePanel({

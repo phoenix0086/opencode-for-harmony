@@ -42,6 +42,11 @@ export struct LeftActivityBar {
     provider.label = 'Provider'
     provider.symbol = 'P'
 
+    const server = new ActivityItem()
+    server.id = 'server'
+    server.label = 'Server'
+    server.symbol = 'S'
+
     const settings = new ActivityItem()
     settings.id = 'settings'
     settings.label = 'Settings'
@@ -52,6 +57,7 @@ export struct LeftActivityBar {
     arr.push(files)
     arr.push(diff)
     arr.push(provider)
+    arr.push(server)
     arr.push(settings)
     this.items = arr
   }
