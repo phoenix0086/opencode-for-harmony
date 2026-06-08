@@ -10,7 +10,8 @@ import { ToolTimelinePanel, ToolTimelineEntry } from './ToolTimelinePanel'
 import { DiffPanel } from './DiffPanel'
 import { FilePanel } from './FilePanel'
 import { LogsPanel } from './LogsPanel'
-import { ProviderPage } from '../pages/ProviderPage'
+import { ProviderSettingsPage } from '../pages/ProviderSettingsPage'
+import { ModelSettingsPage } from '../pages/ModelSettingsPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { SessionTabs, SessionTab } from './SessionTabs'
 import { SessionContextMenu } from './SessionContextMenu'
@@ -188,7 +189,16 @@ export struct AppShell {
               sessionTitle: this.sessionTitle
             })
           } else if (this.activeActivity === 'provider') {
-            ProviderPage({ activeRunner: this.activeRunner })
+            ProviderSettingsPage({
+              activeRunner: this.activeRunner,
+              onOpenModels: () => {
+                this.activeActivity = 'models'
+              }
+            })
+          } else if (this.activeActivity === 'models') {
+            ModelSettingsPage({
+              activeRunner: this.activeRunner
+            })
           } else if (this.activeActivity === 'files') {
             FilePanel({
               projectName: this.projectName,
