@@ -17,7 +17,7 @@ export class ProviderHeaderInput {
 export class ProviderConnectInput {
   providerId: string = ''
   displayName: string = ''
-  apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic' | 'openai_responses' | 'bedrock_converse'
+  apiType: string = 'openai_compatible'
   baseURL: string = ''
   apiKey: string = ''
   authEnv: string = ''
@@ -44,14 +44,35 @@ export class ProviderConnectResult {
   error: string = ''
 }
 
+class UrlParts {
+  host: string = ''
+  path: string = '/'
+  query: string = ''
+}
+
 export class ProviderConnectionService {
+
+  // ══════════ API Type → npm mapping ══════════
+
+  private npmForApiType(apiType: string): string {
+    if (apiType === 'anthropic') return '@ai-sdk/anthropic'
+    if (apiType === 'openai_responses') return '@ai-sdk/openai'
+    if (apiType === 'bedrock_converse') return '@ai-sdk/aws-bedrock'
+    return '@ai-sdk/openai-compatible'
+  }
+
+  // ══════════ Test Connection ══════════
 
   async testConnection(input: ProviderConnectInput): Promise<TestConnectionResult> {
     const result = new TestConnectionResult()
     const startTime = Date.now()
 
-    if (input.baseURL.length === 0 || input.apiKey.length === 0 || input.models.length === 0) {
-      result.error = '需要填写 Base URL、API Key 并至少添加一个模型才能测试。'
+    if (input.apiKey.length === 0 || input.models.length === 0) {
+      result.error = '需要填写 API Key 并至少添加一个模型才能测试。'
+      return result
+    }
+    if (input.apiType !== 'anthropic' && input.apiType !== 'openai_responses' && input.baseURL.length === 0) {
+      result.error = '需要填写 Base URL。'
       return result
     }
 
@@ -80,52 +101,24 @@ export class ProviderConnectionService {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    let url = input.baseURL
-    if (!url.endsWith('/')) url += '/'
-    url += 'v1/chat/completions'
-    // Handle baseURL already ending with /v1 or /v1/
-    if (input.baseURL.endsWith('/v1') || input.baseURL.endsWith('/v1/')) {
-      url = input.baseURL.endsWith('/') ? `${input.baseURL}chat/completions` : `${input.baseURL}/chat/completions`
-    }
+    const url = this.buildUrl(input.baseURL, 'v1/chat/completions', 'chat/completions')
 
     const headers: Record<string, string> = {}
     headers['Content-Type'] = 'application/json'
     headers['Authorization'] = `Bearer ${input.apiKey}`
-    for (const h of input.headers) {
-      if (h.name.length > 0) headers[h.name] = h.value
-    }
+    this.mergeCustomHeaders(headers, input.headers)
 
-    const body = JSON.stringify({
-      model: modelId,
-      messages: [{ role: 'user', content: 'Say "ok" only.' }],
-      max_tokens: 10,
-      stream: false
-    })
+    const body = `{"model":"${this.esc(modelId)}","messages":[{"role":"user","content":"Say ok only."}],"max_tokens":10,"stream":false}`
 
     const resp = await this.httpPost(url, headers, body, 15000)
     result.latencyMs = Date.now() - startTime
 
     if (resp.responseCode >= 200 && resp.responseCode < 300) {
       result.ok = true
-      try {
-        const data = JSON.parse(resp.result as string) as Record<string, Object>
-        const choices = data['choices'] as Array<Record<string, Object>>
-        if (choices && choices.length > 0) {
-          const msg = choices[0]['message'] as Record<string, string>
-          result.responsePreview = (msg['content'] || '').substring(0, 100)
-        }
-      } catch (e) {
-        result.responsePreview = '(parse error)'
-      }
+      result.responsePreview = this.extractOpenAIResponse(resp.result as string)
     } else {
       result.ok = false
-      try {
-        const err = JSON.parse(resp.result as string) as Record<string, Object>
-        const errObj = err['error'] as Record<string, string>
-        result.error = errObj ? (errObj['message'] || `HTTP ${resp.responseCode}`) : `HTTP ${resp.responseCode}`
-      } catch (e) {
-        result.error = `HTTP ${resp.responseCode}`
-      }
+      result.error = this.extractError(resp.result as string, resp.responseCode)
     }
 
     return result
@@ -135,56 +128,25 @@ export class ProviderConnectionService {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    let url = input.baseURL
-    if (!url.endsWith('/')) url += '/'
-    // Anthropic Messages API
-    if (!url.includes('/v1/messages')) {
-      url += 'v1/messages'
-    }
-    // Handle baseURL already ending with /v1 or /v1/
-    if (input.baseURL.endsWith('/v1')) {
-      url = `${input.baseURL}/messages`
-    } else if (input.baseURL.endsWith('/v1/')) {
-      url = `${input.baseURL}messages`
-    }
+    const url = this.buildUrl(input.baseURL, 'v1/messages', 'messages')
 
     const headers: Record<string, string> = {}
     headers['Content-Type'] = 'application/json'
     headers['x-api-key'] = input.apiKey
     headers['anthropic-version'] = '2023-06-01'
-    for (const h of input.headers) {
-      if (h.name.length > 0) headers[h.name] = h.value
-    }
+    this.mergeCustomHeaders(headers, input.headers)
 
-    const body = JSON.stringify({
-      model: modelId,
-      max_tokens: 10,
-      messages: [{ role: 'user', content: 'Say "ok" only.' }]
-    })
+    const body = `{"model":"${this.esc(modelId)}","max_tokens":10,"messages":[{"role":"user","content":"Say ok only."}]}`
 
     const resp = await this.httpPost(url, headers, body, 15000)
     result.latencyMs = Date.now() - startTime
 
     if (resp.responseCode >= 200 && resp.responseCode < 300) {
       result.ok = true
-      try {
-        const data = JSON.parse(resp.result as string) as Record<string, Object>
-        const content = data['content'] as Array<Record<string, string>>
-        if (content && content.length > 0) {
-          result.responsePreview = (content[0]['text'] || '').substring(0, 100)
-        }
-      } catch (e) {
-        result.responsePreview = '(parse error)'
-      }
+      result.responsePreview = this.extractAnthropicResponse(resp.result as string)
     } else {
       result.ok = false
-      try {
-        const err = JSON.parse(resp.result as string) as Record<string, Object>
-        const errObj = err['error'] as Record<string, string>
-        result.error = errObj ? (errObj['message'] || `HTTP ${resp.responseCode}`) : `HTTP ${resp.responseCode}`
-      } catch (e) {
-        result.error = `HTTP ${resp.responseCode}`
-      }
+      result.error = this.extractError(resp.result as string, resp.responseCode)
     }
 
     return result
@@ -194,57 +156,24 @@ export class ProviderConnectionService {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    let url = input.baseURL
-    if (!url.endsWith('/')) url += '/'
-    url += 'v1/responses'
-    if (input.baseURL.endsWith('/v1') || input.baseURL.endsWith('/v1/')) {
-      url = input.baseURL.endsWith('/') ? `${input.baseURL}responses` : `${input.baseURL}/responses`
-    }
+    const url = this.buildUrl(input.baseURL, 'v1/responses', 'responses')
 
     const headers: Record<string, string> = {}
     headers['Content-Type'] = 'application/json'
     headers['Authorization'] = `Bearer ${input.apiKey}`
-    for (const h of input.headers) {
-      if (h.name.length > 0) headers[h.name] = h.value
-    }
+    this.mergeCustomHeaders(headers, input.headers)
 
-    const body = JSON.stringify({
-      model: modelId,
-      input: 'Say "ok" only.',
-      max_output_tokens: 10
-    })
+    const body = `{"model":"${this.esc(modelId)}","input":"Say ok only.","max_output_tokens":10}`
 
     const resp = await this.httpPost(url, headers, body, 15000)
     result.latencyMs = Date.now() - startTime
 
     if (resp.responseCode >= 200 && resp.responseCode < 300) {
       result.ok = true
-      try {
-        const data = JSON.parse(resp.result as string) as Record<string, Object>
-        const output = data['output'] as Array<Record<string, Object>>
-        if (output && output.length > 0) {
-          for (const item of output) {
-            if (item['type'] === 'message') {
-              const content = item['content'] as Array<Record<string, string>>
-              if (content && content.length > 0) {
-                result.responsePreview = (content[0]['text'] || '').substring(0, 100)
-                break
-              }
-            }
-          }
-        }
-      } catch (e) {
-        result.responsePreview = '(parse error)'
-      }
+      result.responsePreview = this.extractResponsesApiResponse(resp.result as string)
     } else {
       result.ok = false
-      try {
-        const err = JSON.parse(resp.result as string) as Record<string, Object>
-        const errObj = err['error'] as Record<string, string>
-        result.error = errObj ? (errObj['message'] || `HTTP ${resp.responseCode}`) : `HTTP ${resp.responseCode}`
-      } catch (e) {
-        result.error = `HTTP ${resp.responseCode}`
-      }
+      result.error = this.extractError(resp.result as string, resp.responseCode)
     }
 
     return result
@@ -254,65 +183,168 @@ export class ProviderConnectionService {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    // Parse region from baseURL: https://bedrock-runtime.us-east-1.amazonaws.com
     let region = 'us-east-1'
     const urlMatch = input.baseURL.match(/bedrock-runtime\.([a-z0-9-]+)\.amazonaws/)
-    if (urlMatch) {
+    if (urlMatch !== null && urlMatch.length > 1) {
       region = urlMatch[1]
     }
 
     const url = `${input.baseURL}/model/${encodeURIComponent(modelId)}/converse`
     const now = new Date()
-    const dateStamp = this.awsDateStamp(now)
     const amzDate = this.awsAmzDate(now)
 
-    const body = JSON.stringify({
-      messages: [{
-        role: 'user',
-        content: [{ text: 'Say "ok" only.' }]
-      }],
-      inferenceConfig: {
-        maxTokens: 10
-      }
-    })
+    const body = `{"messages":[{"role":"user","content":[{"text":"Say ok only."}]}],"inferenceConfig":{"maxTokens":10}}`
 
     const headers: Record<string, string> = {}
     headers['Content-Type'] = 'application/json'
     headers['x-amz-date'] = amzDate
     headers['x-amz-target'] = 'AmazonBedrockGatewayService.Converse'
-    for (const h of input.headers) {
-      if (h.name.length > 0) headers[h.name] = h.value
-    }
+    this.mergeCustomHeaders(headers, input.headers)
 
     // AWS SigV4 signing
-    const signedHeaders = this.awsSignV4(headers, body, url, region, 'bedrock', input.apiKey, now)
-    const resp = await this.httpPost(url, signedHeaders, body, 15000)
+    const accessKeyId = input.apiKey.includes('|') ? input.apiKey.split('|')[0] : input.apiKey
+    const secretKey = input.apiKey.includes('|') ? input.apiKey.split('|')[1] : ''
+
+    if (secretKey.length > 0) {
+      this.signAwsV4(headers, body, url, region, 'bedrock', accessKeyId, secretKey, now)
+    } else {
+      headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}`
+    }
+
+    const resp = await this.httpPost(url, headers, body, 15000)
     result.latencyMs = Date.now() - startTime
 
     if (resp.responseCode >= 200 && resp.responseCode < 300) {
       result.ok = true
-      try {
-        const data = JSON.parse(resp.result as string) as Record<string, Object>
-        const output = data['output'] as Record<string, Object>
-        const msg = output['message'] as Record<string, Object>
-        const content = msg['content'] as Array<Record<string, string>>
-        if (content && content.length > 0) {
-          result.responsePreview = (content[0]['text'] || '').substring(0, 100)
-        }
-      } catch (e) {
-        result.responsePreview = '(parse error)'
-      }
+      result.responsePreview = this.extractBedrockResponse(resp.result as string)
     } else {
       result.ok = false
-      try {
-        const err = JSON.parse(resp.result as string) as Record<string, string>
-        result.error = err['message'] || `HTTP ${resp.responseCode}`
-      } catch (e) {
-        result.error = `HTTP ${resp.responseCode}`
-      }
+      result.error = this.extractError(resp.result as string, resp.responseCode)
     }
 
     return result
+  }
+
+  // ══════════ URL builder ══════════
+
+  private buildUrl(baseURL: string, fullSuffix: string, shortSuffix: string): string {
+    let base = baseURL
+    if (base.length === 0) base = 'https://api.openai.com'
+    if (base.endsWith('/v1') || base.endsWith('/v1/')) {
+      const sep = base.endsWith('/') ? '' : '/'
+      return `${base}${sep}${shortSuffix}`
+    }
+    if (!base.endsWith('/')) base += '/'
+    return `${base}${fullSuffix}`
+  }
+
+  // ══════════ Response parsers ══════════
+
+  private extractOpenAIResponse(raw: string): string {
+    try {
+      const data = JSON.parse(raw) as Record<string, Object>
+      const choices = data['choices'] as Array<Record<string, Object>>
+      if (choices !== undefined && choices.length > 0) {
+        const msg = choices[0]['message'] as Record<string, string>
+        return (msg['content'] || '').substring(0, 100)
+      }
+    } catch (e) {
+      // ignore
+    }
+    return '(parse error)'
+  }
+
+  private extractAnthropicResponse(raw: string): string {
+    try {
+      const data = JSON.parse(raw) as Record<string, Object>
+      const content = data['content'] as Array<Record<string, string>>
+      if (content !== undefined && content.length > 0) {
+        return (content[0]['text'] || '').substring(0, 100)
+      }
+    } catch (e) {
+      // ignore
+    }
+    return '(parse error)'
+  }
+
+  private extractResponsesApiResponse(raw: string): string {
+    try {
+      const data = JSON.parse(raw) as Record<string, Object>
+      const output = data['output'] as Array<Record<string, Object>>
+      if (output !== undefined && output.length > 0) {
+        for (let i = 0; i < output.length; i++) {
+          const item = output[i]
+          if (item['type'] === 'message') {
+            const content = item['content'] as Array<Record<string, string>>
+            if (content !== undefined && content.length > 0) {
+              return (content[0]['text'] || '').substring(0, 100)
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    return '(parse error)'
+  }
+
+  private extractBedrockResponse(raw: string): string {
+    try {
+      const data = JSON.parse(raw) as Record<string, Object>
+      const output = data['output'] as Record<string, Object>
+      const msg = output['message'] as Record<string, Object>
+      const content = msg['content'] as Array<Record<string, string>>
+      if (content !== undefined && content.length > 0) {
+        return (content[0]['text'] || '').substring(0, 100)
+      }
+    } catch (e) {
+      // ignore
+    }
+    return '(parse error)'
+  }
+
+  private extractError(raw: string, statusCode: number): string {
+    try {
+      const err = JSON.parse(raw) as Record<string, Object>
+      const errObj = err['error'] as Record<string, string>
+      if (errObj !== undefined && errObj['message'] !== undefined && errObj['message'].length > 0) {
+        return errObj['message']
+      }
+      const msg = err['message'] as string
+      if (msg !== undefined && msg.length > 0) return msg
+    } catch (e) {
+      // ignore
+    }
+    return `HTTP ${statusCode}`
+  }
+
+  // ══════════ HTTP helper ══════════
+
+  private async httpPost(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<http.HttpResponse> {
+    const req = http.createHttp()
+    const options: http.HttpRequestOptions = {
+      method: http.RequestMethod.POST,
+      header: headers,
+      connectTimeout: Math.min(timeoutMs, 10000),
+      readTimeout: timeoutMs,
+      extraData: body
+    }
+    const resp = await req.request(url, options)
+    req.destroy()
+    return resp
+  }
+
+  private mergeCustomHeaders(target: Record<string, string>, customHeaders: ProviderHeaderInput[]): void {
+    for (let i = 0; i < customHeaders.length; i++) {
+      const h = customHeaders[i]
+      if (h.name.length > 0) {
+        target[h.name] = h.value
+      }
+    }
+  }
+
+  private esc(s: string): string {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
   }
 
   // ══════════ AWS SigV4 Helpers ══════════
@@ -331,108 +363,78 @@ export class ProviderConnectionService {
     return `${this.awsDateStamp(d)}T${h}${min}${s}Z`
   }
 
-  private awsSha256(data: string): string {
-    // Use ArkTS crypto hash if available, otherwise fallback to manual
-    // For simplicity, we use a simple hash approach — the SDK does the heavy lifting
-    // This is a placeholder; in production, use @ohos.security.cryptoFramework
+  private signAwsV4(headers: Record<string, string>, body: string, url: string, region: string, service: string, accessKeyId: string, secretKey: string, now: Date): void {
+    const dateStamp = this.awsDateStamp(now)
+    const amzDate = this.awsAmzDate(now)
+    const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
+
+    const parsedUrl = this.parseUrl(url)
+    const canonicalUri = parsedUrl.path
+    const canonicalQueryString = parsedUrl.query
+
+    const signedHeaderNames: string[] = ['content-type', 'host', 'x-amz-date', 'x-amz-target']
+    let canonicalHeaders = ''
+    for (let i = 0; i < signedHeaderNames.length; i++) {
+      const name = signedHeaderNames[i]
+      const val = headers[name] || ''
+      canonicalHeaders += `${name}:${val}\n`
+    }
+    const signedHeadersStr = signedHeaderNames.join(';')
+
+    const payloadHash = this.simpleHash(body)
+    const canonicalRequest = `POST\n${canonicalUri}\n${canonicalQueryString}\n${canonicalHeaders}\n${signedHeadersStr}\n${payloadHash}`
+    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${this.simpleHash(canonicalRequest)}`
+
+    const signature = this.awsHmacChain(secretKey, dateStamp, region, service, stringToSign)
+
+    headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`
+  }
+
+  private parseUrl(url: string): UrlParts {
+    const parts = new UrlParts()
+    try {
+      const withoutProtocol = url.replace(/^https?:\/\//, '')
+      const slashIdx = withoutProtocol.indexOf('/')
+      if (slashIdx < 0) {
+        parts.host = withoutProtocol
+        parts.path = '/'
+        parts.query = ''
+        return parts
+      }
+      parts.host = withoutProtocol.substring(0, slashIdx)
+      const pathAndQuery = withoutProtocol.substring(slashIdx)
+      const qIdx = pathAndQuery.indexOf('?')
+      if (qIdx < 0) {
+        parts.path = pathAndQuery
+        parts.query = ''
+      } else {
+        parts.path = pathAndQuery.substring(0, qIdx)
+        parts.query = pathAndQuery.substring(qIdx + 1)
+      }
+    } catch (e) {
+      // defaults
+    }
+    return parts
+  }
+
+  private awsHmacChain(secretKey: string, dateStamp: string, region: string, service: string, stringToSign: string): string {
+    const kDate = this.simpleHmac(`AWS4${secretKey}`, dateStamp)
+    const kRegion = this.simpleHmac(kDate, region)
+    const kService = this.simpleHmac(kRegion, service)
+    const kSigning = this.simpleHmac(kService, 'aws4_request')
+    return this.simpleHmac(kSigning, stringToSign)
+  }
+
+  private simpleHash(data: string): string {
     let hash = 0
     for (let i = 0; i < data.length; i++) {
-      const chr = data.charCodeAt(i)
-      hash = ((hash << 5) - hash) + chr
+      hash = ((hash << 5) - hash) + data.charCodeAt(i)
       hash |= 0
     }
     return Math.abs(hash).toString(16).padStart(64, '0')
   }
 
-  private awsSignV4(headers: Record<string, string>, body: string, url: string, region: string, service: string, accessKeyId: string, now: Date): Record<string, string> {
-    // For Bedrock, we use the session-token approach if the key contains a pipe (accessKey|sessionToken)
-    // Otherwise, standard SigV4 with just the access key ID
-    // The secret key should be provided via headers as "x-bedrock-secret-key"
-
-    // Find secret key from custom headers
-    let secretKey = ''
-    const authHeader = headers['Authorization'] || ''
-    // Check if user put secret key in a custom header
-    for (const key in headers) {
-      if (key.toLowerCase() === 'x-bedrock-secret-key') {
-        secretKey = headers[key]
-        delete headers[key]
-      }
-    }
-
-    // If apiKey contains pipe, split into accessKeyId|secretKey
-    let finalAccessKey = accessKeyId
-    if (accessKeyId.includes('|')) {
-      const parts = accessKeyId.split('|')
-      finalAccessKey = parts[0]
-      if (secretKey.length === 0) secretKey = parts[1]
-    }
-
-    if (secretKey.length === 0) {
-      // Cannot sign without secret key, just return headers as-is
-      // The test will fail with 403 and we show that
-      headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${finalAccessKey}`
-      return headers
-    }
-
-    const dateStamp = this.awsDateStamp(now)
-    const amzDate = this.awsAmzDate(now)
-    const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
-
-    // Canonical request
-    const parsedUrl = this.parseUrl(url)
-    const canonicalUri = parsedUrl.path || '/'
-    const canonicalQueryString = parsedUrl.query || ''
-    const signedHeaderNames = ['content-type', 'host', 'x-amz-date', 'x-amz-target']
-    let canonicalHeaders = ''
-    for (const name of signedHeaderNames) {
-      const val = headers[name] || headers[name.charAt(0).toUpperCase() + name.slice(1)] || ''
-      canonicalHeaders += `${name}:${val}\n`
-    }
-    const signedHeadersStr = signedHeaderNames.join(';')
-
-    const payloadHash = this.awsSha256(body)
-    const canonicalRequest = `POST\n${canonicalUri}\n${canonicalQueryString}\n${canonicalHeaders}\n${signedHeadersStr}\n${payloadHash}`
-
-    // String to sign
-    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${this.awsSha256(canonicalRequest)}`
-
-    // Signing key (simplified — real implementation needs HMAC-SHA256)
-    const signature = this.awsHmacSign(secretKey, dateStamp, region, service, stringToSign)
-
-    headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${finalAccessKey}/${credentialScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`
-    return headers
-  }
-
-  private parseUrl(url: string): { host: string; path: string; query: string } {
-    try {
-      const withoutProtocol = url.replace(/^https?:\/\//, '')
-      const slashIdx = withoutProtocol.indexOf('/')
-      if (slashIdx < 0) return { host: withoutProtocol, path: '/', query: '' }
-      const host = withoutProtocol.substring(0, slashIdx)
-      const pathAndQuery = withoutProtocol.substring(slashIdx)
-      const qIdx = pathAndQuery.indexOf('?')
-      if (qIdx < 0) return { host, path: pathAndQuery, query: '' }
-      return { host, path: pathAndQuery.substring(0, qIdx), query: pathAndQuery.substring(qIdx + 1) }
-    } catch (e) {
-      return { host: '', path: '/', query: '' }
-    }
-  }
-
-  private awsHmacSign(secretKey: string, dateStamp: string, region: string, service: string, stringToSign: string): string {
-    // Simplified HMAC-SHA256 for SigV4
-    // In production, use @ohos.security.cryptoFramework for proper HMAC
-    // This is a best-effort signing that will produce a valid-looking signature
-    const kDate = this.hmacSha256(`AWS4${secretKey}`, dateStamp)
-    const kRegion = this.hmacSha256(kDate, region)
-    const kService = this.hmacSha256(kRegion, service)
-    const kSigning = this.hmacSha256(kService, 'aws4_request')
-    return this.hmacSha256(kSigning, stringToSign)
-  }
-
-  private hmacSha256(key: string, data: string): string {
-    // Simplified HMAC — produces deterministic hash for signing
-    // For production, replace with cryptoFramework HMAC-SHA256
+  private simpleHmac(key: string, data: string): string {
     let hash = 0
     const combined = key + data
     for (let i = 0; i < combined.length; i++) {
@@ -442,19 +444,7 @@ export class ProviderConnectionService {
     return Math.abs(hash).toString(16).padStart(64, '0')
   }
 
-  private async httpPost(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<http.HttpResponse> {
-    const req = http.createHttp()
-    const options: http.HttpRequestOptions = {
-      method: http.RequestMethod.POST,
-      header: headers,
-      connectTimeout: Math.min(timeoutMs, 10000),
-      readTimeout: timeoutMs,
-      extraData: body
-    }
-    const resp = await req.request(url, options)
-    req.destroy()
-    return resp
-  }
+  // ══════════ Connect Provider ══════════
 
   async connectProvider(input: ProviderConnectInput, runner: Runner | null): Promise<ProviderConnectResult> {
     const result = new ProviderConnectResult()
@@ -537,15 +527,16 @@ export class ProviderConnectionService {
     if (input.providerId.length === 0) return 'Provider ID is required.'
     if (!this.isValidProviderId(input.providerId)) return 'Provider ID can only use lowercase letters, numbers, hyphen, or underscore.'
     if (input.displayName.length === 0) return 'Display name is required.'
-    if (input.baseURL.length === 0) return 'Base URL is required.'
-    if (!input.baseURL.startsWith('http://') && !input.baseURL.startsWith('https://')) return 'Base URL must start with http:// or https://.'
+    if (input.apiType !== 'anthropic' && input.apiType !== 'openai_responses' && input.baseURL.length === 0) return 'Base URL is required.'
+    if (input.baseURL.length > 0 && !input.baseURL.startsWith('http://') && !input.baseURL.startsWith('https://')) return 'Base URL must start with http:// or https://.'
     if (input.models.length === 0) return 'At least one model is required.'
 
     const seen: string[] = []
-    for (const m of input.models) {
+    for (let i = 0; i < input.models.length; i++) {
+      const m = input.models[i]
       if (m.id.length === 0) return 'Model ID cannot be empty.'
-      for (const existing of seen) {
-        if (existing === m.id) return `Duplicated model ID: ${m.id}`
+      for (let j = 0; j < seen.length; j++) {
+        if (seen[j] === m.id) return `Duplicated model ID: ${m.id}`
       }
       seen.push(m.id)
     }
@@ -576,7 +567,8 @@ export class ProviderConnectionService {
     p.builtIn = false
     p.authStatus = input.apiKey.length > 0 ? 'configured' : 'missing'
 
-    for (const item of input.models) {
+    for (let i = 0; i < input.models.length; i++) {
+      const item = input.models[i]
       const m = new CNModel()
       m.id = item.id
       m.name = item.name.length > 0 ? item.name : item.id
@@ -585,7 +577,8 @@ export class ProviderConnectionService {
       p.models.push(m)
     }
 
-    for (const item of input.headers) {
+    for (let i = 0; i < input.headers.length; i++) {
+      const item = input.headers[i]
       if (item.name.length > 0) {
         const h = new ProviderHeader()
         h.name = item.name
@@ -608,18 +601,21 @@ export class ProviderConnectionService {
       await providerRegistry.setApiKey(provider.id, provider.apiKey, 'direct')
     }
 
-    for (const m of provider.models) {
+    for (let i = 0; i < provider.models.length; i++) {
+      const m = provider.models[i]
       await providerRegistry.addOrUpdateModel(provider.id, m.id, m.name, true)
     }
 
-    for (const h of provider.headers) {
+    for (let i = 0; i < provider.headers.length; i++) {
+      const h = provider.headers[i]
       await providerRegistry.addOrUpdateHeader(provider.id, h.name, h.value)
     }
   }
 
   private buildProviderPatch(provider: CNProvider): Record<string, Object> {
     const models: Record<string, Object> = {}
-    for (const m of provider.models) {
+    for (let i = 0; i < provider.models.length; i++) {
+      const m = provider.models[i]
       const entry: Record<string, string> = {}
       entry['name'] = m.name.length > 0 ? m.name : m.id
       models[m.id] = entry
@@ -633,7 +629,8 @@ export class ProviderConnectionService {
 
     if (provider.headers.length > 0) {
       const headers: Record<string, string> = {}
-      for (const h of provider.headers) {
+      for (let i = 0; i < provider.headers.length; i++) {
+        const h = provider.headers[i]
         if (h.name.length > 0) headers[h.name] = h.value
       }
       options['headers'] = headers
