@@ -8,6 +8,10 @@ import { AgentTranscript, TranscriptBlock } from './AgentTranscript'
 import { ComposerBar } from './ComposerBar'
 import { ToolTimelinePanel, ToolTimelineEntry } from './ToolTimelinePanel'
 import { DiffPanel } from './DiffPanel'
+import { FilePanel } from './FilePanel'
+import { LogsPanel } from './LogsPanel'
+import { ProviderPage } from '../pages/ProviderPage'
+import { SettingsPage } from '../pages/SettingsPage'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -33,7 +37,9 @@ export struct AppShell {
   @Prop serverVersion: string = ''
   @Prop tokenCost: string = '0 tokens'
   @Prop isConnected: boolean = false
+  @Prop connectionStatus: string = 'disconnected'
   @Prop sessionTitle: string = ''
+  @Prop logEntries: string[] = []
 
   // ══════════ Callbacks ══════════
   onSelectSession: (id: string) => void = () => {}
@@ -44,7 +50,7 @@ export struct AppShell {
   onRejectPermission: (id: string) => void = () => {}
 
   @State showRightPanel: boolean = true
-  @State rightPanelTab: string = 'tools' // 'tools' | 'diff'
+  @State rightPanelTab: string = 'tools' // 'tools' | 'diff' | 'logs'
 
   build() {
     Column() {
@@ -64,6 +70,7 @@ export struct AppShell {
         // Left: Activity Bar
         LeftActivityBar({
           activeId: this.activeActivity,
+          connectionStatus: this.connectionStatus,
           onActivityChange: (id: string) => {
             this.activeActivity = id
           }
@@ -106,11 +113,15 @@ export struct AppShell {
               sessionTitle: this.sessionTitle
             })
           } else if (this.activeActivity === 'provider') {
-            this.PlaceholderPanel('PROVIDER', 'Manage CN provider settings')
+            ProviderPage({ activeRunner: this.activeRunner })
           } else if (this.activeActivity === 'files') {
-            this.PlaceholderPanel('FILES', 'Workspace file browser')
+            FilePanel({
+              projectName: this.projectName,
+              branchName: this.branchName,
+              activeRunner: this.activeRunner
+            })
           } else if (this.activeActivity === 'settings') {
-            this.PlaceholderPanel('SETTINGS', 'Application settings')
+            SettingsPage()
           }
 
           // Composer (always visible at bottom of center)
@@ -159,6 +170,16 @@ export struct AppShell {
                 .borderColor(this.rightPanelTab === 'diff' ? Theme.ACCENT : 'transparent')
                 .onClick(() => { this.rightPanelTab = 'diff' })
 
+              Text('logs')
+                .fontSize(Theme.fs.xs)
+                .fontColor(this.rightPanelTab === 'logs' ? Theme.ACCENT : Theme.TEXT_MUTED)
+                .fontFamily(Theme.FONT_MONO)
+                .fontWeight(this.rightPanelTab === 'logs' ? FontWeight.Bold : FontWeight.Normal)
+                .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
+                .borderWidth({ bottom: 2 })
+                .borderColor(this.rightPanelTab === 'logs' ? Theme.ACCENT : 'transparent')
+                .onClick(() => { this.rightPanelTab = 'logs' })
+
               Blank()
 
               Text('x')
@@ -177,10 +198,14 @@ export struct AppShell {
               ToolTimelinePanel({
                 entries: this.toolEntries
               })
-            } else {
+            } else if (this.rightPanelTab === 'diff') {
               DiffPanel({
                 diffs: this.diffs,
                 sessionTitle: this.sessionTitle
+              })
+            } else {
+              LogsPanel({
+                entries: this.logEntries
               })
             }
           }
@@ -259,24 +284,4 @@ export struct AppShell {
     .borderColor(Theme.BORDER)
   }
 
-  // ══════════ Placeholder Panel ══════════
-  @Builder
-  PlaceholderPanel(title: string, description: string) {
-    Column() {
-      Text(title)
-        .fontSize(Theme.fs.xs)
-        .fontColor(Theme.TEXT_MUTED)
-        .fontFamily(Theme.FONT_MONO)
-        .fontWeight(FontWeight.Bold)
-        .letterSpacing(1)
-      Text(description)
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_MUTED)
-        .fontFamily(Theme.FONT_MONO)
-        .margin({ top: Theme.sp.md })
-    }
-    .layoutWeight(1)
-    .width('100%')
-    .justifyContent(FlexAlign.Center)
-  }
 }

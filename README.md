@@ -43,31 +43,38 @@ LLM Providers (DeepSeek / Qwen / GLM / Kimi / ...)
 
 ```
 entry/src/main/ets/
+├── components/                    # IDE 布局组件 (M9)
+│   ├── Theme.ets                  # Catppuccin Mocha 深色主题 token 系统
+│   ├── AppShell.ets               # 三栏 IDE 布局容器
+│   ├── TopStatusBar.ets           # 顶部状态栏 (项目/分支/模型/Server)
+│   ├── LeftActivityBar.ets        # 左侧活动栏 (文字符号导航)
+│   ├── SessionSidebar.ets         # 会话侧边栏 (240px)
+│   ├── AgentTranscript.ets        # Agent 转录视图 (替代聊天气泡)
+│   ├── ComposerBar.ets            # 底部多行输入栏
+│   ├── ToolTimelinePanel.ets      # 右侧工具调用时间线
+│   ├── DiffPanel.ets              # 文件变更查看器
+│   ├── InlineApprovalBar.ets      # 内联权限审批
+│   ├── FilePanel.ets              # 工作区文件浏览器
+│   └── LogsPanel.ets              # 事件日志面板
 ├── models/
-│   ├── Runner.ets        # Server 连接模型
-│   ├── Session.ets       # 会话模型
-│   ├── Message.ets       # 消息模型
-│   ├── ToolCall.ets      # 工具调用模型
-│   ├── Approval.ets      # 审批模型
-│   ├── Project.ets       # 项目模型
-│   ├── Provider.ets      # CN Provider 模型 (NEW)
-│   └── Event.ets         # SSE 事件模型 (NEW)
+│   ├── Runner.ets                 # Server 连接模型
+│   ├── Provider.ets               # CN Provider 模型
+│   └── Event.ets                  # SSE 事件模型
 ├── services/
-│   ├── OpenCodeClient.ets      # 完整 API 客户端 (NEW)
-│   ├── EventStreamClient.ets   # SSE 事件流客户端 (NEW)
-│   ├── ProviderRegistry.ets    # Provider 注册表 (NEW)
-│   ├── RuntimeManager.ets      # Runtime 管理器 (NEW)
-│   ├── StorageService.ets      # 持久化服务 (UPDATED)
-│   └── ApiClient.ets           # 旧客户端 (DEPRECATED)
+│   ├── OpenCodeClient.ets         # 完整 API 客户端
+│   ├── EventStreamClient.ets      # SSE 事件流客户端 (轮询模式)
+│   ├── ProviderRegistry.ets       # Provider 注册表
+│   ├── RuntimeManager.ets         # Runtime 管理器
+│   └── StorageService.ets         # 持久化服务
 ├── pages/
-│   ├── Index.ets               # 主页面/导航中枢 (UPDATED)
-│   ├── WorkspacePage.ets       # 工作台 (NEW)
-│   ├── ServerConnectionPage.ets # 服务器管理 (NEW)
-│   ├── SessionPage.ets         # 会话列表 (NEW)
-│   ├── ChatAgentPage.ets       # AI 编程会话 (NEW)
-│   ├── DiffReviewPage.ets      # 代码变更 (NEW)
-│   ├── ProviderPage.ets        # Provider 配置 (NEW)
-│   └── SettingsPage.ets        # 设置 (NEW)
+│   ├── Index.ets                  # 主入口 / 全局状态管理
+│   ├── ProviderPage.ets           # Provider 配置 (深色主题)
+│   ├── SettingsPage.ets           # 设置 (深色主题)
+│   ├── ChatAgentPage.ets          # AI 编程会话 (简化)
+│   ├── ServerConnectionPage.ets   # 服务器管理
+│   ├── SessionPage.ets            # 会话列表
+│   ├── WorkspacePage.ets          # 工作台
+│   └── DiffReviewPage.ets         # 代码变更
 ├── entryability/
 │   └── EntryAbility.ets
 └── entrybackupability/
@@ -124,6 +131,8 @@ entry/src/main/ets/
 - [API 映射文档](docs/harmony-native/api-mapping.md) - OpenCode Server 完整 API 参考
 - [Provider 系统文档](docs/harmony-native/provider-system.md) - Provider 配置和模型系统
 - [Runtime 验证报告](docs/harmony-native/runtime-native-verification.md) - 进程管理能力评估
+- [UI Parity Checklist](docs/harmony-native/ui-parity-checklist.md) - IDE 布局重构检查清单
+- [Smoke Test Guide](docs/harmony-native/smoke-test.md) - 运行时联调测试手册
 - [平板 PRD](docs/opencode_harmony_tablet_prd.md) - 产品需求文档
 
 ## 开发阶段
@@ -139,6 +148,7 @@ entry/src/main/ets/
 | M6: Diff Viewer | ✅ | 文件变更列表、patch 查看 |
 | M7: RuntimeManager | ✅ | 连接检测、健康检查、启动指南 |
 | M8: 打包文档 | ✅ | README、API 文档、验证报告 |
+| M9: AppShell Wiring | ✅ | 三栏 IDE 联调、真实页面接入、深色主题统一 |
 
 ## 安全策略
 

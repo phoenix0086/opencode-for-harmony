@@ -38,6 +38,7 @@ struct Index {
   @State toolEntries: ToolTimelineEntry[] = []
   @State diffs: FileDiff[] = []
   @State isStreaming: boolean = false
+  @State logEntries: string[] = []
 
   // ══════════ Composer State ══════════
   @State inputText: string = ''
@@ -97,11 +98,13 @@ struct Index {
   async testConnection(): Promise<void> {
     if (this.activeRunner === null) return
     try {
+      this.addLog(`Connecting to ${this.activeRunner.host}:${this.activeRunner.port}...`)
       const client = new OpenCodeClient(this.activeRunner)
       const result = await client.health()
       this.isConnected = result.ok
       this.serverVersion = result.version
       this.serverUrl = `${this.activeRunner.host}:${this.activeRunner.port}`
+      this.addLog(result.ok ? `Connected (v${result.version})` : `Health check failed: ${result.error}`)
 
       if (result.ok) {
         // Load project info
@@ -159,13 +162,31 @@ struct Index {
       const client = new OpenCodeClient(this.activeRunner)
       const messages = await client.getMessages(this.activeSessionId)
       const blocks: TranscriptBlock[] = []
+      const toolMap: Map<string, ToolTimelineEntry> = new Map()
+
       for (const msg of messages) {
         const msgBlocks = this.convertMessage(msg)
         for (const b of msgBlocks) {
           blocks.push(b)
+          // Collect tool entries from tool-type blocks, dedup by toolId
+          if (b.type === 'tool' && b.toolId.length > 0) {
+            const entry = new ToolTimelineEntry()
+            entry.id = b.toolId
+            entry.toolName = b.toolName
+            entry.status = b.toolStatus
+            entry.input = b.toolInput
+            entry.step = b.toolStep
+            toolMap.set(b.toolId, entry)
+          }
         }
       }
+
       this.transcriptBlocks = blocks
+      const toolList: ToolTimelineEntry[] = []
+      toolMap.forEach((entry: ToolTimelineEntry) => {
+        toolList.push(entry)
+      })
+      this.toolEntries = toolList
     } catch (e) {
       // ignore
     }
@@ -219,11 +240,11 @@ struct Index {
         blocks.push(textBlock)
       }
 
-      // Add tool invocation blocks — FIX: each tool gets its own block
+      // Add tool invocation blocks — each tool gets its own block
+      // No side effects here — toolEntries are built in loadMessages
       for (const part of msg.parts) {
         if (part.type === 'tool-invocation') {
           const toolBlock = new TranscriptBlock()
-          // Use part.id as stable tool identifier (FIX: not msg.id prefix)
           toolBlock.id = `tool_${part.id}`
           toolBlock.type = 'tool'
           toolBlock.toolId = part.id
@@ -232,20 +253,6 @@ struct Index {
           toolBlock.toolInput = part.content
           toolBlock.toolStep = (part.metadata['step'] as number) || 0
           blocks.push(toolBlock)
-
-          // Also add to tool timeline panel
-          const entry = new ToolTimelineEntry()
-          entry.id = part.id
-          entry.toolName = toolBlock.toolName
-          entry.status = toolBlock.toolStatus
-          entry.input = part.content
-          entry.step = toolBlock.toolStep
-          const entries: ToolTimelineEntry[] = []
-          for (const e of this.toolEntries) {
-            entries.push(e)
-          }
-          entries.push(entry)
-          this.toolEntries = entries
         }
       }
     }
@@ -254,6 +261,24 @@ struct Index {
   }
 
   // ══════════ Event Stream ══════════
+
+  private addLog(msg: string): void {
+    const now = new Date()
+    const hh = String(now.getHours()).padStart(2, '0')
+    const mm = String(now.getMinutes()).padStart(2, '0')
+    const ss = String(now.getSeconds()).padStart(2, '0')
+    const entry = `${hh}:${mm}:${ss} ${msg}`
+    const list: string[] = []
+    for (const e of this.logEntries) {
+      list.push(e)
+    }
+    list.push(entry)
+    // Keep last 200 entries
+    while (list.length > 200) {
+      list.shift()
+    }
+    this.logEntries = list
+  }
 
   connectEventStream(): void {
     if (this.activeRunner === null) return
@@ -265,10 +290,12 @@ struct Index {
 
     const client = new OpenCodeClient(this.activeRunner)
     this.eventClient = new EventStreamClient(client, this.activeSessionId)
+    this.addLog('Event stream connecting...')
 
     // Listen for new messages
     this.eventClient.on(EventTypes.SESSION_MESSAGE_UPDATED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
+        this.addLog(`message.updated ${event.id}`)
         this.loadMessages()
       }
     })
@@ -280,30 +307,50 @@ struct Index {
       }
     })
 
+    this.eventClient.on(EventTypes.SESSION_LLM_STARTED, (event: ServerEvent) => {
+      if (event.properties['sessionID'] === this.activeSessionId) {
+        this.addLog('llm.started')
+      }
+    })
+
     this.eventClient.on(EventTypes.SESSION_LLM_ENDED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         this.isStreaming = false
         this.isSending = false
+        this.addLog('llm.ended')
       }
     })
 
     // Listen for tool calls
     this.eventClient.on(EventTypes.SESSION_TOOL_STARTED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
+        const tn = (event.properties['toolName'] as string) || ''
+        this.addLog(`tool.started ${tn}`)
         this.loadMessages()
       }
     })
 
     this.eventClient.on(EventTypes.SESSION_TOOL_SUCCESS, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
+        const tn = (event.properties['toolName'] as string) || ''
+        this.addLog(`tool.success ${tn}`)
         this.loadMessages()
         this.loadDiffs()
+      }
+    })
+
+    this.eventClient.on(EventTypes.SESSION_TOOL_FAILED, (event: ServerEvent) => {
+      if (event.properties['sessionID'] === this.activeSessionId) {
+        const tn = (event.properties['toolName'] as string) || ''
+        this.addLog(`tool.failed ${tn}`)
+        this.loadMessages()
       }
     })
 
     // Listen for permission requests
     this.eventClient.on(EventTypes.PERMISSION_ASKED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
+        this.addLog(`permission.asked ${(event.properties['permType'] as string) || ''}`)
         const block = new TranscriptBlock()
         block.id = event.id
         block.type = 'permission'
@@ -326,7 +373,18 @@ struct Index {
       if (event.properties['sessionID'] === this.activeSessionId) {
         this.isSending = false
         this.isStreaming = false
+        this.addLog('session.idle')
       }
+    })
+
+    // Listen for errors
+    this.eventClient.on('error', (event: ServerEvent) => {
+      const errMsg = (event.properties['message'] as string) || 'unknown error'
+      this.addLog(`error: ${errMsg}`)
+    })
+
+    this.eventClient.on('connected', (_event: ServerEvent) => {
+      this.addLog('Event stream connected')
     })
 
     this.eventClient.connect()
@@ -355,6 +413,7 @@ struct Index {
 
     try {
       const client = new OpenCodeClient(this.activeRunner)
+      this.addLog(`Sending message: ${text.substring(0, 40)}...`)
       await client.sendMessageAsync(this.activeSessionId, text)
     } catch (e) {
       this.isSending = false
@@ -474,6 +533,7 @@ struct Index {
         // Connection
         activeRunner: this.activeRunner,
         isConnected: this.isConnected,
+        connectionStatus: this.isConnected ? 'connected' : 'disconnected',
         serverUrl: this.serverUrl,
         serverVersion: this.serverVersion,
 
@@ -486,6 +546,7 @@ struct Index {
         toolEntries: this.toolEntries,
         diffs: this.diffs,
         isStreaming: this.isStreaming,
+        logEntries: this.logEntries,
 
         // Info
         projectName: this.projectName,

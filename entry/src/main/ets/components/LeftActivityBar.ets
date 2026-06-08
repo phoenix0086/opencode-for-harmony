@@ -14,6 +14,7 @@ class ActivityItem {
 @Component
 export struct LeftActivityBar {
   @Prop activeId: string = 'chat'
+  @Prop connectionStatus: string = 'disconnected' // 'connected' | 'disconnected' | 'connecting'
   onActivityChange: (id: string) => void = () => {}
 
   private items: ActivityItem[] = []
@@ -103,8 +104,8 @@ export struct LeftActivityBar {
       // Connection indicator at bottom
       Column() {
         Circle({ width: 6, height: 6 })
-          .fill(Theme.SUCCESS)
-        Text('conn')
+          .fill(this.getConnectionColor())
+        Text(this.getConnectionLabel())
           .fontSize(8)
           .fontColor(Theme.TEXT_MUTED)
           .margin({ top: 2 })
@@ -117,5 +118,17 @@ export struct LeftActivityBar {
     .alignItems(HorizontalAlign.Center)
     .borderWidth({ right: 1 })
     .borderColor(Theme.BORDER)
+  }
+
+  private getConnectionColor(): string {
+    if (this.connectionStatus === 'connected') return Theme.SUCCESS
+    if (this.connectionStatus === 'connecting') return Theme.WARNING
+    return Theme.DANGER
+  }
+
+  private getConnectionLabel(): string {
+    if (this.connectionStatus === 'connected') return 'online'
+    if (this.connectionStatus === 'connecting') return '...'
+    return 'offline'
   }
 }

@@ -1,8 +1,9 @@
 import { storageService, AppSettings } from '../services/StorageService'
 import { providerRegistry } from '../services/ProviderRegistry'
+import { Theme } from '../components/Theme'
 
 /**
- * 设置页面
+ * Settings Page (Dark Theme)
  * 应用设置：默认模型、审批策略、字号、主题等
  */
 @Component
@@ -17,63 +18,68 @@ export struct SettingsPage {
 
   build() {
     Column() {
-      Text('设置')
-        .fontSize(24)
+      Text('SETTINGS')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_MUTED)
+        .fontFamily(Theme.FONT_MONO)
         .fontWeight(FontWeight.Bold)
-        .fontColor('#1E293B')
-        .margin({ bottom: 24 })
+        .letterSpacing(1)
+        .padding({ left: Theme.sp.xl, top: Theme.sp.lg, bottom: Theme.sp.md })
 
       Scroll() {
         Column() {
-          // 基本信息
-          this.SectionHeader('关于')
+          // About
+          this.SectionHeader('ABOUT')
           Column() {
-            this.InfoRow('应用名称', 'OpenCode Harmony Native')
-            this.InfoRow('版本', 'v0.1.0')
-            this.InfoRow('阶段', '第一阶段 — 技术验证版')
-            this.InfoRow('运行时', 'HarmonyOS ArkTS')
+            this.InfoRow('app', 'OpenCode Harmony Native')
+            this.InfoRow('version', 'v0.1.0')
+            this.InfoRow('stage', 'phase 1 — tech preview')
+            this.InfoRow('runtime', 'HarmonyOS ArkTS')
           }
           .width('100%')
-          .padding(16)
-          .borderRadius(12)
-          .backgroundColor('#F8FAFC')
+          .padding(Theme.sp.xl)
+          .borderRadius(Theme.rd.lg)
+          .backgroundColor(Theme.SIDEBAR)
           .borderWidth(1)
-          .borderColor('#E2E8F0')
-          .margin({ bottom: 20 })
+          .borderColor(Theme.BORDER)
+          .margin({ bottom: Theme.sp.xxl })
 
-          // 显示设置
-          this.SectionHeader('显示')
+          // Display
+          this.SectionHeader('DISPLAY')
           Column() {
             Row() {
-              Text('字号')
-                .fontSize(14)
-                .fontColor('#334155')
+              Text('font size')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_SECONDARY)
+                .fontFamily(Theme.FONT_MONO)
                 .layoutWeight(1)
               Text(`${this.settings.fontSize}`)
-                .fontSize(14)
-                .fontColor('#64748B')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_MUTED)
+                .fontFamily(Theme.FONT_MONO)
               Slider({
                 value: this.settings.fontSize,
                 min: 10,
                 max: 22,
                 step: 1
               })
-                .width(150)
-                .margin({ left: 12 })
+                .width(120)
+                .margin({ left: Theme.sp.lg })
                 .onChange((value: number) => {
                   this.settings.fontSize = Math.round(value)
                 })
             }
             .width('100%')
-            .padding({ bottom: 12 })
+            .padding({ bottom: Theme.sp.lg })
 
             Row() {
-              Text('深色模式')
-                .fontSize(14)
-                .fontColor('#334155')
+              Text('dark mode')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_SECONDARY)
+                .fontFamily(Theme.FONT_MONO)
                 .layoutWeight(1)
               Toggle({ type: ToggleType.Switch, isOn: this.settings.darkMode })
-                .selectedColor('#4F46E5')
+                .selectedColor(Theme.ACCENT)
                 .onChange((isOn: boolean) => {
                   this.settings.darkMode = isOn
                 })
@@ -81,219 +87,248 @@ export struct SettingsPage {
             .width('100%')
           }
           .width('100%')
-          .padding(16)
-          .borderRadius(12)
-          .backgroundColor('#F8FAFC')
+          .padding(Theme.sp.xl)
+          .borderRadius(Theme.rd.lg)
+          .backgroundColor(Theme.SIDEBAR)
           .borderWidth(1)
-          .borderColor('#E2E8F0')
-          .margin({ bottom: 20 })
+          .borderColor(Theme.BORDER)
+          .margin({ bottom: Theme.sp.xxl })
           .alignItems(HorizontalAlign.Start)
 
-          // 默认设置
-          this.SectionHeader('默认配置')
+          // Default config
+          this.SectionHeader('DEFAULTS')
           Column() {
-            this.SettingField('默认 Agent', this.settings.defaultAgent, (v: string) => {
+            this.SettingField('default agent', this.settings.defaultAgent, (v: string) => {
               this.settings.defaultAgent = v
             })
-            this.SettingField('默认模型', this.settings.defaultModel, (v: string) => {
+            this.SettingField('default model', this.settings.defaultModel, (v: string) => {
               this.settings.defaultModel = v
             })
-            this.SettingField('默认小模型', this.settings.defaultSmallModel, (v: string) => {
+            this.SettingField('small model', this.settings.defaultSmallModel, (v: string) => {
               this.settings.defaultSmallModel = v
             })
           }
           .width('100%')
-          .padding(16)
-          .borderRadius(12)
-          .backgroundColor('#F8FAFC')
+          .padding(Theme.sp.xl)
+          .borderRadius(Theme.rd.lg)
+          .backgroundColor(Theme.SIDEBAR)
           .borderWidth(1)
-          .borderColor('#E2E8F0')
-          .margin({ bottom: 20 })
+          .borderColor(Theme.BORDER)
+          .margin({ bottom: Theme.sp.xxl })
           .alignItems(HorizontalAlign.Start)
 
-          // 审批策略
-          this.SectionHeader('审批策略')
+          // Approval policies
+          this.SectionHeader('APPROVAL POLICY')
           Column() {
-            this.PolicyRow('bash (命令执行)', 'ask')
-            this.PolicyRow('edit (文件编辑)', 'ask')
-            this.PolicyRow('write (文件写入)', 'ask')
-            this.PolicyRow('webfetch (网络获取)', 'allow')
+            this.PolicyRow('bash (execute)', 'ask')
+            this.PolicyRow('edit (file edit)', 'ask')
+            this.PolicyRow('write (file write)', 'ask')
+            this.PolicyRow('webfetch (fetch)', 'allow')
           }
           .width('100%')
-          .padding(16)
-          .borderRadius(12)
-          .backgroundColor('#F8FAFC')
+          .padding(Theme.sp.xl)
+          .borderRadius(Theme.rd.lg)
+          .backgroundColor(Theme.SIDEBAR)
           .borderWidth(1)
-          .borderColor('#E2E8F0')
-          .margin({ bottom: 20 })
+          .borderColor(Theme.BORDER)
+          .margin({ bottom: Theme.sp.xxl })
           .alignItems(HorizontalAlign.Start)
 
-          // 安全
-          this.SectionHeader('安全')
+          // Security
+          this.SectionHeader('SECURITY')
           Column() {
             Row() {
-              Text('Server 默认连接本机')
-                .fontSize(14)
-                .fontColor('#334155')
+              Text('server default host')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_SECONDARY)
+                .fontFamily(Theme.FONT_MONO)
                 .layoutWeight(1)
               Text('127.0.0.1')
-                .fontSize(13)
-                .fontColor('#64748B')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_MUTED)
+                .fontFamily(Theme.FONT_MONO)
             }
             .width('100%')
-            .padding({ bottom: 8 })
+            .padding({ bottom: Theme.sp.md })
 
             Row() {
-              Text('API Key 脱敏')
-                .fontSize(14)
-                .fontColor('#334155')
+              Text('API key masking')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.TEXT_SECONDARY)
+                .fontFamily(Theme.FONT_MONO)
                 .layoutWeight(1)
-              Text('已启用')
-                .fontSize(13)
-                .fontColor('#22C55E')
+              Text('enabled')
+                .fontSize(Theme.fs.xs)
+                .fontColor(Theme.SUCCESS)
+                .fontFamily(Theme.FONT_MONO)
+                .backgroundColor(Theme.SUCCESS_DIM)
+                .borderRadius(Theme.rd.sm)
+                .padding({ left: Theme.sp.md, right: Theme.sp.md, top: Theme.sp.xs, bottom: Theme.sp.xs })
             }
             .width('100%')
-            .padding({ bottom: 8 })
+            .padding({ bottom: Theme.sp.md })
 
             if (this.showClearConfirm) {
               Row() {
-                Text('确定清除所有本地数据？')
-                  .fontSize(13)
-                  .fontColor('#EF4444')
+                Text('clear all local data?')
+                  .fontSize(Theme.fs.sm)
+                  .fontColor(Theme.DANGER)
+                  .fontFamily(Theme.FONT_MONO)
                   .layoutWeight(1)
-                Button('取消')
-                  .type(ButtonType.Normal)
-                  .fontSize(12)
-                  .height(28)
-                  .backgroundColor('#F1F5F9')
-                  .fontColor('#334155')
-                  .borderRadius(6)
+                Text('cancel')
+                  .fontSize(Theme.fs.xs)
+                  .fontColor(Theme.TEXT_SECONDARY)
+                  .fontFamily(Theme.FONT_MONO)
+                  .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
+                  .borderRadius(Theme.rd.md)
+                  .backgroundColor(Theme.ACTIVE_BG)
                   .onClick(() => { this.showClearConfirm = false })
-                Button('确认清除')
-                  .type(ButtonType.Normal)
-                  .fontSize(12)
-                  .height(28)
-                  .backgroundColor('#EF4444')
-                  .fontColor('#FFFFFF')
-                  .borderRadius(6)
-                  .margin({ left: 8 })
+                Text('confirm')
+                  .fontSize(Theme.fs.xs)
+                  .fontColor(Theme.TEXT_INVERSE)
+                  .fontFamily(Theme.FONT_MONO)
+                  .fontWeight(FontWeight.Bold)
+                  .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
+                  .borderRadius(Theme.rd.md)
+                  .backgroundColor(Theme.DANGER)
+                  .margin({ left: Theme.sp.md })
                   .onClick(async () => {
                     await storageService.clearAll()
                     this.showClearConfirm = false
-                    this.statusMsg = '本地数据已清除'
+                    this.statusMsg = 'local data cleared'
                   })
               }
               .width('100%')
-              .padding({ top: 8 })
+              .padding({ top: Theme.sp.md })
             } else {
-              Button('清除本地数据')
-                .type(ButtonType.Normal)
-                .fontSize(13)
-                .backgroundColor('#FEE2E2')
-                .fontColor('#EF4444')
-                .borderRadius(8)
+              Text('clear local data')
+                .fontSize(Theme.fs.sm)
+                .fontColor(Theme.DANGER)
+                .fontFamily(Theme.FONT_MONO)
+                .fontWeight(FontWeight.Medium)
                 .width('100%')
-                .margin({ top: 8 })
+                .textAlign(TextAlign.Center)
+                .padding(Theme.sp.lg)
+                .borderRadius(Theme.rd.lg)
+                .backgroundColor(Theme.DANGER_DIM)
+                .borderWidth(1)
+                .borderColor(Theme.DANGER)
+                .margin({ top: Theme.sp.md })
                 .onClick(() => { this.showClearConfirm = true })
             }
           }
           .width('100%')
-          .padding(16)
-          .borderRadius(12)
-          .backgroundColor('#F8FAFC')
+          .padding(Theme.sp.xl)
+          .borderRadius(Theme.rd.lg)
+          .backgroundColor(Theme.SIDEBAR)
           .borderWidth(1)
-          .borderColor('#E2E8F0')
-          .margin({ bottom: 20 })
+          .borderColor(Theme.BORDER)
+          .margin({ bottom: Theme.sp.xxl })
           .alignItems(HorizontalAlign.Start)
 
-          // 保存按钮
-          Button('保存设置')
-            .type(ButtonType.Capsule)
-            .backgroundColor('#4F46E5')
-            .fontColor('#FFFFFF')
+          // Save button
+          Text('save settings')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_INVERSE)
+            .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Bold)
             .width('100%')
-            .height(44)
+            .textAlign(TextAlign.Center)
+            .padding(Theme.sp.lg)
+            .borderRadius(Theme.rd.lg)
+            .backgroundColor(Theme.ACCENT)
             .onClick(async () => {
               await storageService.saveSettings(this.settings)
-              this.statusMsg = '设置已保存'
+              this.statusMsg = 'settings saved'
             })
 
-          if (this.statusMsg !== '') {
+          if (this.statusMsg.length > 0) {
             Text(this.statusMsg)
-              .fontSize(13)
-              .fontColor('#22C55E')
-              .margin({ top: 12 })
+              .fontSize(Theme.fs.sm)
+              .fontColor(Theme.SUCCESS)
+              .fontFamily(Theme.FONT_MONO)
+              .margin({ top: Theme.sp.lg })
           }
         }
+        .padding({ left: Theme.sp.xl, right: Theme.sp.xl, bottom: Theme.sp.xxl })
       }
       .layoutWeight(1)
     }
     .width('100%')
-    .height('100%')
+    .layoutWeight(1)
+    .backgroundColor(Theme.BG)
     .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   SectionHeader(title: string) {
     Text(title)
-      .fontSize(16)
-      .fontWeight(FontWeight.Medium)
-      .fontColor('#334155')
-      .margin({ bottom: 12 })
+      .fontSize(Theme.fs.xs)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(Theme.TEXT_MUTED)
+      .fontFamily(Theme.FONT_MONO)
+      .letterSpacing(1)
+      .margin({ bottom: Theme.sp.lg })
   }
 
   @Builder
   InfoRow(label: string, value: string) {
     Row() {
       Text(label)
-        .fontSize(13)
-        .fontColor('#64748B')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_MUTED)
+        .fontFamily(Theme.FONT_MONO)
         .width(100)
       Text(value)
-        .fontSize(13)
-        .fontColor('#1E293B')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .fontFamily(Theme.FONT_MONO)
         .layoutWeight(1)
     }
     .width('100%')
-    .margin({ bottom: 8 })
+    .margin({ bottom: Theme.sp.md })
   }
 
   @Builder
   SettingField(label: string, value: string, onChange: (v: string) => void) {
     Column() {
       Text(label)
-        .fontSize(13)
-        .fontColor('#64748B')
-        .margin({ bottom: 6 })
-      TextInput({ text: value, placeholder: `请输入${label}` })
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_MUTED)
+        .fontFamily(Theme.FONT_MONO)
+        .margin({ bottom: Theme.sp.sm })
+      TextInput({ text: value, placeholder: label })
         .width('100%')
         .height(36)
-        .fontSize(13)
-        .backgroundColor('#FFFFFF')
-        .borderRadius(8)
+        .fontSize(Theme.fs.sm)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(Theme.rd.lg)
         .borderWidth(1)
-        .borderColor('#E2E8F0')
+        .borderColor(Theme.BORDER)
+        .fontColor(Theme.TEXT_PRIMARY)
         .onChange((v: string) => onChange(v))
     }
     .width('100%')
-    .margin({ bottom: 12 })
+    .margin({ bottom: Theme.sp.lg })
   }
 
   @Builder
   PolicyRow(label: string, policy: string) {
     Row() {
       Text(label)
-        .fontSize(14)
-        .fontColor('#334155')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .fontFamily(Theme.FONT_MONO)
         .layoutWeight(1)
-      Text(policy === 'ask' ? '需要审批' : '自动允许')
-        .fontSize(12)
-        .fontColor(policy === 'ask' ? '#F59E0B' : '#22C55E')
-        .backgroundColor(policy === 'ask' ? '#FEF3C7' : '#DCFCE7')
-        .borderRadius(4)
-        .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+      Text(policy === 'ask' ? 'ask' : 'allow')
+        .fontSize(Theme.fs.xs)
+        .fontColor(policy === 'ask' ? Theme.WARNING : Theme.SUCCESS)
+        .fontFamily(Theme.FONT_MONO)
+        .backgroundColor(policy === 'ask' ? Theme.WARNING_DIM : Theme.SUCCESS_DIM)
+        .borderRadius(Theme.rd.sm)
+        .padding({ left: Theme.sp.md, right: Theme.sp.md, top: Theme.sp.xs, bottom: Theme.sp.xs })
     }
     .width('100%')
-    .padding({ bottom: 8 })
+    .padding({ bottom: Theme.sp.md })
   }
 }
