@@ -12,30 +12,34 @@ export struct ProviderCard {
   build() {
     Row() {
       Text(this.connected ? '✓' : '✦')
-        .fontSize(22)
-        .fontColor(this.connected ? Theme.SUCCESS : Theme.TEXT_PRIMARY)
+        .fontSize(26)
+        .fontColor(Theme.TEXT_PRIMARY)
         .fontFamily(Theme.FONT_MONO)
-        .width(36)
+        .width(48)
+        .textAlign(TextAlign.Center)
 
       Column() {
         Row() {
           Text(this.title)
-            .fontSize(Theme.fs.md)
+            .fontSize(Theme.fs.lg)
             .fontWeight(FontWeight.Bold)
             .fontColor(Theme.TEXT_PRIMARY)
+
           if (this.badge.length > 0) {
             Text(this.badge)
               .fontSize(Theme.fs.xs)
+              .fontWeight(FontWeight.Medium)
               .fontColor(Theme.TEXT_SECONDARY)
               .padding({ left: 8, right: 8, top: 2, bottom: 2 })
               .borderRadius(4)
               .backgroundColor(Theme.ACTIVE_BG)
-              .margin({ left: 8 })
+              .margin({ left: 10 })
           }
         }
+        .alignItems(VerticalAlign.Center)
 
         Text(this.subtitle)
-          .fontSize(Theme.fs.sm)
+          .fontSize(Theme.fs.md)
           .fontColor(Theme.TEXT_MUTED)
           .margin({ top: 4 })
           .maxLines(2)
@@ -43,24 +47,37 @@ export struct ProviderCard {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
+      .margin({ left: 14 })
 
-      Text(this.connected ? '管理' : this.buttonText)
-        .fontSize(Theme.fs.sm)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.TEXT_PRIMARY)
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        .borderRadius(8)
-        .borderWidth(1)
-        .borderColor(Theme.BORDER)
-        .backgroundColor(Theme.PANEL)
-        .onClick(() => this.onAction())
+      Row() {
+        if (!this.connected) {
+          Text('+')
+            .fontSize(22)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+            .margin({ right: 10 })
+        }
+
+        Text(this.connected ? '管理' : this.buttonText)
+          .fontSize(Theme.fs.md)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+      }
+      .height(48)
+      .padding({ left: 18, right: 18 })
+      .borderRadius(10)
+      .borderWidth(1)
+      .borderColor(Theme.BORDER)
+      .backgroundColor(Theme.BG)
+      .onClick(() => this.onAction())
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 16, bottom: 16 })
+    .height(104)
+    .padding({ left: 26, right: 28 })
     .borderRadius(12)
     .backgroundColor(Theme.SIDEBAR)
     .borderWidth(1)
     .borderColor(Theme.BORDER)
-    .margin({ bottom: 12 })
+    .margin({ bottom: 18 })
   }
 }

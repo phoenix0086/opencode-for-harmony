@@ -13,12 +13,15 @@ export struct ProviderConnectDialog {
   @State displayName: string = ''
   @State baseURL: string = ''
   @State apiKey: string = ''
+
   @State modelId: string = ''
   @State modelName: string = ''
   @State headerName: string = ''
   @State headerValue: string = ''
+
   @State models: ProviderModelInput[] = []
   @State headers: ProviderHeaderInput[] = []
+
   @State initializedFromTemplate: boolean = false
   @State errorText: string = ''
 
@@ -29,139 +32,77 @@ export struct ProviderConnectDialog {
   private applyTemplateIfNeeded(): void {
     if (this.initializedFromTemplate) return
     this.initializedFromTemplate = true
-    if (this.template !== null) {
-      this.providerId = this.template.id === 'custom-openai-compatible' ? '' : this.template.id
-      this.displayName = this.template.id === 'custom-openai-compatible' ? '' : this.template.name
-      this.baseURL = this.template.baseURL
-      const list: ProviderModelInput[] = []
-      for (const tm of this.template.models) {
-        const m = new ProviderModelInput()
-        m.id = tm.id
-        m.name = tm.name
-        list.push(m)
-      }
-      this.models = list
+
+    if (this.template === null) return
+
+    // The custom provider template should open as an empty form.
+    if (this.template.id === 'custom-openai-compatible') {
+      this.providerId = ''
+      this.displayName = ''
+      this.baseURL = ''
+      this.models = []
+      this.headers = []
+      return
     }
+
+    this.providerId = this.template.id
+    this.displayName = this.template.name
+    this.baseURL = this.template.baseURL
+
+    const list: ProviderModelInput[] = []
+    for (const tm of this.template.models) {
+      const m = new ProviderModelInput()
+      m.id = tm.id
+      m.name = tm.name
+      list.push(m)
+    }
+    this.models = list
   }
 
   build() {
     if (this.visible) {
       Stack() {
         Rect()
-          .fill('rgba(0,0,0,0.42)')
+          .fill('rgba(0,0,0,0.46)')
           .width('100%')
           .height('100%')
           .onClick(() => this.onCancel())
 
         Column() {
-          Row() {
-            Text('←').fontSize(24).fontColor(Theme.TEXT_MUTED).width(42).onClick(() => this.onCancel())
-            Blank()
-            Text('×').fontSize(28).fontColor(Theme.TEXT_MUTED).width(42).textAlign(TextAlign.Center).onClick(() => this.onCancel())
-          }
-          .width('100%')
-          .height(52)
+          this.Header()
 
           Scroll() {
             Column() {
-              Row() {
-                Text('✦').fontSize(26).fontColor(Theme.TEXT_PRIMARY).width(48)
-                Text('自定义提供商').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Theme.TEXT_PRIMARY)
-              }
-              .margin({ bottom: 24 })
-
-              Text('配置与 OpenAI 兼容的提供商。请填写基础 URL、API 密钥和模型列表。')
-                .fontSize(Theme.fs.md).fontColor(Theme.TEXT_SECONDARY).margin({ bottom: 28 })
-
-              this.FormLabel('提供商 ID')
-              TextInput({ text: this.providerId, placeholder: 'myprovider' })
-                .height(48).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
-                .backgroundColor(Theme.INPUT_BG).borderRadius(10).borderWidth(1).borderColor(Theme.BORDER)
-                .onChange((v: string) => this.providerId = v)
-              this.Hint('使用小写字母、数字、连字符或下划线')
-
-              this.FormLabel('显示名称')
-              TextInput({ text: this.displayName, placeholder: '我的 AI 提供商' })
-                .height(48).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
-                .backgroundColor(Theme.INPUT_BG).borderRadius(10).borderWidth(1).borderColor(Theme.BORDER)
-                .onChange((v: string) => this.displayName = v)
-
-              this.FormLabel('基础 URL')
-              TextInput({ text: this.baseURL, placeholder: 'https://api.myprovider.com/v1' })
-                .height(48).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
-                .backgroundColor(Theme.INPUT_BG).borderRadius(10).borderWidth(1).borderColor(Theme.BORDER)
-                .onChange((v: string) => this.baseURL = v)
-              this.Hint('填写 OpenAI Compatible API 的 Base URL，不是官网或控制台地址')
-
-              this.FormLabel('API 密钥')
-              TextInput({ text: this.apiKey, placeholder: 'API 密钥' })
-                .height(48).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
-                .type(InputType.Password)
-                .backgroundColor(Theme.INPUT_BG).borderRadius(10).borderWidth(1).borderColor(Theme.BORDER)
-                .onChange((v: string) => this.apiKey = v)
-              this.Hint('可选。如果通过请求头管理认证，可留空。不会写入日志。')
-
-              this.FormLabel('模型')
-              Row() {
-                TextInput({ text: this.modelId, placeholder: 'model-id' })
-                  .layoutWeight(1).height(44).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
-                  .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
-                  .onChange((v: string) => this.modelId = v)
-                TextInput({ text: this.modelName, placeholder: '显示名称' })
-                  .layoutWeight(1).height(44).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
-                  .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
-                  .margin({ left: 10 })
-                  .onChange((v: string) => this.modelName = v)
-                Text('+').fontSize(22).fontColor(Theme.ACCENT).width(44).height(44).textAlign(TextAlign.Center)
-                  .borderRadius(8).backgroundColor(Theme.ACTIVE_BG).margin({ left: 10 }).onClick(() => this.addModel())
-              }
-              .margin({ bottom: 10 })
-
-              ForEach(this.models, (m: ProviderModelInput, index: number) => {
-                this.ModelRow(m, index)
-              }, (m: ProviderModelInput) => m.id)
-
-              this.FormLabel('请求头（可选）')
-              Row() {
-                TextInput({ text: this.headerName, placeholder: 'Header-Name' })
-                  .layoutWeight(1).height(44).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
-                  .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
-                  .onChange((v: string) => this.headerName = v)
-                TextInput({ text: this.headerValue, placeholder: 'value' })
-                  .layoutWeight(1).height(44).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
-                  .type(InputType.Password)
-                  .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
-                  .margin({ left: 10 })
-                  .onChange((v: string) => this.headerValue = v)
-                Text('+').fontSize(22).fontColor(Theme.ACCENT).width(44).height(44).textAlign(TextAlign.Center)
-                  .borderRadius(8).backgroundColor(Theme.ACTIVE_BG).margin({ left: 10 }).onClick(() => this.addHeader())
-              }
-              .margin({ bottom: 10 })
-
-              ForEach(this.headers, (h: ProviderHeaderInput, index: number) => {
-                this.HeaderRow(h, index)
-              }, (h: ProviderHeaderInput) => h.name)
+              this.IntroBlock()
+              this.ProviderBlock()
+              this.ModelBlock()
+              this.HeaderBlock()
 
               if (this.errorText.length > 0) {
-                Text(this.errorText).fontSize(Theme.fs.sm).fontColor(Theme.DANGER).margin({ top: 18 })
+                Text(this.errorText)
+                  .fontSize(Theme.fs.sm)
+                  .fontColor(Theme.DANGER)
+                  .margin({ top: 14 })
               }
 
-              Row() {
-                Text('提交')
-                  .fontSize(Theme.fs.md).fontWeight(FontWeight.Bold).fontColor(Theme.TEXT_INVERSE)
-                  .padding({ left: 28, right: 28, top: 12, bottom: 12 })
-                  .borderRadius(10).backgroundColor(Theme.ACCENT).onClick(() => this.submit())
-              }
-              .width('100%').margin({ top: 32, bottom: 24 })
+              Blank()
+                .height(18)
             }
+            .width('100%')
+            .padding({ left: 34, right: 34, top: 12, bottom: 18 })
             .alignItems(HorizontalAlign.Start)
-            .padding({ left: 38, right: 38, bottom: 30 })
           }
           .layoutWeight(1)
+
+          this.Footer()
         }
-        .width('68%').height('86%').borderRadius(16).backgroundColor(Theme.BG)
-        .borderWidth(1).borderColor(Theme.BORDER)
-        .shadow({ radius: 24, color: '#66000000', offsetX: 0, offsetY: 12 })
+        .width(820)
+        .height(720)
+        .borderRadius(16)
+        .backgroundColor(Theme.BG)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .shadow({ radius: 28, color: '#66000000', offsetX: 0, offsetY: 14 })
       }
       .width('100%')
       .height('100%')
@@ -169,53 +110,392 @@ export struct ProviderConnectDialog {
   }
 
   @Builder
+  Header() {
+    Row() {
+      Text('←')
+        .fontSize(24)
+        .fontColor(Theme.TEXT_MUTED)
+        .width(44)
+        .height(44)
+        .textAlign(TextAlign.Center)
+        .borderRadius(8)
+        .onClick(() => this.onCancel())
+
+      Blank()
+
+      Text('×')
+        .fontSize(28)
+        .fontColor(Theme.TEXT_MUTED)
+        .width(44)
+        .height(44)
+        .textAlign(TextAlign.Center)
+        .borderRadius(8)
+        .onClick(() => this.onCancel())
+    }
+    .width('100%')
+    .height(64)
+    .padding({ left: 24, right: 24 })
+  }
+
+  @Builder
+  IntroBlock() {
+    Column() {
+      Row() {
+        Text('✦')
+          .fontSize(30)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .fontFamily(Theme.FONT_MONO)
+          .width(48)
+
+        Column() {
+          Text('自定义提供商')
+            .fontSize(26)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Theme.TEXT_PRIMARY)
+
+          Text('配置与 OpenAI 兼容的 API。填入服务商地址、API 密钥和模型 ID。')
+            .fontSize(Theme.fs.md)
+            .fontColor(Theme.TEXT_MUTED)
+            .margin({ top: 8 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+    }
+    .width('100%')
+    .margin({ bottom: 24 })
+  }
+
+  @Builder
+  ProviderBlock() {
+    Column() {
+      this.SectionTitle('1. 提供商信息')
+
+      this.FormLabel('提供商 ID')
+      TextInput({ text: this.providerId, placeholder: 'deepseek-cn' })
+        .height(46)
+        .fontSize(Theme.fs.md)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(10)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .onChange((v: string) => this.providerId = v)
+      this.Hint('只能使用小写字母、数字、连字符或下划线，例如 deepseek-cn、qwen-cn。')
+
+      this.FormLabel('显示名称')
+      TextInput({ text: this.displayName, placeholder: 'DeepSeek' })
+        .height(46)
+        .fontSize(Theme.fs.md)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(10)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .onChange((v: string) => this.displayName = v)
+
+      this.FormLabel('基础 URL')
+      TextInput({ text: this.baseURL, placeholder: 'https://api.deepseek.com' })
+        .height(46)
+        .fontSize(Theme.fs.md)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(10)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .onChange((v: string) => this.baseURL = v)
+      this.Hint('填写 OpenAI Compatible API 的 Base URL，不是官网或控制台地址。')
+
+      this.FormLabel('API 密钥')
+      TextInput({ text: this.apiKey, placeholder: 'sk-xxxxxxxx' })
+        .height(46)
+        .fontSize(Theme.fs.md)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .type(InputType.Password)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(10)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .onChange((v: string) => this.apiKey = v)
+      this.Hint('API Key 不会写入日志，也不会在界面中明文展示。')
+    }
+    .width('100%')
+    .padding(18)
+    .borderRadius(14)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .margin({ bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  ModelBlock() {
+    Column() {
+      this.SectionTitle('2. 模型')
+
+      if (this.models.length === 0) {
+        Text('还没有添加模型。至少添加一个模型后才能提交。')
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_MUTED)
+          .margin({ bottom: 12 })
+      } else {
+        ForEach(this.models, (m: ProviderModelInput, index: number) => {
+          this.ModelRow(m, index)
+        }, (m: ProviderModelInput) => m.id)
+      }
+
+      Row() {
+        TextInput({ text: this.modelId, placeholder: 'deepseek-chat' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER)
+          .onChange((v: string) => this.modelId = v)
+
+        TextInput({ text: this.modelName, placeholder: 'DeepSeek Chat' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER)
+          .margin({ left: 10 })
+          .onChange((v: string) => this.modelName = v)
+
+        Text('添加')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.ACCENT)
+          .height(42)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(8)
+          .backgroundColor(Theme.ACTIVE_BG)
+          .margin({ left: 10 })
+          .onClick(() => this.addModel())
+      }
+    }
+    .width('100%')
+    .padding(18)
+    .borderRadius(14)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .margin({ bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  HeaderBlock() {
+    Column() {
+      this.SectionTitle('3. 请求头（可选）')
+
+      if (this.headers.length === 0) {
+        Text('普通 OpenAI Compatible API 通常不需要额外请求头。')
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_MUTED)
+          .margin({ bottom: 12 })
+      } else {
+        ForEach(this.headers, (h: ProviderHeaderInput, index: number) => {
+          this.HeaderRow(h, index)
+        }, (h: ProviderHeaderInput) => h.name)
+      }
+
+      Row() {
+        TextInput({ text: this.headerName, placeholder: 'Header-Name' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER)
+          .onChange((v: string) => this.headerName = v)
+
+        TextInput({ text: this.headerValue, placeholder: 'value' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .type(InputType.Password)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER)
+          .margin({ left: 10 })
+          .onChange((v: string) => this.headerValue = v)
+
+        Text('添加')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_SECONDARY)
+          .height(42)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(8)
+          .backgroundColor(Theme.PANEL)
+          .margin({ left: 10 })
+          .onClick(() => this.addHeader())
+      }
+    }
+    .width('100%')
+    .padding(18)
+    .borderRadius(14)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  Footer() {
+    Row() {
+      if (this.errorText.length > 0) {
+        Text(this.errorText)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.DANGER)
+          .layoutWeight(1)
+      } else {
+        Text('提交后会保存本地配置，并在已连接 Server 时写入 OpenCode 配置和 Auth。')
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.TEXT_MUTED)
+          .layoutWeight(1)
+      }
+
+      Text('取消')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .height(42)
+        .padding({ left: 18, right: 18 })
+        .borderRadius(8)
+        .backgroundColor(Theme.PANEL)
+        .margin({ right: 10 })
+        .onClick(() => this.onCancel())
+
+      Text('提交')
+        .fontSize(Theme.fs.sm)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.BG)
+        .height(42)
+        .padding({ left: 22, right: 22 })
+        .borderRadius(8)
+        .backgroundColor(Theme.TEXT_PRIMARY)
+        .onClick(() => this.submit())
+    }
+    .width('100%')
+    .height(68)
+    .padding({ left: 34, right: 34 })
+    .borderWidth({ top: 1 })
+    .borderColor(Theme.BORDER)
+    .backgroundColor(Theme.BG)
+  }
+
+  @Builder
+  SectionTitle(text: string) {
+    Text(text)
+      .fontSize(Theme.fs.md)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(Theme.TEXT_PRIMARY)
+      .margin({ bottom: 14 })
+  }
+
+  @Builder
   FormLabel(text: string) {
-    Text(text).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_MUTED).fontWeight(FontWeight.Bold).margin({ top: 16, bottom: 8 })
+    Text(text)
+      .fontSize(Theme.fs.sm)
+      .fontColor(Theme.TEXT_MUTED)
+      .fontWeight(FontWeight.Bold)
+      .margin({ top: 12, bottom: 8 })
   }
 
   @Builder
   Hint(text: string) {
-    Text(text).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_SECONDARY).margin({ top: 6, bottom: 6 })
+    Text(text)
+      .fontSize(Theme.fs.xs)
+      .fontColor(Theme.TEXT_SECONDARY)
+      .margin({ top: 6, bottom: 4 })
   }
 
   @Builder
   ModelRow(m: ProviderModelInput, index: number) {
     Row() {
-      Text(m.id).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY).fontFamily(Theme.FONT_MONO).layoutWeight(1)
-      Text(m.name.length > 0 ? m.name : m.id).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_MUTED).layoutWeight(1)
-      Text('删除').fontSize(Theme.fs.xs).fontColor(Theme.DANGER).onClick(() => this.removeModel(index))
+      Text(m.id)
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .fontFamily(Theme.FONT_MONO)
+        .layoutWeight(1)
+
+      Text(m.name.length > 0 ? m.name : m.id)
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_MUTED)
+        .layoutWeight(1)
+
+      Text('删除')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.DANGER)
+        .onClick(() => this.removeModel(index))
     }
-    .width('100%').padding(10).borderRadius(8).backgroundColor(Theme.SIDEBAR).margin({ bottom: 6 })
+    .width('100%')
+    .padding(10)
+    .borderRadius(8)
+    .backgroundColor(Theme.BG)
+    .margin({ bottom: 8 })
   }
 
   @Builder
   HeaderRow(h: ProviderHeaderInput, index: number) {
     Row() {
-      Text(h.name).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY).fontFamily(Theme.FONT_MONO).layoutWeight(1)
-      Text('••••').fontSize(Theme.fs.sm).fontColor(Theme.TEXT_MUTED).layoutWeight(1)
-      Text('删除').fontSize(Theme.fs.xs).fontColor(Theme.DANGER).onClick(() => this.removeHeader(index))
+      Text(h.name)
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .fontFamily(Theme.FONT_MONO)
+        .layoutWeight(1)
+
+      Text('••••••')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_MUTED)
+        .layoutWeight(1)
+
+      Text('删除')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.DANGER)
+        .onClick(() => this.removeHeader(index))
     }
-    .width('100%').padding(10).borderRadius(8).backgroundColor(Theme.SIDEBAR).margin({ bottom: 6 })
+    .width('100%')
+    .padding(10)
+    .borderRadius(8)
+    .backgroundColor(Theme.BG)
+    .margin({ bottom: 8 })
   }
 
   private addModel(): void {
-    if (this.modelId.length === 0) {
+    if (this.modelId.trim().length === 0) {
       this.errorText = 'Model ID 不能为空'
       return
     }
+
     for (const item of this.models) {
-      if (item.id === this.modelId) {
+      if (item.id === this.modelId.trim()) {
         this.errorText = 'Model ID 不能重复'
         return
       }
     }
+
     const m = new ProviderModelInput()
-    m.id = this.modelId
-    m.name = this.modelName.length > 0 ? this.modelName : this.modelId
+    m.id = this.modelId.trim()
+    m.name = this.modelName.trim().length > 0 ? this.modelName.trim() : m.id
+
     const list: ProviderModelInput[] = []
     for (const item of this.models) list.push(item)
     list.push(m)
     this.models = list
+
     this.modelId = ''
     this.modelName = ''
     this.errorText = ''
@@ -230,14 +510,17 @@ export struct ProviderConnectDialog {
   }
 
   private addHeader(): void {
-    if (this.headerName.length === 0) return
+    if (this.headerName.trim().length === 0) return
+
     const h = new ProviderHeaderInput()
-    h.name = this.headerName
+    h.name = this.headerName.trim()
     h.value = this.headerValue
+
     const list: ProviderHeaderInput[] = []
     for (const item of this.headers) list.push(item)
     list.push(h)
     this.headers = list
+
     this.headerName = ''
     this.headerValue = ''
   }
@@ -263,12 +546,20 @@ export struct ProviderConnectDialog {
       this.errorText = 'Provider ID 不能为空'
       return
     }
+    if (!this.isValidProviderId(input.providerId)) {
+      this.errorText = 'Provider ID 只能包含小写字母、数字、连字符或下划线'
+      return
+    }
     if (input.displayName.length === 0) {
       this.errorText = '显示名称不能为空'
       return
     }
     if (input.baseURL.length === 0) {
       this.errorText = '基础 URL 不能为空'
+      return
+    }
+    if (!input.baseURL.startsWith('http://') && !input.baseURL.startsWith('https://')) {
+      this.errorText = '基础 URL 必须以 http:// 或 https:// 开头'
       return
     }
     if (input.models.length === 0) {
@@ -278,5 +569,14 @@ export struct ProviderConnectDialog {
 
     this.errorText = ''
     this.onSubmit(input)
+  }
+
+  private isValidProviderId(id: string): boolean {
+    for (let i = 0; i < id.length; i++) {
+      const c = id.charAt(i)
+      const ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '-' || c === '_'
+      if (!ok) return false
+    }
+    return true
   }
 }

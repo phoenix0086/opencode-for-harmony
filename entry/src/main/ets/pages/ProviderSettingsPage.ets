@@ -25,8 +25,10 @@ export struct ProviderSettingsPage {
     this.templates = providerTemplateRegistry.listTemplates()
   }
 
-  private refresh(): void {
+  private async reload(): Promise<void> {
+    await providerRegistry.init()
     this.providers = providerRegistry.getAll()
+    this.templates = providerTemplateRegistry.listTemplates()
   }
 
   build() {
@@ -52,10 +54,13 @@ export struct ProviderSettingsPage {
                 .fontColor(Theme.TEXT_MUTED)
             }
             .width('100%')
-            .padding(24)
+            .height(104)
+            .padding({ left: 28, right: 28 })
             .borderRadius(12)
             .backgroundColor(Theme.SIDEBAR)
-            .margin({ bottom: 40 })
+            .borderWidth(1)
+            .borderColor(Theme.BORDER)
+            .margin({ bottom: 48 })
           } else {
             ForEach(this.connectedProviders(), (p: CNProvider) => {
               ProviderCard({
@@ -71,11 +76,11 @@ export struct ProviderSettingsPage {
             }, (p: CNProvider) => p.id)
           }
 
-          Text('热门提供商')
+          Text('添加提供商')
             .fontSize(Theme.fs.lg)
             .fontWeight(FontWeight.Bold)
             .fontColor(Theme.TEXT_PRIMARY)
-            .margin({ top: 18, bottom: 14 })
+            .margin({ top: 14, bottom: 14 })
 
           ForEach(this.templates, (t: ProviderTemplate) => {
             ProviderCard({
@@ -88,17 +93,11 @@ export struct ProviderSettingsPage {
             })
           }, (t: ProviderTemplate) => t.id)
 
-          Text('查看更多提供商')
-            .fontSize(Theme.fs.md)
-            .fontColor(Theme.ACCENT)
-            .fontWeight(FontWeight.Medium)
-            .margin({ top: 24, bottom: 60 })
-
           if (this.statusMsg.length > 0) {
             Text(this.statusMsg)
               .fontSize(Theme.fs.sm)
               .fontColor(this.statusMsg.includes('失败') || this.statusMsg.includes('failed') ? Theme.DANGER : Theme.SUCCESS)
-              .margin({ top: 8 })
+              .margin({ top: 8, bottom: 60 })
           }
         }
         .width('100%')
@@ -148,8 +147,7 @@ export struct ProviderSettingsPage {
     if (result.ok) {
       this.statusMsg = result.message
       this.showDialog = false
-      await providerRegistry.init()
-      this.refresh()
+      await this.reload()
       if (result.connected) {
         this.onOpenModels()
       }
