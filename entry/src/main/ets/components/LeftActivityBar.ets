@@ -16,6 +16,7 @@ export struct LeftActivityBar {
   @Prop activeId: string = 'chat'
   @Prop connectionStatus: string = 'disconnected' // 'connected' | 'disconnected' | 'connecting'
   onActivityChange: (id: string) => void = () => {}
+  onOpenDirectoryPicker: () => void = () => {}
 
   private items: ActivityItem[] = []
 
@@ -100,6 +101,27 @@ export struct LeftActivityBar {
       }, (item: ActivityItem) => item.id)
 
       Blank()
+
+      // Directory picker button
+      Column() {
+        Text('/')
+          .fontSize(Theme.fs.lg)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.ACTIVITY_BAR_INACTIVE)
+          .fontFamily(Theme.FONT_MONO)
+
+        Text('dir')
+          .fontSize(9)
+          .fontColor(Theme.TEXT_MUTED)
+          .margin({ top: 2 })
+      }
+      .width(Theme.ACTIVITY_BAR_W)
+      .padding({ top: Theme.sp.md, bottom: Theme.sp.md })
+      .justifyContent(FlexAlign.Center)
+      .borderRadius(Theme.rd.md)
+      .onClick(() => {
+        this.onOpenDirectoryPicker()
+      })
 
       // Connection indicator at bottom
       Column() {

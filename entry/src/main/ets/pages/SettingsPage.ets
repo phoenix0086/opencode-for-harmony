@@ -3,6 +3,7 @@ import { providerRegistry } from '../services/ProviderRegistry'
 import { CNProvider, CNModel } from '../models/Provider'
 import { Theme } from '../components/Theme'
 import { ProviderIcon } from '../components/ProviderIcon'
+import { MCPPanel, MCPServer } from '../components/MCPPanel'
 
 /**
  * Settings Page — OpenCode Desktop-style tabbed settings dialog (M16)
@@ -22,6 +23,7 @@ export struct SettingsPage {
   @State modelSearch: string = ''
   @State policyOverrides: Record<string, string> = {}
   @StorageProp('themeId') themeId: string = 'catppuccin'
+  @State mcpServers: MCPServer[] = []
 
   // ══════════ Lifecycle ══════════
   async aboutToAppear(): Promise<void> {
@@ -614,59 +616,22 @@ export struct SettingsPage {
   }
 
   // ══════════════════════════════════════════════════════════════
-  //  SERVERS TAB (Stub — M19)
+  //  SERVERS TAB — MCP Server Management (M19)
   // ══════════════════════════════════════════════════════════════
   @Builder
   ServersTab() {
-    this.SectionHeader('MCP SERVERS')
-
-    Text('MCP server management — coming in M19')
-      .fontSize(Theme.fs.sm)
-      .fontColor(Theme.TEXT_MUTED)
-      .fontFamily(Theme.FONT_MONO)
-      .margin({ bottom: Theme.sp.xxl })
-
-    // Placeholder list showing example servers in disabled state
-    ForEach(
-      ['filesystem-server', 'github-server', 'postgres-server'],
-      (serverName: string) => {
-        Row() {
-          Circle()
-            .width(8)
-            .height(8)
-            .fill(Theme.TEXT_MUTED)
-            .margin({ right: Theme.sp.lg })
-
-          Text(serverName)
-            .fontSize(Theme.fs.sm)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .layoutWeight(1)
-
-          Text('disabled')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .backgroundColor(Theme.ACTIVE_BG)
-            .borderRadius(Theme.rd.sm)
-            .padding({
-              left: Theme.sp.md,
-              right: Theme.sp.md,
-              top: Theme.sp.xs,
-              bottom: Theme.sp.xs
-            })
-        }
-        .width('100%')
-        .padding(Theme.sp.xl)
-        .borderRadius(Theme.rd.lg)
-        .backgroundColor(Theme.SIDEBAR)
-        .borderWidth(1)
-        .borderColor(Theme.BORDER)
-        .margin({ bottom: Theme.sp.lg })
-        .opacity(0.5)
+    MCPPanel({
+      servers: this.mcpServers,
+      onToggleServer: (id: string, enabled: boolean) => {
+        // Toggle server enabled state
       },
-      (serverName: string) => serverName
-    )
+      onToggleTool: (serverId: string, toolName: string, enabled: boolean) => {
+        // Toggle individual tool
+      },
+      onRefresh: () => {
+        // Refresh MCP server list
+      }
+    })
   }
 
   // ══════════════════════════════════════════════════════════════

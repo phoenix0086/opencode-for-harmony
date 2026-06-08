@@ -15,6 +15,8 @@ import { SettingsPage } from '../pages/SettingsPage'
 import { SessionTabs, SessionTab } from './SessionTabs'
 import { SessionContextMenu } from './SessionContextMenu'
 import { ToastContainer, ToastData, ToastManager } from './ToastNotification'
+import { StatusPopover } from './StatusPopover'
+import { DirectoryPicker, ProjectEntry } from './DirectoryPicker'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -71,6 +73,9 @@ export struct AppShell {
   @State rightPanelTab: string = 'tools' // 'tools' | 'diff' | 'logs'
   @State toasts: ToastData[] = []
   @StorageProp('themeId') themeId: string = 'catppuccin'
+  @State showStatusPopover: boolean = false
+  @State showDirectoryPicker: boolean = false
+  @State projects: ProjectEntry[] = []
 
   aboutToAppear(): void {
     ToastManager.setOnChange(() => {
@@ -91,6 +96,9 @@ export struct AppShell {
         tokenCost: this.tokenCost,
         isConnected: this.isConnected
       })
+        .onClick(() => {
+          this.showStatusPopover = !this.showStatusPopover
+        })
 
       // ══════════ Main Content Area ══════════
       Row() {
@@ -100,6 +108,9 @@ export struct AppShell {
           connectionStatus: this.connectionStatus,
           onActivityChange: (id: string) => {
             this.activeActivity = id
+          },
+          onOpenDirectoryPicker: () => {
+            this.showDirectoryPicker = true
           }
         })
 
@@ -305,6 +316,39 @@ export struct AppShell {
       toasts: this.toasts,
       onDismiss: (id: string) => {
         ToastManager.dismiss(id)
+      }
+    })
+
+    // Status popover overlay
+    StatusPopover({
+      visible: this.showStatusPopover,
+      isConnected: this.isConnected,
+      serverUrl: this.serverUrl,
+      serverVersion: this.serverVersion,
+      projectName: this.projectName,
+      branchName: this.branchName,
+      sessionCount: this.sessions.length,
+      tokensUsed: this.tokensUsed,
+      tokensMax: this.tokensMax,
+      agentMode: this.agentMode,
+      onDismiss: () => {
+        this.showStatusPopover = false
+      },
+      onReconnect: () => {
+        this.showStatusPopover = false
+      }
+    })
+
+    // Directory picker overlay
+    DirectoryPicker({
+      visible: this.showDirectoryPicker,
+      projects: this.projects,
+      currentDirectory: this.projectName,
+      onSelect: (directory: string) => {
+        this.showDirectoryPicker = false
+      },
+      onDismiss: () => {
+        this.showDirectoryPicker = false
       }
     })
     } // Stack
