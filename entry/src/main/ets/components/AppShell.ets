@@ -20,6 +20,7 @@ import { StatusPopover } from './StatusPopover'
 import { DirectoryPicker, ProjectEntry } from './DirectoryPicker'
 import { OpenCodeHomeLaunch } from './home/OpenCodeHomeLaunch'
 import { ServerSettingsPage } from '../pages/ServerSettingsPage'
+import { RuntimePage } from '../pages/RuntimePage'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -100,10 +101,10 @@ export struct AppShell {
   }
 
   build() {
-    // ══════════ Home 全屏接管 ══════════
-    // 首页模式下 OpenCodeHomeLaunch 全屏渲染，不走旧 AppShell 外壳
-    if (this.activeActivity === 'chat' && this.activeSessionId.length === 0 && this.transcriptBlocks.length === 0) {
-      Stack({ alignContent: Alignment.TopStart }) {
+    Stack() {
+      if (this.activeActivity === 'chat' && this.activeSessionId.length === 0 && this.transcriptBlocks.length === 0) {
+        // ══════════ Home 全屏接管 ══════════
+        Stack({ alignContent: Alignment.TopStart }) {
         OpenCodeHomeLaunch({
           inputText: $inputText,
           isSending: $isSending,
@@ -199,7 +200,6 @@ export struct AppShell {
       .width('100%')
       .height('100%')
       .backgroundColor('#101010')
-      return
     }
 
     // ══════════ 正常 AppShell 工作区 ══════════
@@ -308,6 +308,17 @@ export struct AppShell {
             })
           } else if (this.activeActivity === 'server') {
             ServerSettingsPage({
+              activeRunner: this.activeRunner,
+              isConnected: this.isConnected,
+              onRunnerActivated: (runner: Runner) => {
+                this.onRunnerActivated(runner)
+              },
+              onReconnect: () => {
+                this.onReconnect()
+              }
+            })
+          } else if (this.activeActivity === 'runtime') {
+            RuntimePage({
               activeRunner: this.activeRunner,
               isConnected: this.isConnected,
               onRunnerActivated: (runner: Runner) => {
@@ -492,7 +503,8 @@ export struct AppShell {
         this.showDirectoryPicker = false
       }
     })
-    } // Stack
+    } // inner Stack
+    } // outer Stack
   }
 
   // ══════════ Session Header (inside center column) ══════════

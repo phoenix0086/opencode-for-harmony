@@ -83,7 +83,7 @@ export struct ModelSettingsPage {
   @Builder
   ServerNotice() {
     if (!this.isConnected) {
-      Text('OpenCode Server 未连接：可以本地选择默认模型，但不能测试模型，也不能同步到 opencode serve。')
+      Text('本地 Runtime 未连接：可以本地选择默认模型，但不能测试模型，也不能同步到 opencode serve。')
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.WARNING)
         .padding(14)

@@ -42,10 +42,20 @@ export struct LeftActivityBar {
     provider.label = 'Provider'
     provider.symbol = 'P'
 
+    const runtime = new ActivityItem()
+    runtime.id = 'runtime'
+    runtime.label = 'Runtime'
+    runtime.symbol = 'R'
+
     const server = new ActivityItem()
     server.id = 'server'
     server.label = 'Server'
     server.symbol = 'S'
+
+    const models = new ActivityItem()
+    models.id = 'models'
+    models.label = 'Models'
+    models.symbol = 'M'
 
     const settings = new ActivityItem()
     settings.id = 'settings'
@@ -57,7 +67,9 @@ export struct LeftActivityBar {
     arr.push(files)
     arr.push(diff)
     arr.push(provider)
+    arr.push(runtime)
     arr.push(server)
+    arr.push(models)
     arr.push(settings)
     this.items = arr
   }

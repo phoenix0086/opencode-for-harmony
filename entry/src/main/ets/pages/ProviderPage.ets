@@ -560,7 +560,7 @@ export struct ProviderPage {
 
   private async saveApiKeyToServer(): Promise<void> {
     if (this.activeRunner === null) {
-      this.statusMsg = 'Connect to OpenCode Server first'
+      this.statusMsg = 'Connect to Runtime first'
       return
     }
 

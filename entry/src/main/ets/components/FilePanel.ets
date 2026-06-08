@@ -267,7 +267,7 @@ export struct FilePanel {
             .fontSize(Theme.fs.sm)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)
-          Text('Connect to OpenCode Server and select a workspace to browse files.')
+          Text('Connect to Runtime and select a workspace to browse files.')
             .fontSize(Theme.fs.xs)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)

@@ -522,8 +522,8 @@ struct Index {
 
     const client = this.getClient()
     if (client === null) {
-      ToastManager.show('OpenCode Server 未连接，无法发送消息', 'error')
-      this.addLog('message.blocked: server not connected', 'warn', 'message')
+      ToastManager.show('本地 Runtime 未连接，无法发送消息', 'error')
+      this.addLog('message.blocked: runtime not connected', 'warn', 'message')
       return
     }
 

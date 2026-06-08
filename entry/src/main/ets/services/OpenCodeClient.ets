@@ -450,6 +450,41 @@ export class OpenCodeClient {
     return this.parseJson<AgentInfo[]>(resp)
   }
 
+  // ══════════ MCP / LSP / Formatter ══════════
+  // GET /mcp → McpServer[]
+  // GET /lsp → LspStatus[]
+  // GET /formatter → FormatterStatus[]
+
+  async listMcpServers(): Promise<Record<string, Object>[]> {
+    try {
+      const resp = await this.doGet('/mcp')
+      if (resp.responseCode !== 200) return []
+      return this.parseJson<Record<string, Object>[]>(resp)
+    } catch (e) {
+      return []
+    }
+  }
+
+  async listLspStatus(): Promise<Record<string, Object>[]> {
+    try {
+      const resp = await this.doGet('/lsp')
+      if (resp.responseCode !== 200) return []
+      return this.parseJson<Record<string, Object>[]>(resp)
+    } catch (e) {
+      return []
+    }
+  }
+
+  async listFormatters(): Promise<Record<string, Object>[]> {
+    try {
+      const resp = await this.doGet('/formatter')
+      if (resp.responseCode !== 200) return []
+      return this.parseJson<Record<string, Object>[]>(resp)
+    } catch (e) {
+      return []
+    }
+  }
+
   // ══════════ Instance ══════════
 
   async disposeInstance(): Promise<boolean> {

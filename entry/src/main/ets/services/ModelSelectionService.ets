@@ -58,8 +58,7 @@ export class ModelSelectionService {
 
     if (runner === null) {
       result.ok = true
-      result.serverSynced = false
-      result.message = `默认模型已保存到本地：${modelRef}。OpenCode Server 未连接，暂未同步到服务端。`
+      result.message = `默认模型已保存到本地：${modelRef}。Runtime 未连接，暂未同步。`
       return result
     }
 
@@ -70,12 +69,11 @@ export class ModelSelectionService {
       await client.updateConfig(patch)
       result.ok = true
       result.serverSynced = true
-      result.message = `默认模型已保存并同步到 OpenCode Server：${modelRef}`
+      result.message = `默认模型已同步：${modelRef}`
       return result
     } catch (e) {
       result.ok = false
-      result.serverSynced = false
-      result.message = `默认模型已保存到本地，但同步 OpenCode Server 失败：${String(e)}`
+      result.message = `默认模型已本地保存，但同步失败：${String(e)}`
       return result
     }
   }
@@ -89,8 +87,7 @@ export class ModelSelectionService {
 
     if (runner === null) {
       result.ok = true
-      result.serverSynced = false
-      result.message = `Small Model 已保存到本地：${modelRef}。OpenCode Server 未连接，暂未同步到服务端。`
+      result.message = `Small Model 已保存到本地：${modelRef}。Runtime 未连接，暂未同步。`
       return result
     }
 
@@ -101,25 +98,20 @@ export class ModelSelectionService {
       await client.updateConfig(patch)
       result.ok = true
       result.serverSynced = true
-      result.message = `Small Model 已保存并同步到 OpenCode Server：${modelRef}`
+      result.message = `Small Model 已同步：${modelRef}`
       return result
     } catch (e) {
       result.ok = false
-      result.serverSynced = false
-      result.message = `Small Model 已保存到本地，但同步 OpenCode Server 失败：${String(e)}`
+      result.message = `Small Model 已本地保存，但同步失败：${String(e)}`
       return result
     }
   }
 
   async testModel(modelRef: string, runner: Runner | null): Promise<string> {
-    if (runner === null) {
-      return '无法测试模型：OpenCode Server 未连接。请先在“服务器”页连接 opencode serve，然后再测试小米或其他模型。'
-    }
+    if (runner === null) return '无法测试模型：本地 Runtime 未连接。请先到"本地 Runtime"页面连接。'
 
     try {
       const client = new OpenCodeClient(runner)
-
-      // Make the tested model active before sending a tiny prompt.
       const patch: Record<string, Object> = {}
       patch['model'] = modelRef
       await client.updateConfig(patch)
@@ -127,7 +119,7 @@ export class ModelSelectionService {
       const session = await client.createSession(`model-test-${Date.now()}`)
       client.setDefaultAgent('build')
       await client.sendMessageAsync(session.id, 'Say OK.')
-      return `测试请求已发送到 ${modelRef}。请查看会话 ${session.id} 的返回结果。`
+      return `测试请求已发送到 ${modelRef}。请查看会话 ${session.id}。`
     } catch (e) {
       return `模型测试失败：${String(e)}`
     }

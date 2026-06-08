@@ -497,7 +497,7 @@ export class ProviderConnectionService {
       if (runner === null) {
         result.ok = true
         result.connected = false
-        result.message = 'Provider saved locally. Connect OpenCode Server to sync config and auth.'
+        result.message = 'Provider saved locally. Connect Runtime to sync config and auth.'
         return result
       }
 
