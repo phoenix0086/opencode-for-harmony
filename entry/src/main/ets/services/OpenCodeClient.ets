@@ -2,20 +2,23 @@ import { http } from '@kit.NetworkKit'
 import { util } from '@kit.ArkTS'
 import { Runner, runnerBaseUrl } from '../models/Runner'
 import {
-  HealthInfo, ConfigInfo, ProviderInfo, SessionInfo,
-  MessageInfo, MessagePart, PermissionRequest, FileDiff,
-  ProjectInfo, VcsInfo, AgentInfo
+  HealthInfo, ConfigInfo, SessionInfo,
+  WithParts, RawPart, NormalizedMessage, NormalizedPart,
+  PermissionRequest, FileDiff, VcsInfo, VcsFileStatus,
+  ProjectInfo, AgentInfo, FileNode, PathInfo,
+  ProviderListResult, ProviderPublicInfo
 } from '../models/Event'
 
 /**
  * OpenCode Server API 客户端
- * 基于 OpenCode Server v1.16.2 OpenAPI spec
+ * 严格对齐 OpenCode v1.16.2 HTTP API (source-verified)
  */
 export class OpenCodeClient {
   private baseUrl: string = ''
   private username: string = 'opencode'
   private password: string = ''
   private directory: string = ''
+  private defaultAgent: string = 'build'
 
   constructor(runner: Runner) {
     this.baseUrl = runnerBaseUrl(runner)
@@ -28,14 +31,16 @@ export class OpenCodeClient {
     this.directory = dir
   }
 
+  setDefaultAgent(agent: string): void {
+    this.defaultAgent = agent
+  }
+
   private buildAuthHeader(): string {
-    if (!this.password) {
+    if (this.password.length === 0) {
       return ''
     }
-    // Basic auth: base64(username:password)
     const encoder = new util.TextEncoder()
     const data = encoder.encodeInto(`${this.username}:${this.password}`)
-    // ArkTS 环境下使用简化的 base64 编码
     const base64Helper = new util.Base64Helper()
     const encoded = base64Helper.encodeToStringSync(data)
     return `Basic ${encoded}`
@@ -54,8 +59,13 @@ export class OpenCodeClient {
     return headers
   }
 
-  private dirQuery(): string {
-    return this.directory ? `?directory=${encodeURIComponent(this.directory)}` : ''
+  /**
+   * Append ?directory=... to any URL (respects existing query params)
+   */
+  private appendDir(url: string): string {
+    if (this.directory.length === 0) return url
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}directory=${encodeURIComponent(this.directory)}`
   }
 
   private async doRequest(url: string, method: http.RequestMethod, body?: string): Promise<http.HttpResponse> {
@@ -75,17 +85,19 @@ export class OpenCodeClient {
   }
 
   private async doGet(path: string): Promise<http.HttpResponse> {
-    const sep = path.includes('?') ? '&' : '?'
-    const dirPart = this.directory ? `${sep}directory=${encodeURIComponent(this.directory)}` : ''
-    return this.doRequest(`${this.baseUrl}${path}${dirPart}`, http.RequestMethod.GET)
+    const url = this.appendDir(`${this.baseUrl}${path}`)
+    return this.doRequest(url, http.RequestMethod.GET)
   }
 
   private async doPost(path: string, body?: string): Promise<http.HttpResponse> {
-    return this.doRequest(`${this.baseUrl}${path}`, http.RequestMethod.POST, body)
+    const url = this.appendDir(`${this.baseUrl}${path}`)
+    return this.doRequest(url, http.RequestMethod.POST, body)
   }
 
   private async doPatch(path: string, body?: string): Promise<http.HttpResponse> {
-    // ArkTS HTTP 枚举不包含 PATCH，使用 POST + X-HTTP-Method-Override
+    // ArkTS http.RequestMethod 枚举不包含 PATCH
+    // 使用 POST + X-HTTP-Method-Override 头
+    const url = this.appendDir(`${this.baseUrl}${path}`)
     const headers = this.buildHeaders()
     headers['X-HTTP-Method-Override'] = 'PATCH'
     const req = http.createHttp()
@@ -98,20 +110,27 @@ export class OpenCodeClient {
     if (body) {
       options.extraData = body
     }
-    const resp = await req.request(`${this.baseUrl}${path}`, options)
+    const resp = await req.request(url, options)
     req.destroy()
     return resp
   }
 
+  private async doPut(path: string, body?: string): Promise<http.HttpResponse> {
+    const url = this.appendDir(`${this.baseUrl}${path}`)
+    return this.doRequest(url, http.RequestMethod.PUT, body)
+  }
+
   private async doDelete(path: string): Promise<http.HttpResponse> {
-    return this.doRequest(`${this.baseUrl}${path}`, http.RequestMethod.DELETE)
+    const url = this.appendDir(`${this.baseUrl}${path}`)
+    return this.doRequest(url, http.RequestMethod.DELETE)
   }
 
   private parseJson<T>(resp: http.HttpResponse): T {
     return JSON.parse(resp.result as string) as T
   }
 
-  // ══════════ 健康检查 ══════════
+  // ══════════ Health ══════════
+  // GET /global/health → { healthy: true, version: string }
 
   async health(): Promise<HealthResult> {
     try {
@@ -122,9 +141,9 @@ export class OpenCodeClient {
         r.error = `HTTP ${resp.responseCode}`
         return r
       }
-      const data = JSON.parse(resp.result as string) as HealthInfo
+      const data = this.parseJson<HealthInfo>(resp)
       const r = new HealthResult()
-      r.ok = true
+      r.ok = data.healthy
       r.version = data.version
       return r
     } catch (e) {
@@ -136,46 +155,47 @@ export class OpenCodeClient {
   }
 
   // ══════════ Config ══════════
+  // GET /config → ConfigV1.Info
+  // PATCH /config → ConfigV1.Info
 
   async getConfig(): Promise<ConfigInfo> {
     const resp = await this.doGet('/config')
     return this.parseJson<ConfigInfo>(resp)
   }
 
-  async updateConfig(config: Partial<ConfigInfo>): Promise<ConfigInfo> {
+  async updateConfig(config: Record<string, Object>): Promise<ConfigInfo> {
     const resp = await this.doPatch('/config', JSON.stringify(config))
     return this.parseJson<ConfigInfo>(resp)
   }
 
-  async getConfigProviders(): Promise<Object> {
+  async getConfigProviders(): Promise<Record<string, Object>> {
     const resp = await this.doGet('/config/providers')
-    return this.parseJson<Object>(resp)
+    return this.parseJson<Record<string, Object>>(resp)
   }
 
   // ══════════ Provider ══════════
+  // GET /provider → { all: ProviderPublicInfo[], default: Record, connected: string[] }
 
-  async listProviders(): Promise<ProviderInfo[]> {
+  async listProviders(): Promise<ProviderListResult> {
     const resp = await this.doGet('/provider')
-    const data = this.parseJson<Object>(resp) as Record<string, ProviderInfo[]>
-    return data.providers || []
+    const raw = this.parseJson<ProviderListResult>(resp)
+    return raw
   }
 
-  async getAuthMethods(): Promise<Object> {
+  async getAuthMethods(): Promise<Record<string, Object>> {
     const resp = await this.doGet('/provider/auth')
-    return this.parseJson<Object>(resp)
+    return this.parseJson<Record<string, Object>>(resp)
   }
 
   // ══════════ Auth ══════════
+  // PUT /auth/:providerID → body: { type:"api", key:string } → boolean
+  // DELETE /auth/:providerID → boolean
 
   async setAuth(providerID: string, apiKey: string): Promise<boolean> {
-    const authBody = new AuthBody()
-    authBody.type = 'api'
-    authBody.key = apiKey
-    const resp = await this.doRequest(
-      `${this.baseUrl}/auth/${providerID}`,
-      http.RequestMethod.PUT,
-      JSON.stringify(authBody)
-    )
+    const body: Record<string, string> = {}
+    body['type'] = 'api'
+    body['key'] = apiKey
+    const resp = await this.doPut(`/auth/${providerID}`, JSON.stringify(body))
     return resp.responseCode === 200
   }
 
@@ -185,6 +205,8 @@ export class OpenCodeClient {
   }
 
   // ══════════ Project ══════════
+  // GET /project → ProjectInfo[]
+  // GET /project/current → ProjectInfo
 
   async listProjects(): Promise<ProjectInfo[]> {
     const resp = await this.doGet('/project')
@@ -196,10 +218,64 @@ export class OpenCodeClient {
     return this.parseJson<ProjectInfo>(resp)
   }
 
+  // ══════════ Path / File ══════════
+  // GET /path → { home, state, config, worktree, directory }
+  // GET /file?path=... → FileNode[]
+  // GET /file/content?path=... → FileContent
+
+  async getPaths(): Promise<PathInfo> {
+    const resp = await this.doGet('/path')
+    return this.parseJson<PathInfo>(resp)
+  }
+
+  async listFiles(path: string): Promise<FileNode[]> {
+    const resp = await this.doGet(`/file?path=${encodeURIComponent(path)}`)
+    return this.parseJson<FileNode[]>(resp)
+  }
+
+  async readFile(filePath: string): Promise<Record<string, Object>> {
+    const resp = await this.doGet(`/file/content?path=${encodeURIComponent(filePath)}`)
+    return this.parseJson<Record<string, Object>>(resp)
+  }
+
+  // ══════════ VCS ══════════
+  // GET /vcs → { branch?, default_branch? }
+  // GET /vcs/status → VcsFileStatus[]
+  // GET /vcs/diff?mode=git|branch → FileDiff[]
+
+  async getVcsInfo(): Promise<VcsInfo> {
+    const resp = await this.doGet('/vcs')
+    const raw = this.parseJson<Record<string, string>>(resp)
+    const info = new VcsInfo()
+    info.branch = raw['branch'] || ''
+    info.defaultBranch = raw['default_branch'] || ''
+    return info
+  }
+
+  async getVcsStatus(): Promise<VcsFileStatus[]> {
+    const resp = await this.doGet('/vcs/status')
+    return this.parseJson<VcsFileStatus[]>(resp)
+  }
+
+  async getVcsDiff(mode: string): Promise<FileDiff[]> {
+    const m = mode.length > 0 ? mode : 'git'
+    const resp = await this.doGet(`/vcs/diff?mode=${m}`)
+    return this.parseJson<FileDiff[]>(resp)
+  }
+
   // ══════════ Session ══════════
+  // GET /session → SessionInfo[]
+  // POST /session → SessionInfo
+  // GET /session/:id → SessionInfo
+  // DELETE /session/:id → boolean
+  // PATCH /session/:id → SessionInfo
+  // POST /session/:id/abort → boolean
 
   async listSessions(limit?: number): Promise<SessionInfo[]> {
-    const path = limit ? `/session?limit=${limit}` : '/session'
+    let path = '/session'
+    if (limit && limit > 0) {
+      path = `/session?limit=${limit}`
+    }
     const resp = await this.doGet(path)
     return this.parseJson<SessionInfo[]>(resp)
   }
@@ -209,8 +285,12 @@ export class OpenCodeClient {
     return this.parseJson<SessionInfo>(resp)
   }
 
-  async createSession(): Promise<SessionInfo> {
-    const resp = await this.doPost('/session', '{}')
+  async createSession(title?: string): Promise<SessionInfo> {
+    const body: Record<string, string> = {}
+    if (title && title.length > 0) {
+      body['title'] = title
+    }
+    const resp = await this.doPost('/session', JSON.stringify(body))
     return this.parseJson<SessionInfo>(resp)
   }
 
@@ -225,77 +305,96 @@ export class OpenCodeClient {
   }
 
   async abortSession(sessionID: string): Promise<boolean> {
-    const resp = await this.doPost(`/session/${sessionID}/abort`, '{}')
+    const resp = await this.doPost(`/session/${sessionID}/abort`)
     return resp.responseCode === 200
   }
 
   // ══════════ Messages ══════════
+  // GET /session/:id/message → WithParts[] (raw)
+  // POST /session/:id/message → WithParts (sync prompt)
+  // POST /session/:id/prompt_async → 204 No Content (async prompt)
 
-  async getMessages(sessionID: string, limit?: number): Promise<MessageInfo[]> {
-    const path = limit ? `/session/${sessionID}/message?limit=${limit}` : `/session/${sessionID}/message`
-    const resp = await this.doGet(path)
-    return this.parseJson<MessageInfo[]>(resp)
-  }
-
-  async sendMessage(sessionID: string, content: string, parts?: MessagePart[]): Promise<Object> {
-    const body = new SendMessageBody()
-    if (parts) {
-      body.parts = parts
-    } else {
-      const textPart = new MessagePart()
-      textPart.type = 'text'
-      textPart.content = content
-      const partsArr: MessagePart[] = []
-      partsArr.push(textPart)
-      body.parts = partsArr
+  async getMessagesRaw(sessionID: string, limit?: number): Promise<WithParts[]> {
+    let path = `/session/${sessionID}/message`
+    if (limit && limit > 0) {
+      path = `${path}?limit=${limit}`
     }
-    const resp = await this.doPost(`/session/${sessionID}/message`, JSON.stringify(body))
-    return this.parseJson<Object>(resp)
+    const resp = await this.doGet(path)
+    if (resp.responseCode !== 200) {
+      const empty: WithParts[] = []
+      return empty
+    }
+    return this.parseJson<WithParts[]>(resp)
   }
 
+  /**
+   * 获取消息并自动 normalize 为 UI 友好格式
+   */
+  async getMessages(sessionID: string, limit?: number): Promise<NormalizedMessage[]> {
+    const raw = await this.getMessagesRaw(sessionID, limit)
+    return normalizeMessages(raw)
+  }
+
+  /**
+   * 同步发送消息 (阻塞直到 Agent 回复)
+   */
+  async sendMessage(sessionID: string, content: string): Promise<Record<string, Object>> {
+    const body = this.buildPromptBody(content)
+    const resp = await this.doPost(`/session/${sessionID}/message`, JSON.stringify(body))
+    return this.parseJson<Record<string, Object>>(resp)
+  }
+
+  /**
+   * 异步发送消息 (立即返回, Agent 在后台处理)
+   * 真实 API 返回 204 No Content
+   */
   async sendMessageAsync(sessionID: string, content: string): Promise<boolean> {
-    const body = new SendMessageBody()
-    const textPart = new MessagePart()
-    textPart.type = 'text'
-    textPart.content = content
-    const partsArr: MessagePart[] = []
-    partsArr.push(textPart)
-    body.parts = partsArr
+    const body = this.buildPromptBody(content)
     const resp = await this.doPost(`/session/${sessionID}/prompt_async`, JSON.stringify(body))
-    return resp.responseCode === 202 || resp.responseCode === 200
+    return resp.responseCode === 204 || resp.responseCode === 200
+  }
+
+  private buildPromptBody(content: string): Record<string, Object> {
+    const textPart: Record<string, string> = {}
+    textPart['type'] = 'text'
+    textPart['text'] = content
+    const parts: Record<string, string>[] = []
+    parts.push(textPart)
+    const body: Record<string, Object> = {}
+    body['agent'] = this.defaultAgent
+    body['parts'] = parts
+    return body
   }
 
   // ══════════ Permission ══════════
+  // GET /permission → PermissionRequest[]
+  // POST /permission/:requestID/reply → { reply: "once"|"always"|"deny" } → boolean
 
   async listPermissions(): Promise<PermissionRequest[]> {
     const resp = await this.doGet('/permission')
     return this.parseJson<PermissionRequest[]>(resp)
   }
 
-  async replyPermission(requestID: string, reply: string, message?: string): Promise<boolean> {
-    const body = new PermissionReplyBody()
-    body.reply = reply
-    if (message) {
-      body.message = message
-    }
+  /**
+   * 回复权限请求
+   * @param reply - "once" (本次允许), "always" (永久允许), "deny" (拒绝)
+   */
+  async replyPermission(requestID: string, reply: string): Promise<boolean> {
+    const body: Record<string, string> = {}
+    body['reply'] = reply
     const resp = await this.doPost(`/permission/${requestID}/reply`, JSON.stringify(body))
     return resp.responseCode === 200
   }
 
-  // ══════════ Diff / VCS ══════════
+  // ══════════ Diff ══════════
+  // GET /session/:id/diff?messageID=... → FileDiff[]
 
-  async getSessionDiff(sessionID: string): Promise<FileDiff[]> {
-    const resp = await this.doGet(`/session/${sessionID}/diff`)
-    return this.parseJson<FileDiff[]>(resp)
-  }
-
-  async getVcsStatus(): Promise<VcsInfo> {
-    const resp = await this.doGet('/vcs/status')
-    return this.parseJson<VcsInfo>(resp)
-  }
-
-  async getVcsDiff(): Promise<FileDiff[]> {
-    const resp = await this.doGet('/vcs/diff?mode=staged')
+  async getSessionDiff(sessionID: string, messageID: string): Promise<FileDiff[]> {
+    const resp = await this.doGet(`/session/${sessionID}/diff?messageID=${encodeURIComponent(messageID)}`)
+    if (resp.responseCode !== 200) {
+      const empty: FileDiff[] = []
+      return empty
+    }
     return this.parseJson<FileDiff[]>(resp)
   }
 
@@ -306,38 +405,17 @@ export class OpenCodeClient {
     return this.parseJson<AgentInfo[]>(resp)
   }
 
-  // ══════════ File ══════════
-
-  async listFiles(path: string): Promise<Object[]> {
-    const resp = await this.doGet(`/file?path=${encodeURIComponent(path)}`)
-    return this.parseJson<Object[]>(resp)
-  }
-
-  async readFile(filePath: string): Promise<Object> {
-    const resp = await this.doGet(`/file/content?path=${encodeURIComponent(filePath)}`)
-    return this.parseJson<Object>(resp)
-  }
-
   // ══════════ Instance ══════════
 
-  async getPaths(): Promise<Record<string, string>> {
-    const resp = await this.doGet('/path')
-    return this.parseJson<Record<string, string>>(resp)
-  }
-
   async disposeInstance(): Promise<boolean> {
-    const resp = await this.doPost('/instance/dispose', '{}')
+    const resp = await this.doPost('/instance/dispose')
     return resp.responseCode === 200
   }
 
-  // ══════════ SSE Event Stream ══════════
+  // ══════════ SSE Event Stream URL ══════════
 
-  /**
-   * 获取 SSE 事件流 URL（供 EventStreamClient 使用）
-   */
   getEventStreamUrl(): string {
-    const dirPart = this.directory ? `?directory=${encodeURIComponent(this.directory)}` : ''
-    return `${this.baseUrl}/event${dirPart}`
+    return this.appendDir(`${this.baseUrl}/event`)
   }
 
   getAuthHeaders(): Record<string, string> {
@@ -345,7 +423,7 @@ export class OpenCodeClient {
   }
 }
 
-// ══════════ 辅助类型 ══════════
+// ══════════ Health Result ══════════
 
 export class HealthResult {
   ok: boolean = false
@@ -353,16 +431,80 @@ export class HealthResult {
   error: string = ''
 }
 
-class AuthBody {
-  type: string = ''
-  key: string = ''
+// ══════════ Normalize Functions ══════════
+
+/**
+ * WithParts[] → NormalizedMessage[]
+ * 将原始 API 的 { info, parts } 结构转换为 UI 友好的扁平格式
+ */
+export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
+  const result: NormalizedMessage[] = []
+  for (const item of raw) {
+    const msg = new NormalizedMessage()
+    msg.id = item.info.id
+    msg.role = item.info.role
+    msg.sessionID = item.info.sessionID
+
+    for (const part of item.parts) {
+      const np = new NormalizedPart()
+      if (part.type === 'text') {
+        np.type = 'text'
+        np.content = part.text
+      } else if (part.type === 'tool-invocation') {
+        np.type = 'tool-invocation'
+        np.id = part.toolInvocationId
+        np.toolName = part.toolName
+        np.toolState = part.state
+        np.toolResult = part.result
+        np.step = part.step
+        // Serialize args to string for display
+        try {
+          np.toolArgs = JSON.stringify(part.args)
+        } catch (e) {
+          np.toolArgs = ''
+        }
+      } else if (part.type === 'reasoning') {
+        np.type = 'reasoning'
+        np.content = part.text
+      } else {
+        np.type = part.type
+        np.content = part.text
+      }
+      msg.parts.push(np)
+    }
+
+    result.push(msg)
+  }
+  return result
 }
 
-class SendMessageBody {
-  parts: MessagePart[] = []
+/**
+ * Normalize provider list from API response
+ */
+export function normalizeProviderList(raw: ProviderListResult): ProviderPublicInfo[] {
+  return raw.all
 }
 
-class PermissionReplyBody {
-  reply: string = ''
-  message: string = ''
+/**
+ * Normalize VCS info — extract branch name
+ */
+export function normalizeVcsBranch(raw: Record<string, string>): string {
+  return raw['branch'] || raw['default_branch'] || ''
+}
+
+/**
+ * Normalize file diff — ensure all fields have defaults
+ */
+export function normalizeFileDiffs(raw: FileDiff[]): FileDiff[] {
+  const result: FileDiff[] = []
+  for (const d of raw) {
+    const diff = new FileDiff()
+    diff.file = d.file || ''
+    diff.patch = d.patch || ''
+    diff.additions = d.additions || 0
+    diff.deletions = d.deletions || 0
+    diff.status = d.status || ''
+    result.push(diff)
+  }
+  return result
 }

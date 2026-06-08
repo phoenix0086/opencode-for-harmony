@@ -1,16 +1,16 @@
 /**
- * SSE 事件模型
- * 基于 OpenCode Server 的事件流格式
+ * OpenCode Server 数据模型
+ * 严格对齐 OpenCode v1.16.2 HTTP API
  */
 
-/** 基础事件结构 */
+// ══════════ Server Event ══════════
+
 export class ServerEvent {
   id: string = ''
   type: string = ''
   properties: Record<string, Object> = {}
 }
 
-/** 全局事件包装 */
 export class GlobalEvent {
   directory: string = ''
   project: string = ''
@@ -18,87 +18,127 @@ export class GlobalEvent {
   payload: ServerEvent = new ServerEvent()
 }
 
-/** 会话信息 */
+// ══════════ Session ══════════
+
 export class SessionInfo {
   id: string = ''
+  slug: string = ''
   title: string = ''
   projectID: string = ''
-  status: string = ''
-  modelID: string = ''
-  providerID: string = ''
+  workspaceID: string = ''
+  directory: string = ''
+  agent: string = ''
+  version: string = ''
+  cost: number = 0
+  model: SessionModel = new SessionModel()
   time: SessionTime = new SessionTime()
-  metadata: Record<string, string> = {}
+  metadata: Record<string, Object> = {}
+}
+
+export class SessionModel {
+  providerID: string = ''
+  modelID: string = ''
 }
 
 export class SessionTime {
-  created: string = ''
-  updated: string = ''
-  archived: string = ''
+  created: number = 0
+  updated: number = 0
 }
 
-/** 消息部分 (Part) - 消息由多个 Part 组成 */
-export class MessagePart {
-  id: string = ''
-  sessionID: string = ''
-  messageID: string = ''
-  type: string = '' // 'text' | 'tool-invocation' | 'reasoning' | 'file'
-  content: string = ''
-  metadata: Record<string, Object> = {}
+// ══════════ Message (WithParts) ══════════
+
+/**
+ * Raw API response for GET /session/:id/message
+ * Each item is a WithParts: { info, parts }
+ */
+export class WithParts {
+  info: MessageInfo = new MessageInfo()
+  parts: RawPart[] = []
 }
 
-/** 消息 */
 export class MessageInfo {
   id: string = ''
+  role: string = ''
   sessionID: string = ''
-  role: string = '' // 'user' | 'assistant'
-  parts: MessagePart[] = []
-  metadata: Record<string, Object> = {}
+  agent: string = ''
   time: MessageTime = new MessageTime()
 }
 
 export class MessageTime {
-  created: string = ''
-  updated: string = ''
+  created: number = 0
 }
 
-/** 工具调用信息 */
-export class ToolInvocation {
-  toolCallId: string = ''
+/**
+ * Raw Part from API — shape varies by type.
+ * text: { type:"text", text:"..." }
+ * tool-invocation: { type:"tool-invocation", toolInvocationId:"...", toolName:"...", state:"...", args:{...}, result:"..." }
+ */
+export class RawPart {
+  type: string = ''
+  text: string = ''
+  toolInvocationId: string = ''
   toolName: string = ''
-  state: string = '' // 'partial-call' | 'call' | 'result'
+  state: string = ''
   args: Record<string, Object> = {}
   result: string = ''
   step: number = 0
 }
 
-/** 权限请求 */
+// ══════════ Normalized Message (for UI) ══════════
+
+export class NormalizedMessage {
+  id: string = ''
+  role: string = ''
+  sessionID: string = ''
+  parts: NormalizedPart[] = []
+}
+
+export class NormalizedPart {
+  id: string = ''
+  type: string = ''
+  content: string = ''
+  toolName: string = ''
+  toolState: string = ''
+  toolArgs: string = ''
+  toolResult: string = ''
+  step: number = 0
+}
+
+// ══════════ Permission ══════════
+
 export class PermissionRequest {
   id: string = ''
   sessionID: string = ''
-  type: string = '' // 'bash' | 'edit' | 'write' | 'delete'
+  type: string = ''
   title: string = ''
   description: string = ''
-  riskLevel: string = '' // 'low' | 'medium' | 'high'
-  status: string = '' // 'pending' | 'approved' | 'rejected'
+  riskLevel: string = ''
+  status: string = ''
   properties: Record<string, Object> = {}
 }
 
-/** 文件 Diff */
+// ══════════ File Diff ══════════
+
 export class FileDiff {
-  path: string = ''
-  status: string = '' // 'added' | 'modified' | 'deleted' | 'renamed'
+  file: string = ''
+  patch: string = ''
   additions: number = 0
   deletions: number = 0
-  patch: string = ''
-  oldPath: string = ''
+  status: string = ''
 }
 
-/** Provider 信息 */
-export class ProviderInfo {
+// ══════════ Provider ══════════
+
+export class ProviderListResult {
+  all: ProviderPublicInfo[] = []
+  connected: string[] = []
+  defaults: Record<string, string> = {}
+}
+
+export class ProviderPublicInfo {
   id: string = ''
   name: string = ''
   source: string = ''
-  status: string = '' // 'connected' | 'disconnected' | 'error'
   models: ModelInfo[] = []
 }
 
@@ -122,86 +162,110 @@ export class ModelLimit {
   output: number = 0
 }
 
-/** Config 信息 */
-export class ConfigInfo {
-  model: string = ''
-  small_model: string = ''
-  provider: Record<string, Object> = {}
-  permission: Record<string, string> = {}
-  server: ServerConfig = new ServerConfig()
-}
+// ══════════ VCS ══════════
 
-export class ServerConfig {
-  port: number = 4096
-  hostname: string = '127.0.0.1'
-}
-
-/** 项目信息 */
-export class ProjectInfo {
-  id: string = ''
-  name: string = ''
-  path: string = ''
-  icon: string = ''
-  worktree: string = ''
-  time: ProjectTime = new ProjectTime()
-}
-
-export class ProjectTime {
-  created: string = ''
-  updated: string = ''
-  initialized: string = ''
-}
-
-/** VCS 信息 */
 export class VcsInfo {
   branch: string = ''
-  commit: string = ''
-  remote: string = ''
-  clean: boolean = true
+  defaultBranch: string = ''
 }
 
-/** 健康检查结果 */
+export class VcsFileStatus {
+  file: string = ''
+  additions: number = 0
+  deletions: number = 0
+  status: string = ''
+}
+
+// ══════════ Health ══════════
+
 export class HealthInfo {
   healthy: boolean = false
   version: string = ''
 }
 
-/** Agent 信息 */
+// ══════════ Config ══════════
+
+export class ConfigInfo {
+  model: string = ''
+  smallModel: string = ''
+  provider: Record<string, Object> = {}
+  permission: Record<string, string> = {}
+}
+
+// ══════════ Project ══════════
+
+export class ProjectInfo {
+  id: string = ''
+  name: string = ''
+  worktree: string = ''
+}
+
+// ══════════ Agent ══════════
+
 export class AgentInfo {
   id: string = ''
   name: string = ''
   description: string = ''
-  model: string = ''
-  permission: Record<string, string> = {}
 }
 
-/** 事件类型常量 */
+// ══════════ File Node ══════════
+
+export class FileNode {
+  name: string = ''
+  path: string = ''
+  absolute: string = ''
+  type: string = ''
+  ignored: boolean = false
+}
+
+// ══════════ Path Info ══════════
+
+export class PathInfo {
+  home: string = ''
+  state: string = ''
+  config: string = ''
+  worktree: string = ''
+  directory: string = ''
+}
+
+// ══════════ Event Type Constants ══════════
+
 export class EventTypes {
   // Server
   static readonly SERVER_CONNECTED: string = 'server.connected'
   static readonly SERVER_HEARTBEAT: string = 'server.heartbeat'
   static readonly SERVER_INSTANCE_DISPOSED: string = 'server.instance.disposed'
 
-  // Session
+  // Session lifecycle
   static readonly SESSION_CREATED: string = 'session.created'
   static readonly SESSION_UPDATED: string = 'session.updated'
   static readonly SESSION_DELETED: string = 'session.deleted'
+
+  // Messages
   static readonly SESSION_MESSAGE_UPDATED: string = 'session.message.updated'
   static readonly SESSION_PART_UPDATED: string = 'session.part.updated'
   static readonly SESSION_PROMPTED: string = 'session.prompted'
+
+  // Run (agent execution)
   static readonly SESSION_RUN_STARTED: string = 'session.run.started'
   static readonly SESSION_RUN_ENDED: string = 'session.run.ended'
+
+  // LLM
   static readonly SESSION_LLM_STARTED: string = 'session.llm.started'
   static readonly SESSION_LLM_ENDED: string = 'session.llm.ended'
   static readonly SESSION_LLM_DELTA: string = 'session.llm.delta'
+
+  // Tool
   static readonly SESSION_TOOL_STARTED: string = 'session.tool.started'
   static readonly SESSION_TOOL_ENDED: string = 'session.tool.ended'
-  static readonly SESSION_TOOL_CALLED: string = 'session.tool.called'
   static readonly SESSION_TOOL_SUCCESS: string = 'session.tool.success'
   static readonly SESSION_TOOL_FAILED: string = 'session.tool.failed'
+
+  // Diff
   static readonly SESSION_DIFF: string = 'session.diff'
+
+  // Error / Status
   static readonly SESSION_ERROR: string = 'session.error'
-  static readonly SESSION_IDLE: string = 'session.idle'
   static readonly SESSION_STATUS: string = 'session.status'
 
   // Permission

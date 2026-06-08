@@ -1,9 +1,9 @@
 import { Runner, createRunner, RunnerConfig } from '../models/Runner'
 import {
-  SessionInfo, MessageInfo, MessagePart, FileDiff,
+  SessionInfo, NormalizedMessage, NormalizedPart, FileDiff,
   PermissionRequest, EventTypes, ServerEvent
 } from '../models/Event'
-import { OpenCodeClient, HealthResult } from '../services/OpenCodeClient'
+import { OpenCodeClient, HealthResult, normalizeFileDiffs } from '../services/OpenCodeClient'
 import { EventStreamClient, EventCallback } from '../services/EventStreamClient'
 import { storageService } from '../services/StorageService'
 import { providerRegistry } from '../services/ProviderRegistry'
@@ -114,9 +114,9 @@ struct Index {
         } catch (e) {
           // ignore
         }
-        // Load VCS info
+        // Load VCS info (branch from GET /vcs)
         try {
-          const vcs = await client.getVcsStatus()
+          const vcs = await client.getVcsInfo()
           this.branchName = vcs.branch
         } catch (e) {
           // ignore
@@ -193,22 +193,23 @@ struct Index {
   }
 
   async loadDiffs(): Promise<void> {
-    if (this.activeRunner === null || this.activeSessionId.length === 0) return
+    if (this.activeRunner === null) return
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      this.diffs = await client.getSessionDiff(this.activeSessionId)
+      // Use VCS diff (GET /vcs/diff?mode=git) — no messageID required
+      const rawDiffs = await client.getVcsDiff('git')
+      this.diffs = normalizeFileDiffs(rawDiffs)
     } catch (e) {
       // ignore
     }
   }
 
-  // ══════════ Message Conversion (bug-fixed) ══════════
+  // ══════════ Message Conversion ══════════
 
-  convertMessage(msg: MessageInfo): TranscriptBlock[] {
+  convertMessage(msg: NormalizedMessage): TranscriptBlock[] {
     const blocks: TranscriptBlock[] = []
 
     if (msg.role === 'user') {
-      // User message: concatenate text parts
       let textContent = ''
       for (const part of msg.parts) {
         if (part.type === 'text') {
@@ -222,7 +223,6 @@ struct Index {
       block.content = textContent.length > 0 ? textContent : '[message]'
       blocks.push(block)
     } else if (msg.role === 'assistant') {
-      // Assistant message: text parts + tool parts as separate blocks
       let textContent = ''
       for (const part of msg.parts) {
         if (part.type === 'text') {
@@ -230,7 +230,6 @@ struct Index {
         }
       }
 
-      // Add text block if non-empty
       if (textContent.length > 0) {
         const textBlock = new TranscriptBlock()
         textBlock.id = `${msg.id}_text`
@@ -240,18 +239,17 @@ struct Index {
         blocks.push(textBlock)
       }
 
-      // Add tool invocation blocks — each tool gets its own block
-      // No side effects here — toolEntries are built in loadMessages
       for (const part of msg.parts) {
         if (part.type === 'tool-invocation') {
           const toolBlock = new TranscriptBlock()
           toolBlock.id = `tool_${part.id}`
           toolBlock.type = 'tool'
           toolBlock.toolId = part.id
-          toolBlock.toolName = (part.metadata['toolName'] as string) || 'unknown'
-          toolBlock.toolStatus = (part.metadata['state'] as string) || 'success'
-          toolBlock.toolInput = part.content
-          toolBlock.toolStep = (part.metadata['step'] as number) || 0
+          toolBlock.toolName = part.toolName.length > 0 ? part.toolName : 'unknown'
+          toolBlock.toolStatus = part.toolState.length > 0 ? part.toolState : 'result'
+          toolBlock.toolInput = part.toolArgs
+          toolBlock.toolOutput = part.toolResult
+          toolBlock.toolStep = part.step
           blocks.push(toolBlock)
         }
       }
@@ -368,12 +366,12 @@ struct Index {
       }
     })
 
-    // Listen for session idle
-    this.eventClient.on(EventTypes.SESSION_IDLE, (event: ServerEvent) => {
+    // Listen for session run ended (replaces idle)
+    this.eventClient.on(EventTypes.SESSION_RUN_ENDED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         this.isSending = false
         this.isStreaming = false
-        this.addLog('session.idle')
+        this.addLog('session.run.ended')
       }
     })
 
@@ -446,7 +444,7 @@ struct Index {
     if (this.activeRunner === null) return
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      await client.replyPermission(permId, 'approve')
+      await client.replyPermission(permId, 'once')
       this.updatePermissionStatus(permId, 'approved')
     } catch (e) {
       // ignore
@@ -457,7 +455,7 @@ struct Index {
     if (this.activeRunner === null) return
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      await client.replyPermission(permId, 'reject')
+      await client.replyPermission(permId, 'deny')
       this.updatePermissionStatus(permId, 'rejected')
     } catch (e) {
       // ignore

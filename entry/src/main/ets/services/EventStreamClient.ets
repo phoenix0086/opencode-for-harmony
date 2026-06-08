@@ -1,4 +1,4 @@
-import { ServerEvent, GlobalEvent, EventTypes, MessageInfo, PermissionRequest } from '../models/Event'
+import { ServerEvent, GlobalEvent, EventTypes, NormalizedMessage, NormalizedPart, PermissionRequest } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
 
 /**
@@ -108,7 +108,7 @@ export class EventStreamClient {
 
     const messages = await this.client.getMessages(this.sessionId)
 
-    // 首次轮询记录已有消息 ID，不触发事件
+    // First poll: record existing message IDs without firing events
     if (this.seenMessageIds.length === 0 && messages.length > 0) {
       for (const msg of messages) {
         this.seenMessageIds.push(msg.id)
@@ -120,7 +120,7 @@ export class EventStreamClient {
       if (!this.containsString(this.seenMessageIds, msg.id)) {
         this.seenMessageIds.push(msg.id)
 
-        // 触发消息更新事件
+        // Fire message updated event
         const msgEvent = new ServerEvent()
         msgEvent.id = msg.id
         msgEvent.type = EventTypes.SESSION_MESSAGE_UPDATED
@@ -128,14 +128,13 @@ export class EventStreamClient {
         msgEvent.properties['message'] = msg as Object
         this.emit(EventTypes.SESSION_MESSAGE_UPDATED, msgEvent)
 
-        // 根据消息内容推断 LLM 事件
+        // Infer LLM events from message content
         if (msg.role === 'assistant') {
           const llmEvent = new ServerEvent()
           llmEvent.id = msg.id
           llmEvent.type = EventTypes.SESSION_LLM_DELTA
           llmEvent.properties['sessionID'] = this.sessionId
           llmEvent.properties['messageID'] = msg.id
-          // 从 parts 中提取文本内容作为 delta
           let deltaText = ''
           for (const part of msg.parts) {
             if (part.type === 'text') {
@@ -146,16 +145,16 @@ export class EventStreamClient {
           this.emit(EventTypes.SESSION_LLM_DELTA, llmEvent)
         }
 
-        // 检查工具调用 parts
+        // Check tool invocation parts
         for (const part of msg.parts) {
           if (part.type === 'tool-invocation') {
             const toolEvent = new ServerEvent()
             toolEvent.id = `${msg.id}_${part.id}`
             toolEvent.type = EventTypes.SESSION_TOOL_SUCCESS
             toolEvent.properties['sessionID'] = this.sessionId
-            toolEvent.properties['toolName'] = part.metadata['toolName'] as string
-            toolEvent.properties['input'] = part.content
-            toolEvent.properties['step'] = part.metadata['step'] as number
+            toolEvent.properties['toolName'] = part.toolName
+            toolEvent.properties['input'] = part.toolArgs
+            toolEvent.properties['step'] = part.step
             this.emit(EventTypes.SESSION_TOOL_SUCCESS, toolEvent)
           }
         }

@@ -94,14 +94,16 @@ export struct SessionSidebar {
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
 
                 Row() {
-                  // Status badge
-                  Text(session.status)
-                    .fontSize(Theme.fs.xs)
-                    .fontColor(this.getStatusColor(session.status))
-                    .fontFamily(Theme.FONT_MONO)
+                  // Model badge
+                  if (session.model.modelID.length > 0) {
+                    Text(session.model.modelID)
+                      .fontSize(Theme.fs.xs)
+                      .fontColor(Theme.ACCENT)
+                      .fontFamily(Theme.FONT_MONO)
+                  }
 
-                  if (session.time.updated.length > 0) {
-                    Text(session.time.updated)
+                  if (session.time.updated > 0) {
+                    Text(this.formatRelTime(session.time.updated))
                       .fontSize(Theme.fs.xs)
                       .fontColor(Theme.TEXT_MUTED)
                       .margin({ left: Theme.sp.md })
@@ -157,10 +159,15 @@ export struct SessionSidebar {
     .borderColor(Theme.BORDER)
   }
 
-  private getStatusColor(status: string): string {
-    if (status === 'running' || status === 'active') return Theme.SUCCESS
-    if (status === 'error') return Theme.DANGER
-    if (status === 'idle') return Theme.TEXT_MUTED
-    return Theme.TEXT_MUTED
+  private formatRelTime(timestamp: number): string {
+    if (timestamp <= 0) return ''
+    const now = Date.now()
+    const t = timestamp * 1000
+    const diff = now - t
+    if (diff < 60000) return 'now'
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`
+    const d = new Date(t)
+    return `${d.getMonth() + 1}/${d.getDate()}`
   }
 }

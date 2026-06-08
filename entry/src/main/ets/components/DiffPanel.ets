@@ -80,7 +80,7 @@ export struct DiffPanel {
                   .width(16)
 
                 // File path
-                Text(diff.path)
+                Text(diff.file)
                   .fontSize(Theme.fs.sm)
                   .fontColor(Theme.TEXT_PRIMARY)
                   .fontFamily(Theme.FONT_MONO)
@@ -125,7 +125,7 @@ export struct DiffPanel {
             .borderWidth({ bottom: 1 })
             .borderColor(Theme.BORDER)
           }
-        }, (diff: FileDiff) => diff.path)
+        }, (diff: FileDiff) => diff.file)
       }
       .layoutWeight(1)
       .width('100%')

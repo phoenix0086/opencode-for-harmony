@@ -1,6 +1,6 @@
 import { Theme } from './Theme'
 import { Runner } from '../models/Runner'
-import { SessionInfo, MessageInfo, FileDiff, PermissionRequest } from '../models/Event'
+import { SessionInfo, FileDiff, PermissionRequest } from '../models/Event'
 import { LeftActivityBar } from './LeftActivityBar'
 import { TopStatusBar } from './TopStatusBar'
 import { SessionSidebar } from './SessionSidebar'

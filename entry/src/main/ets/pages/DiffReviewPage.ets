@@ -25,7 +25,7 @@ export struct DiffReviewPage {
     this.isLoading = true
     try {
       const client = new OpenCodeClient(this.activeRunner!)
-      this.diffs = await client.getSessionDiff(this.sessionId)
+      this.diffs = await client.getVcsDiff('git')
       if (this.diffs.length > 0) {
         this.selectedFile = this.diffs[0].path
         this.selectedPatch = this.diffs[0].patch
@@ -86,7 +86,7 @@ export struct DiffReviewPage {
               ListItem() {
                 this.FileRow(diff)
               }
-            }, (diff: FileDiff) => diff.path)
+            }, (diff: FileDiff) => diff.file)
           }
           .width(280)
           .height('100%')
@@ -147,10 +147,10 @@ export struct DiffReviewPage {
         .width(24)
 
       Column() {
-        Text(this.getFileName(diff.path))
+        Text(this.getFileName(diff.file))
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor(this.selectedFile === diff.path ? '#4F46E5' : '#1E293B')
+          .fontColor(this.selectedFile === diff.file ? '#4F46E5' : '#1E293B')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
 
@@ -176,9 +176,9 @@ export struct DiffReviewPage {
     .width('100%')
     .padding(12)
     .borderRadius(8)
-    .backgroundColor(this.selectedFile === diff.path ? '#E0E7FF' : 'transparent')
+    .backgroundColor(this.selectedFile === diff.file ? '#E0E7FF' : 'transparent')
     .onClick(() => {
-      this.selectedFile = diff.path
+      this.selectedFile = diff.file
       this.selectedPatch = diff.patch
     })
   }

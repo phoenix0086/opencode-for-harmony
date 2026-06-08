@@ -59,9 +59,9 @@ entry/src/main/ets/
 ├── models/
 │   ├── Runner.ets                 # Server 连接模型
 │   ├── Provider.ets               # CN Provider 模型
-│   └── Event.ets                  # SSE 事件模型
+│   └── Event.ets                  # SSE 事件 + API 数据模型 (WithParts/Normalized)
 ├── services/
-│   ├── OpenCodeClient.ets         # 完整 API 客户端
+│   ├── OpenCodeClient.ets         # 完整 API 客户端 (含 normalize 层)
 │   ├── EventStreamClient.ets      # SSE 事件流客户端 (轮询模式)
 │   ├── ProviderRegistry.ets       # Provider 注册表
 │   ├── RuntimeManager.ets         # Runtime 管理器
@@ -149,6 +149,7 @@ entry/src/main/ets/
 | M7: RuntimeManager | ✅ | 连接检测、健康检查、启动指南 |
 | M8: 打包文档 | ✅ | README、API 文档、验证报告 |
 | M9: AppShell Wiring | ✅ | 三栏 IDE 联调、真实页面接入、深色主题统一 |
+| M10: API 联调修复 | ✅ | OpenCodeClient 对齐真实 OpenAPI spec、normalize 层、13 项 endpoint 修正 |
 
 ## 安全策略
 

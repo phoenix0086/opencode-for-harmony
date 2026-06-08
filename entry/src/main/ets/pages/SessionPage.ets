@@ -149,23 +149,23 @@ export struct SessionPage {
             .layoutWeight(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
 
-          Text(this.getStatusLabel(session.status))
+          Text(this.getStatusLabel('active'))
             .fontSize(10)
-            .fontColor(this.getStatusColor(session.status))
-            .backgroundColor(this.getStatusBg(session.status))
+            .fontColor(this.getStatusColor('active'))
+            .backgroundColor(this.getStatusBg('active'))
             .borderRadius(4)
             .padding({ left: 6, right: 6, top: 2, bottom: 2 })
         }
         .width('100%')
 
         Row() {
-          if (session.modelID) {
-            Text(session.modelID)
+          if (session.model.modelID.length > 0) {
+            Text(session.model.modelID)
               .fontSize(11)
               .fontColor('#64748B')
           }
           Blank()
-          Text(this.formatTime(session.time.updated || session.time.created))
+          Text(this.formatTime(session.time.updated > 0 ? session.time.updated : session.time.created))
             .fontSize(11)
             .fontColor('#94A3B8')
         }
@@ -233,18 +233,18 @@ export struct SessionPage {
     }
   }
 
-  formatTime(isoTime: string): string {
-    if (!isoTime) return ''
+  formatTime(timestamp: number): string {
+    if (timestamp <= 0) return ''
     try {
-      const d = new Date(isoTime)
+      const d = new Date(timestamp * 1000)
       const now = new Date()
       const diff = now.getTime() - d.getTime()
-      if (diff < 60000) return '刚刚'
-      if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-      if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+      if (diff < 60000) return 'just now'
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
       return `${d.getMonth() + 1}/${d.getDate()}`
-    } catch {
-      return isoTime
+    } catch (e) {
+      return ''
     }
   }
 }
