@@ -16,6 +16,7 @@ export class SessionTab {
  */
 @Component
 export struct SessionTabs {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop tabs: SessionTab[] = []
   @Prop activeTabId: string = ''
   onSelectTab: (id: string) => void = () => {}

@@ -7,6 +7,7 @@ import { Theme } from './Theme'
  */
 @Component
 export struct ThinkingHeading {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop state: string = 'thinking' // 'thinking' | 'acting' | 'responding'
   @Prop toolName: string = ''
 

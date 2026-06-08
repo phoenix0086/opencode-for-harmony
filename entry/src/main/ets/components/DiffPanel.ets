@@ -11,6 +11,7 @@ import { FileDiff } from '../models/Event'
  */
 @Component
 export struct DiffPanel {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop diffs: FileDiff[] = []
   @Prop sessionTitle: string = ''
 

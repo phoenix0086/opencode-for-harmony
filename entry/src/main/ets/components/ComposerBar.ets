@@ -10,6 +10,7 @@ import { ContextUsage } from './ContextUsage'
  */
 @Component
 export struct ComposerBar {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   // ── Existing props ──
   @Prop inputText: string = ''
   @Prop isSending: boolean = false

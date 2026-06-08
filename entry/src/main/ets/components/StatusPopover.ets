@@ -6,6 +6,7 @@ import { Theme } from './Theme'
 
 @Component
 export struct StatusPopover {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop visible: boolean = false
   @Prop isConnected: boolean = false
   @Prop serverUrl: string = ''

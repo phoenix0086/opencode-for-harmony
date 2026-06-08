@@ -129,6 +129,23 @@ export class OpenCodeClient {
     return JSON.parse(resp.result as string) as T
   }
 
+  private checkResponse(resp: http.HttpResponse): void {
+    if (resp.responseCode >= 400) {
+      let errMsg = `HTTP ${resp.responseCode}`
+      try {
+        const body = JSON.parse(resp.result as string) as Record<string, string>
+        if (body['error'] && body['error'].length > 0) {
+          errMsg = body['error']
+        } else if (body['message'] && body['message'].length > 0) {
+          errMsg = body['message']
+        }
+      } catch (e) {
+        // Use status code only
+      }
+      throw new Error(errMsg)
+    }
+  }
+
   // ══════════ Health ══════════
   // GET /global/health → { healthy: true, version: string }
 
@@ -160,16 +177,27 @@ export class OpenCodeClient {
 
   async getConfig(): Promise<ConfigInfo> {
     const resp = await this.doGet('/config')
-    return this.parseJson<ConfigInfo>(resp)
+    if (resp.responseCode !== 200) {
+      return new ConfigInfo()
+    }
+    const raw = JSON.parse(resp.result as string) as Record<string, Object>
+    const config = new ConfigInfo()
+    config.model = (raw['model'] as string) || ''
+    config.smallModel = (raw['small_model'] as string) || (raw['smallModel'] as string) || ''
+    config.provider = (raw['provider'] as Record<string, Object>) || {}
+    config.permission = (raw['permission'] as Record<string, string>) || {}
+    return config
   }
 
   async updateConfig(config: Record<string, Object>): Promise<ConfigInfo> {
     const resp = await this.doPatch('/config', JSON.stringify(config))
+    this.checkResponse(resp)
     return this.parseJson<ConfigInfo>(resp)
   }
 
   async getConfigProviders(): Promise<Record<string, Object>> {
     const resp = await this.doGet('/config/providers')
+    this.checkResponse(resp)
     return this.parseJson<Record<string, Object>>(resp)
   }
 
@@ -178,12 +206,14 @@ export class OpenCodeClient {
 
   async listProviders(): Promise<ProviderListResult> {
     const resp = await this.doGet('/provider')
+    this.checkResponse(resp)
     const raw = this.parseJson<ProviderListResult>(resp)
     return raw
   }
 
   async getAuthMethods(): Promise<Record<string, Object>> {
     const resp = await this.doGet('/provider/auth')
+    this.checkResponse(resp)
     return this.parseJson<Record<string, Object>>(resp)
   }
 
@@ -210,11 +240,13 @@ export class OpenCodeClient {
 
   async listProjects(): Promise<ProjectInfo[]> {
     const resp = await this.doGet('/project')
+    this.checkResponse(resp)
     return this.parseJson<ProjectInfo[]>(resp)
   }
 
   async getCurrentProject(): Promise<ProjectInfo> {
     const resp = await this.doGet('/project/current')
+    this.checkResponse(resp)
     return this.parseJson<ProjectInfo>(resp)
   }
 
@@ -225,16 +257,19 @@ export class OpenCodeClient {
 
   async getPaths(): Promise<PathInfo> {
     const resp = await this.doGet('/path')
+    this.checkResponse(resp)
     return this.parseJson<PathInfo>(resp)
   }
 
   async listFiles(path: string): Promise<Record<string, Object>[]> {
     const resp = await this.doGet(`/file?path=${encodeURIComponent(path)}`)
+    this.checkResponse(resp)
     return this.parseJson<Record<string, Object>[]>(resp)
   }
 
   async readFile(filePath: string): Promise<Record<string, Object>> {
     const resp = await this.doGet(`/file/content?path=${encodeURIComponent(filePath)}`)
+    this.checkResponse(resp)
     return this.parseJson<Record<string, Object>>(resp)
   }
 
@@ -245,6 +280,7 @@ export class OpenCodeClient {
 
   async getVcsInfo(): Promise<VcsInfo> {
     const resp = await this.doGet('/vcs')
+    this.checkResponse(resp)
     const raw = this.parseJson<Record<string, string>>(resp)
     const info = new VcsInfo()
     info.branch = raw['branch'] || ''
@@ -254,12 +290,14 @@ export class OpenCodeClient {
 
   async getVcsStatus(): Promise<VcsFileStatus[]> {
     const resp = await this.doGet('/vcs/status')
+    this.checkResponse(resp)
     return this.parseJson<VcsFileStatus[]>(resp)
   }
 
   async getVcsDiff(mode: string): Promise<FileDiff[]> {
     const m = mode.length > 0 ? mode : 'git'
     const resp = await this.doGet(`/vcs/diff?mode=${m}`)
+    this.checkResponse(resp)
     return this.parseJson<FileDiff[]>(resp)
   }
 
@@ -277,11 +315,13 @@ export class OpenCodeClient {
       path = `/session?limit=${limit}`
     }
     const resp = await this.doGet(path)
+    this.checkResponse(resp)
     return this.parseJson<SessionInfo[]>(resp)
   }
 
   async getSession(sessionID: string): Promise<SessionInfo> {
     const resp = await this.doGet(`/session/${sessionID}`)
+    this.checkResponse(resp)
     return this.parseJson<SessionInfo>(resp)
   }
 
@@ -291,6 +331,7 @@ export class OpenCodeClient {
       body['title'] = title
     }
     const resp = await this.doPost('/session', JSON.stringify(body))
+    this.checkResponse(resp)
     return this.parseJson<SessionInfo>(resp)
   }
 
@@ -301,6 +342,7 @@ export class OpenCodeClient {
 
   async updateSession(sessionID: string, updates: Record<string, Object>): Promise<SessionInfo> {
     const resp = await this.doPatch(`/session/${sessionID}`, JSON.stringify(updates))
+    this.checkResponse(resp)
     return this.parseJson<SessionInfo>(resp)
   }
 
@@ -341,6 +383,7 @@ export class OpenCodeClient {
   async sendMessage(sessionID: string, content: string): Promise<Record<string, Object>> {
     const body = this.buildPromptBody(content)
     const resp = await this.doPost(`/session/${sessionID}/message`, JSON.stringify(body))
+    this.checkResponse(resp)
     return this.parseJson<Record<string, Object>>(resp)
   }
 
@@ -372,6 +415,7 @@ export class OpenCodeClient {
 
   async listPermissions(): Promise<PermissionRequest[]> {
     const resp = await this.doGet('/permission')
+    this.checkResponse(resp)
     return this.parseJson<PermissionRequest[]>(resp)
   }
 
@@ -402,6 +446,7 @@ export class OpenCodeClient {
 
   async listAgents(): Promise<AgentInfo[]> {
     const resp = await this.doGet('/agent')
+    this.checkResponse(resp)
     return this.parseJson<AgentInfo[]>(resp)
   }
 
@@ -409,6 +454,7 @@ export class OpenCodeClient {
 
   async disposeInstance(): Promise<boolean> {
     const resp = await this.doPost('/instance/dispose')
+    this.checkResponse(resp)
     return resp.responseCode === 200
   }
 

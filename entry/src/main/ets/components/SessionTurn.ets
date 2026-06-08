@@ -57,6 +57,7 @@ export class TranscriptBlock {
  */
 @Component
 export struct SessionTurn {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop turn: TurnData = new TurnData()
 
   build() {

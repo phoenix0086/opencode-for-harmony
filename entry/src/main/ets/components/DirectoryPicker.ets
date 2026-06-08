@@ -19,6 +19,7 @@ export class ProjectEntry {
 
 @Component
 export struct DirectoryPicker {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop visible: boolean = false
   @Prop projects: ProjectEntry[] = []
   @Prop currentDirectory: string = ''

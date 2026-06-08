@@ -13,6 +13,7 @@ class ActivityItem {
 
 @Component
 export struct LeftActivityBar {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop activeId: string = 'chat'
   @Prop connectionStatus: string = 'disconnected' // 'connected' | 'disconnected' | 'connecting'
   onActivityChange: (id: string) => void = () => {}

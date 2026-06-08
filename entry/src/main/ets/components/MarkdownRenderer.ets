@@ -245,6 +245,7 @@ export class MarkdownParser {
  */
 @Component
 export struct MarkdownRenderer {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop content: string = ''
   @Prop baseFontSize: number = 13
 

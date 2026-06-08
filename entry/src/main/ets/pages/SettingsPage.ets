@@ -617,6 +617,15 @@ export struct SettingsPage {
 
   // ══════════════════════════════════════════════════════════════
   //  SERVERS TAB — MCP Server Management (M19)
+  //  TODO: Wire up MCP server data loading. The mcpServers state is
+  //  currently empty because SettingsPage does not receive data from
+  //  Index.ets. To fix this, either:
+  //    1. Add an onLoadMcp callback prop and wire it through AppShell
+  //       to Index.ets, where OpenCodeClient.getConfig() can extract
+  //       MCP server config; or
+  //    2. Accept mcpServers as a @Prop from the parent and trigger a
+  //       refresh via the callback when this tab becomes active.
+  //  Requires the MCP API integration to be fully operational.
   // ══════════════════════════════════════════════════════════════
   @Builder
   ServersTab() {

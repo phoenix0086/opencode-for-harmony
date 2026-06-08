@@ -96,6 +96,7 @@ struct ToastItem {
 
 @Component
 export struct ToastContainer {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toasts: ToastData[] = []
   onDismiss: (id: string) => void = () => {}
 

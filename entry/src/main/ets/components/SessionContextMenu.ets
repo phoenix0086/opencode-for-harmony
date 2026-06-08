@@ -23,6 +23,7 @@ export class SessionAction {
  */
 @Component
 export struct SessionContextMenu {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop visible: boolean = false
   @Prop sessionId: string = ''
   @Prop sessionTitle: string = ''

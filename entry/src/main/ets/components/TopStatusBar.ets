@@ -6,6 +6,7 @@ import { Theme } from './Theme'
  */
 @Component
 export struct TopStatusBar {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop projectName: string = 'No Project'
   @Prop branchName: string = 'main'
   @Prop modelName: string = '--'

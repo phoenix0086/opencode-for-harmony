@@ -16,6 +16,7 @@ class SidebarSession {
 
 @Component
 export struct SessionSidebar {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop workspaceName: string = 'Workspace'
   @Prop sessions: SessionInfo[] = []
   @Prop activeSessionId: string = ''

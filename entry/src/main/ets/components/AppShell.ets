@@ -63,6 +63,7 @@ export struct AppShell {
   onLongPressSession: (id: string, x: number, y: number) => void = () => {}
   onCloseTab: (id: string) => void = () => {}
   onNewTab: () => void = () => {}
+  onReconnect: () => void = () => {}
   @State sessionTabs: SessionTab[] = []
   @State showContextMenu: boolean = false
   @State contextMenuSessionId: string = ''
@@ -75,12 +76,25 @@ export struct AppShell {
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @State showStatusPopover: boolean = false
   @State showDirectoryPicker: boolean = false
-  @State projects: ProjectEntry[] = []
+  @Prop projects: ProjectEntry[] = []
 
   aboutToAppear(): void {
     ToastManager.setOnChange(() => {
       this.toasts = ToastManager.getToasts()
     })
+    this.syncSessionTabs()
+  }
+
+  private syncSessionTabs(): void {
+    const tabs: SessionTab[] = []
+    for (const s of this.sessions) {
+      const tab = new SessionTab()
+      tab.id = s.id
+      tab.title = s.title.length > 0 ? s.title : 'untitled'
+      tab.isActive = s.id === this.activeSessionId
+      tabs.push(tab)
+    }
+    this.sessionTabs = tabs
   }
 
   build() {
@@ -122,9 +136,11 @@ export struct AppShell {
           onSelectSession: (id: string) => {
             this.onSelectSession(id)
             this.activeActivity = 'chat'
+            this.syncSessionTabs()
           },
           onNewSession: () => {
             this.onNewSession()
+            this.syncSessionTabs()
           },
           onLongPressSession: (id: string, x: number, y: number) => {
             this.contextMenuSessionId = id
@@ -336,6 +352,7 @@ export struct AppShell {
       },
       onReconnect: () => {
         this.showStatusPopover = false
+        this.onReconnect()
       }
     })
 

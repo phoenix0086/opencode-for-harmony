@@ -7,6 +7,7 @@ import { LogEntry } from '../models/Event'
  */
 @Component
 export struct LogsPanel {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop entries: LogEntry[] = []
 
   build() {

@@ -6,6 +6,7 @@ import { Theme } from './Theme'
  */
 @Component
 export struct BasicToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolName: string = ''
   @Prop toolStatus: string = '' // 'running' | 'success' | 'error' | 'cancelled'
   @Prop summary: string = ''

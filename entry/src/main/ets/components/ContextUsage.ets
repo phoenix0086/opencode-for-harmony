@@ -6,6 +6,7 @@ import { Theme } from './Theme'
  */
 @Component
 export struct ContextUsage {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop tokensUsed: number = 0
   @Prop tokensMax: number = 128000
 

@@ -17,6 +17,7 @@ class ToolTimelineEntry {
 
 @Component
 export struct ToolTimelinePanel {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop entries: ToolTimelineEntry[] = []
   @Prop title: string = 'TOOLS'
 

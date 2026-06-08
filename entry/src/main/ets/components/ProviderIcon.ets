@@ -6,6 +6,7 @@ import { Theme } from './Theme'
  */
 @Component
 export struct ProviderIcon {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop providerId: string = ''
   @Prop size: number = 20 // pixel size of the icon
 

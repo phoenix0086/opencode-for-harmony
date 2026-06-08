@@ -24,6 +24,9 @@ export class EventStreamClient {
   private initialized: boolean = false
   private pollingMode: string = 'cold_start'
   private consecutiveErrors: number = 0
+  private lastActivityTime: number = 0
+  private runTimeout: number = 30000  // 30 seconds
+  private llmStartedEmitted: boolean = false
 
   constructor(client: OpenCodeClient, sessionId: string) {
     this.client = client
@@ -45,6 +48,8 @@ export class EventStreamClient {
    */
   markActiveRun(): void {
     this.pollingMode = 'active_run'
+    this.lastActivityTime = Date.now()
+    this.llmStartedEmitted = false
   }
 
   /**
@@ -194,6 +199,15 @@ export class EventStreamClient {
 
         // Infer LLM events from message content
         if (msg.role === 'assistant') {
+          this.lastActivityTime = Date.now()
+          // Emit LLM started once per run
+          if (!this.llmStartedEmitted) {
+            this.llmStartedEmitted = true
+            const llmStartEvent = new ServerEvent()
+            llmStartEvent.type = EventTypes.SESSION_LLM_STARTED
+            llmStartEvent.properties['sessionID'] = this.sessionId
+            this.emit(EventTypes.SESSION_LLM_STARTED, llmStartEvent)
+          }
           const llmEvent = new ServerEvent()
           llmEvent.id = msg.id
           llmEvent.type = EventTypes.SESSION_LLM_DELTA
@@ -225,9 +239,24 @@ export class EventStreamClient {
       }
     }
 
-    // active_run 模式下无新消息时，过渡到 idle
+    // active_run 模式下无新消息时，检查是否应该过渡到 idle
     if (this.pollingMode === 'active_run' && newMessageCount === 0) {
-      this.markIdle()
+      const elapsed = Date.now() - this.lastActivityTime
+      if (elapsed > this.runTimeout) {
+        // Timeout or idle detected — emit run-end events before transitioning
+        const runEndEvent = new ServerEvent()
+        runEndEvent.type = EventTypes.SESSION_RUN_ENDED
+        runEndEvent.properties['sessionID'] = this.sessionId
+        runEndEvent.properties['reason'] = elapsed > this.runTimeout ? 'timeout' : 'idle'
+        this.emit(EventTypes.SESSION_RUN_ENDED, runEndEvent)
+
+        const llmEndEvent = new ServerEvent()
+        llmEndEvent.type = EventTypes.SESSION_LLM_ENDED
+        llmEndEvent.properties['sessionID'] = this.sessionId
+        this.emit(EventTypes.SESSION_LLM_ENDED, llmEndEvent)
+
+        this.markIdle()
+      }
     }
   }
 

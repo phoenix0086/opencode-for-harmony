@@ -9,6 +9,7 @@ import { Theme } from '../components/Theme'
  */
 @Component
 export struct ModelPage {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @State providers: CNProvider[] = []
   @State searchText: string = ''
   @State selectedModel: string = ''

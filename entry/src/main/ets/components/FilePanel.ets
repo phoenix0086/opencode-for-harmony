@@ -11,6 +11,7 @@ import { Runner } from '../models/Runner'
  */
 @Component
 export struct FilePanel {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop projectName: string = ''
   @Prop branchName: string = ''
   @Prop activeRunner: Runner | null = null

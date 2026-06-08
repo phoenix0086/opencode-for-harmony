@@ -8,6 +8,7 @@ import { Theme } from './Theme'
 // ══════════ Bash Tool Card ══════════
 @Component
 export struct BashToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop command: string = ''
   @Prop output: string = ''
@@ -74,6 +75,7 @@ export struct BashToolCard {
 // ══════════ Edit Tool Card ══════════
 @Component
 export struct EditToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop filePath: string = ''
   @Prop diff: string = ''
@@ -137,6 +139,7 @@ export struct EditToolCard {
 // ══════════ Write Tool Card ══════════
 @Component
 export struct WriteToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop filePath: string = ''
   @Prop content: string = ''
@@ -199,6 +202,7 @@ export struct WriteToolCard {
 // ══════════ Read Tool Card ══════════
 @Component
 export struct ReadToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop filePath: string = ''
 
@@ -239,6 +243,7 @@ export struct ReadToolCard {
 // ══════════ Grep Tool Card ══════════
 @Component
 export struct GrepToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop pattern: string = ''
   @Prop matchCount: string = ''
@@ -305,6 +310,7 @@ export struct GrepToolCard {
 // ══════════ Glob Tool Card ══════════
 @Component
 export struct GlobToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop pattern: string = ''
   @Prop fileCount: string = ''
@@ -347,6 +353,7 @@ export struct GlobToolCard {
 // ══════════ WebFetch Tool Card ══════════
 @Component
 export struct WebFetchToolCard {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop toolStatus: string = ''
   @Prop url: string = ''
   @Prop summary: string = ''

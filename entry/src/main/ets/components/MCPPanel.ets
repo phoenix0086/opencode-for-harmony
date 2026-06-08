@@ -23,6 +23,7 @@ export class MCPServer {
 
 @Component
 export struct MCPPanel {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop servers: MCPServer[] = []
   onToggleServer: (id: string, enabled: boolean) => void = (_id: string, _enabled: boolean) => {}
   onToggleTool: (serverId: string, toolName: string, enabled: boolean) => void =

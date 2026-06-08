@@ -13,6 +13,7 @@ export { TranscriptBlock }
  */
 @Component
 export struct AgentTranscript {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop blocks: TranscriptBlock[] = []
   @Prop isStreaming: boolean = false
   onApprovePermission: (id: string) => void = () => {}

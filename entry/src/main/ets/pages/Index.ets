@@ -11,6 +11,7 @@ import { AppShell } from '../components/AppShell'
 import { TranscriptBlock } from '../components/AgentTranscript'
 import { ToolTimelineEntry } from '../components/ToolTimelinePanel'
 import { ToastManager } from '../components/ToastNotification'
+import { DirectoryPicker, ProjectEntry } from '../components/DirectoryPicker'
 
 /**
  * Index - OpenCode Harmony Native 主入口
@@ -46,6 +47,9 @@ struct Index {
   @State inputText: string = ''
   @State isSending: boolean = false
 
+  // ══════════ Project State ══════════
+  @State projects: ProjectEntry[] = []
+
   // ══════════ Info State ══════════
   @State projectName: string = ''
   @State branchName: string = ''
@@ -57,6 +61,19 @@ struct Index {
 
   // ══════════ Services ══════════
   private eventClient: EventStreamClient | null = null
+  private sendTimeoutId: number = -1
+  private cachedClient: OpenCodeClient | null = null
+  private cachedClientRunnerId: string = ''
+
+  private getClient(): OpenCodeClient | null {
+    if (this.activeRunner === null) return null
+    if (this.cachedClient !== null && this.cachedClientRunnerId === this.activeRunner.id) {
+      return this.cachedClient
+    }
+    this.cachedClient = new OpenCodeClient(this.activeRunner)
+    this.cachedClientRunnerId = this.activeRunner.id
+    return this.cachedClient
+  }
 
   async aboutToAppear(): Promise<void> {
     await this.initData()
@@ -92,20 +109,21 @@ struct Index {
         await this.loadSessions()
       }
     } catch (e) {
-      // Silent fail on init
+      ToastManager.show(`init error: ${String(e)}`, 'error')
+      this.addLog(`init.error: ${String(e)}`, 'error', 'app')
     }
     this.isInitialized = true
   }
 
   async testConnection(): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      this.addLog(`Connecting to ${this.activeRunner.host}:${this.activeRunner.port}...`, 'info', 'server')
-      const client = new OpenCodeClient(this.activeRunner)
+      this.addLog(`Connecting to ${this.activeRunner!.host}:${this.activeRunner!.port}...`, 'info', 'server')
       const result = await client.health()
       this.isConnected = result.ok
       this.serverVersion = result.version
-      this.serverUrl = `${this.activeRunner.host}:${this.activeRunner.port}`
+      this.serverUrl = `${this.activeRunner!.host}:${this.activeRunner!.port}`
       if (result.ok) {
         this.addLog(`server.connected v${result.version}`, 'info', 'server')
         ToastManager.show(`connected to server v${result.version}`, 'success')
@@ -125,6 +143,18 @@ struct Index {
         } catch (e) {
           this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server')
         }
+        // Load config for model info
+        try {
+          const config = await client.getConfig()
+          if (config.model.length > 0) {
+            this.modelName = config.model
+          }
+          this.addLog(`config.model: ${config.model}`, 'info', 'server')
+        } catch (e) {
+          this.addLog(`config load failed: ${String(e)}`, 'warn', 'server')
+        }
+        // Load projects for DirectoryPicker
+        await this.loadProjects()
       } else {
         this.addLog(`Health check failed: ${result.error}`, 'error', 'server')
       }
@@ -135,12 +165,33 @@ struct Index {
   }
 
   async loadSessions(): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       this.sessions = await client.listSessions()
     } catch (e) {
       // ignore
+    }
+  }
+
+  async loadProjects(): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      const apiProjects = await client.listProjects()
+      const entries: ProjectEntry[] = []
+      for (const p of apiProjects) {
+        const entry = new ProjectEntry()
+        entry.id = p.id
+        entry.name = p.name
+        entry.directory = p.worktree
+        entry.isActive = p.name === this.projectName
+        entries.push(entry)
+      }
+      this.projects = entries
+      this.addLog(`projects.loaded ${entries.length}`, 'info', 'project')
+    } catch (e) {
+      this.addLog(`projects.load.failed: ${String(e)}`, 'warn', 'project')
     }
   }
 
@@ -161,13 +212,26 @@ struct Index {
     this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
     await this.loadMessages()
     await this.loadDiffs()
+    // Update session info (model, cost)
+    for (const s of this.sessions) {
+      if (s.id === sessionId) {
+        if (s.model.modelID.length > 0) {
+          this.modelName = s.model.modelID
+        }
+        if (s.cost > 0) {
+          this.tokenCost = `${s.cost.toFixed(4)} USD`
+        }
+        break
+      }
+    }
     this.connectEventStream()
   }
 
   async loadMessages(): Promise<void> {
-    if (this.activeRunner === null || this.activeSessionId.length === 0) return
+    if (this.activeSessionId.length === 0) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       const messages = await client.getMessages(this.activeSessionId)
       const blocks: TranscriptBlock[] = []
       const toolMap: Map<string, ToolTimelineEntry> = new Map()
@@ -206,10 +270,10 @@ struct Index {
   }
 
   async loadDiffs(): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     this.addLog('diff.loading', 'debug', 'diff')
     try {
-      const client = new OpenCodeClient(this.activeRunner)
 
       // Strategy: try session diff with lastAssistantMessageId first
       if (this.activeSessionId.length > 0 && this.lastAssistantMessageId.length > 0) {
@@ -316,14 +380,14 @@ struct Index {
   }
 
   connectEventStream(): void {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
 
     // Close existing connection
     if (this.eventClient) {
       this.eventClient.close()
     }
 
-    const client = new OpenCodeClient(this.activeRunner)
     this.eventClient = new EventStreamClient(client, this.activeSessionId)
     this.addLog('poll.started', 'info', 'poll')
 
@@ -407,6 +471,10 @@ struct Index {
     // Listen for session run ended
     this.eventClient.on(EventTypes.SESSION_RUN_ENDED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
+        if (this.sendTimeoutId !== -1) {
+          clearTimeout(this.sendTimeoutId)
+          this.sendTimeoutId = -1
+        }
         this.isSending = false
         this.isStreaming = false
         if (this.eventClient) {
@@ -439,10 +507,24 @@ struct Index {
 
   async sendMessage(): Promise<void> {
     const text = this.inputText.trim()
-    if (text.length === 0 || this.activeRunner === null || this.activeSessionId.length === 0) return
+    if (text.length === 0 || this.activeSessionId.length === 0) return
+    const client = this.getClient()
+    if (client === null) return
 
     this.inputText = ''
     this.isSending = true
+
+    // Safety timeout: reset streaming state after 5 minutes if no event clears it
+    if (this.sendTimeoutId !== -1) {
+      clearTimeout(this.sendTimeoutId)
+    }
+    this.sendTimeoutId = setTimeout((): void => {
+      if (this.isSending) {
+        this.isSending = false
+        this.isStreaming = false
+        this.addLog('message.timeout: auto-reset streaming state', 'warn', 'message')
+      }
+    }, 300000)
 
     // Add user block to transcript
     const userBlock = new TranscriptBlock()
@@ -457,7 +539,6 @@ struct Index {
     this.transcriptBlocks = blocks
 
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       this.addLog(`message.sending: ${text.substring(0, 50)}`, 'info', 'message')
 
       // Mark event stream as active run to catch new messages
@@ -488,9 +569,9 @@ struct Index {
   }
 
   async createNewSession(): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       const session = await client.createSession()
       this.addLog(`session.created ${session.id}`, 'info', 'session')
       ToastManager.show('session created', 'success')
@@ -502,9 +583,9 @@ struct Index {
   }
 
   async approvePermission(permId: string): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       await client.replyPermission(permId, 'once')
       this.addLog(`permission.reply.once ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'approved')
@@ -514,9 +595,9 @@ struct Index {
   }
 
   async rejectPermission(permId: string): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       await client.replyPermission(permId, 'deny')
       this.addLog(`permission.reply.deny ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'rejected')
@@ -546,9 +627,10 @@ struct Index {
   }
 
   async abortSession(): Promise<void> {
-    if (this.activeRunner === null || this.activeSessionId.length === 0) return
+    if (this.activeSessionId.length === 0) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       await client.abortSession(this.activeSessionId)
       this.isSending = false
       this.isStreaming = false
@@ -574,9 +656,9 @@ struct Index {
   }
 
   async forkSession(sessionId: string): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       // Fork = create new session, copy context hint
       const session = await client.createSession(`fork-of-${sessionId.substring(0, 8)}`)
       this.addLog(`session.forked ${session.id} from ${sessionId}`, 'info', 'session')
@@ -594,9 +676,9 @@ struct Index {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       await client.deleteSession(sessionId)
       this.addLog(`session.deleted ${sessionId}`, 'info', 'session')
       ToastManager.show('session deleted', 'success')
@@ -650,9 +732,9 @@ struct Index {
   }
 
   async alwaysApprovePermission(permId: string): Promise<void> {
-    if (this.activeRunner === null) return
+    const client = this.getClient()
+    if (client === null) return
     try {
-      const client = new OpenCodeClient(this.activeRunner)
       await client.replyPermission(permId, 'always')
       this.addLog(`permission.reply.always ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'always_approved')
@@ -719,6 +801,9 @@ struct Index {
         modelName: this.modelName,
         tokenCost: this.tokenCost,
 
+        // Projects (for DirectoryPicker)
+        projects: this.projects,
+
         // Callbacks
         onSelectSession: (id: string) => {
           this.selectSession(id)
@@ -749,6 +834,14 @@ struct Index {
         },
         onNewTab: () => {
           this.createNewSession()
+        },
+        onReconnect: () => {
+          if (this.eventClient) {
+            this.eventClient.reconnect()
+            this.addLog('poll.reconnect', 'info', 'poll')
+            ToastManager.show('reconnecting...', 'info')
+          }
+          this.testConnection()
         }
       })
     }

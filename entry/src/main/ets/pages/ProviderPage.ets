@@ -13,6 +13,7 @@ import { Theme } from '../components/Theme'
  */
 @Component
 export struct ProviderPage {
+  @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop activeRunner: Runner | null = null
 
   @State providers: CNProvider[] = []
