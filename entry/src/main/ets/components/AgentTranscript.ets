@@ -17,6 +17,7 @@ export struct AgentTranscript {
   @Prop isStreaming: boolean = false
   onApprovePermission: (id: string) => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
+  onAlwaysApprovePermission: (id: string) => void = () => {}
   @State turns: TurnData[] = []
 
   aboutToAppear(): void {
@@ -240,6 +241,19 @@ export struct AgentTranscript {
             .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.sm, bottom: Theme.sp.sm })
             .onClick(() => {
               this.onApprovePermission(block.id)
+            })
+
+          Text('always')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.ACCENT)
+            .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Medium)
+            .backgroundColor(Theme.ACCENT_DIM)
+            .borderRadius(Theme.rd.md)
+            .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.sm, bottom: Theme.sp.sm })
+            .margin({ left: Theme.sp.md })
+            .onClick(() => {
+              this.onAlwaysApprovePermission(block.id)
             })
 
           Text('deny')

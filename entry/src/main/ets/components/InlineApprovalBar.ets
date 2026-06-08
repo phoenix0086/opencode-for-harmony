@@ -1,8 +1,11 @@
 import { Theme } from './Theme'
 
 /**
- * 内联审批条
- * 替代红色大警告卡片，以 compact inline bar 展示权限审批
+ * Inline Approval Bar
+ * Compact inline bar for permission approval with M14 enhancements:
+ * - Three-button layout: allow | always | deny
+ * - Pattern display for permission match rules
+ * - 'always_approved' status support
  */
 @Component
 export struct InlineApprovalBar {
@@ -11,9 +14,11 @@ export struct InlineApprovalBar {
   @Prop title: string = ''
   @Prop description: string = ''
   @Prop riskLevel: string = 'low'
-  @Prop status: string = 'pending' // 'pending' | 'approved' | 'rejected'
+  @Prop status: string = 'pending' // 'pending' | 'approved' | 'rejected' | 'always_approved'
+  @Prop matchPattern: string = ''
   onApprove: (id: string) => void = () => {}
   onReject: (id: string) => void = () => {}
+  onAlwaysApprove: (id: string) => void = () => {}
 
   build() {
     Row() {
@@ -60,6 +65,32 @@ export struct InlineApprovalBar {
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
+
+        // Pattern display: show the match pattern when provided and status is pending
+        if (this.matchPattern.length > 0 && this.status === 'pending') {
+          Row() {
+            Text(this.permType + ' -> ')
+              .fontSize(Theme.fs.xs)
+              .fontColor(Theme.TEXT_MUTED)
+              .fontFamily(Theme.FONT_MONO)
+
+            Text(this.matchPattern)
+              .fontSize(Theme.fs.xs)
+              .fontColor(Theme.ACCENT)
+              .fontFamily(Theme.FONT_MONO)
+
+            Text(' always allow')
+              .fontSize(Theme.fs.xs)
+              .fontColor(Theme.TEXT_MUTED)
+              .fontFamily(Theme.FONT_MONO)
+          }
+          .margin({ top: Theme.sp.xs })
+          .padding({ left: Theme.sp.sm, right: Theme.sp.sm, top: Theme.sp.xs, bottom: Theme.sp.xs })
+          .backgroundColor(Theme.CODE_BG)
+          .borderRadius(Theme.rd.sm)
+          .borderWidth(1)
+          .borderColor(Theme.CODE_BORDER)
+        }
       }
       .layoutWeight(1)
       .padding({ left: Theme.sp.md, right: Theme.sp.md })
@@ -79,6 +110,19 @@ export struct InlineApprovalBar {
               this.onApprove(this.permId)
             })
 
+          Text('always')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.ACCENT)
+            .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Medium)
+            .backgroundColor(Theme.ACCENT_DIM)
+            .borderRadius(Theme.rd.md)
+            .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.sm, bottom: Theme.sp.sm })
+            .margin({ left: Theme.sp.md })
+            .onClick(() => {
+              this.onAlwaysApprove(this.permId)
+            })
+
           Text('deny')
             .fontSize(Theme.fs.sm)
             .fontColor(Theme.DANGER)
@@ -94,9 +138,9 @@ export struct InlineApprovalBar {
         }
         .padding({ right: Theme.sp.lg })
       } else {
-        Text(this.status)
+        Text(this.getStatusText())
           .fontSize(Theme.fs.xs)
-          .fontColor(this.status === 'approved' ? Theme.SUCCESS : Theme.DANGER)
+          .fontColor(this.getStatusColor())
           .fontFamily(Theme.FONT_MONO)
           .padding({ right: Theme.sp.lg })
       }
@@ -122,6 +166,25 @@ export struct InlineApprovalBar {
     if (this.permType === 'write') return 'W'
     if (this.permType === 'delete') return 'X'
     if (this.permType === 'webfetch') return 'G'
+    if (this.permType === 'read') return 'R'
+    if (this.permType === 'execute') return '>'
+    if (this.permType === 'network') return 'N'
+    if (this.permType === 'file') return 'F'
+    if (this.permType === 'mcp') return 'M'
     return '?'
+  }
+
+  private getStatusText(): string {
+    if (this.status === 'approved') return 'approved'
+    if (this.status === 'always_approved') return 'always allowed'
+    if (this.status === 'rejected') return 'denied'
+    return this.status
+  }
+
+  private getStatusColor(): string {
+    if (this.status === 'approved') return Theme.SUCCESS
+    if (this.status === 'always_approved') return Theme.SUCCESS
+    if (this.status === 'rejected') return Theme.DANGER
+    return Theme.TEXT_MUTED
   }
 }

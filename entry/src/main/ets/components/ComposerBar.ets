@@ -1,11 +1,16 @@
 import { Theme } from './Theme'
+import { ContextUsage } from './ContextUsage'
 
 /**
- * 底部 Composer 输入区
- * IDE Agent Console 风格，支持多行输入
+ * Bottom Composer input bar with M14 features
+ * - Agent mode toggle (Build/Plan)
+ * - Context usage indicator
+ * - Clickable model label
+ * - TextArea with send/abort controls
  */
 @Component
 export struct ComposerBar {
+  // ── Existing props ──
   @Prop inputText: string = ''
   @Prop isSending: boolean = false
   @Prop modelLabel: string = ''
@@ -13,6 +18,17 @@ export struct ComposerBar {
   onTextChange: (text: string) => void = () => {}
   onSend: () => void = () => {}
   onAbort: () => void = () => {}
+
+  // ── M14: Agent Mode Toggle ──
+  @Prop agentMode: string = 'build'
+  onModeChange: (mode: string) => void = () => {}
+
+  // ── M14: Model Label Click ──
+  onModelClick: () => void = () => {}
+
+  // ── M14: Context Usage ──
+  @Prop tokensUsed: number = 0
+  @Prop tokensMax: number = 128000
 
   build() {
     Column() {
@@ -23,12 +39,19 @@ export struct ComposerBar {
 
       // Composer area
       Row() {
-        // Model indicator
+        // Model indicator (clickable)
         Column() {
           Text(this.modelLabel.length > 0 ? this.modelLabel : 'model')
             .fontSize(Theme.fs.xs)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)
+            .decoration({
+              type: TextDecorationType.Underline,
+              color: Theme.ACCENT_DIM
+            })
+            .onClick(() => {
+              this.onModelClick()
+            })
         }
         .width(60)
         .justifyContent(FlexAlign.Center)
@@ -79,16 +102,69 @@ export struct ComposerBar {
       .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.sm })
 
       // Bottom info bar
+      // Layout: [mode toggle] [session title] [context usage] --- [shift+enter hint]
       Row() {
+        // ── Agent mode toggle ──
+        Row() {
+          Text('build')
+            .fontSize(Theme.fs.xs)
+            .fontColor(this.agentMode === 'build' ? Theme.ACCENT : Theme.TEXT_MUTED)
+            .fontWeight(this.agentMode === 'build' ? FontWeight.Bold : FontWeight.Normal)
+            .fontFamily(Theme.FONT_MONO)
+            .onClick(() => {
+              this.onModeChange('build')
+            })
+
+          Text('/')
+            .fontSize(Theme.fs.xs)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+            .margin({ left: Theme.sp.xs, right: Theme.sp.xs })
+
+          Text('plan')
+            .fontSize(Theme.fs.xs)
+            .fontColor(this.agentMode === 'plan' ? Theme.ACCENT : Theme.TEXT_MUTED)
+            .fontWeight(this.agentMode === 'plan' ? FontWeight.Bold : FontWeight.Normal)
+            .fontFamily(Theme.FONT_MONO)
+            .onClick(() => {
+              this.onModeChange('plan')
+            })
+        }
+
+        // ── Session title ──
         if (this.sessionTitle.length > 0) {
           Text(this.sessionTitle)
             .fontSize(Theme.fs.xs)
             .fontColor(Theme.TEXT_MUTED)
             .maxLines(1)
-            .constraintSize({ maxWidth: 300 })
+            .constraintSize({ maxWidth: 200 })
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ left: Theme.sp.md })
         }
+
+        // ── Plan mode description (shown when in plan mode) ──
+        if (this.agentMode === 'plan') {
+          Text('Plan mode restricts edit/bash permissions to ask')
+            .fontSize(Theme.fs.xs)
+            .fontColor(Theme.WARNING)
+            .fontFamily(Theme.FONT_MONO)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 260 })
+            .margin({ left: Theme.sp.md })
+        }
+
+        // ── Context usage (between left section and shortcut hint) ──
+        if (this.tokensUsed > 0) {
+          ContextUsage({
+            tokensUsed: this.tokensUsed,
+            tokensMax: this.tokensMax
+          })
+            .margin({ left: Theme.sp.md })
+        }
+
         Blank()
+
         Text('Shift+Enter to send')
           .fontSize(Theme.fs.xs)
           .fontColor(Theme.TEXT_MUTED)

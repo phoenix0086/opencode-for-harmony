@@ -40,6 +40,9 @@ export struct AppShell {
   @Prop connectionStatus: string = 'disconnected'
   @Prop sessionTitle: string = ''
   @Prop logEntries: LogEntry[] = []
+  @Prop agentMode: string = 'build'
+  @Prop tokensUsed: number = 0
+  @Prop tokensMax: number = 128000
 
   // ══════════ Callbacks ══════════
   onSelectSession: (id: string) => void = () => {}
@@ -47,6 +50,9 @@ export struct AppShell {
   onSend: () => void = () => {}
   onAbort: () => void = () => {}
   onApprovePermission: (id: string) => void = () => {}
+  onAlwaysApprovePermission: (id: string) => void = () => {}
+  onModeChange: (mode: string) => void = () => {}
+  onModelClick: () => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
 
   @State showRightPanel: boolean = true
@@ -105,6 +111,9 @@ export struct AppShell {
               },
               onRejectPermission: (id: string) => {
                 this.onRejectPermission(id)
+              },
+              onAlwaysApprovePermission: (id: string) => {
+                this.onAlwaysApprovePermission(id)
               }
             })
           } else if (this.activeActivity === 'diff') {
@@ -130,6 +139,9 @@ export struct AppShell {
             isSending: this.isSending,
             modelLabel: this.modelName,
             sessionTitle: this.sessionTitle,
+            agentMode: this.agentMode,
+            tokensUsed: this.tokensUsed,
+            tokensMax: this.tokensMax,
             onTextChange: (text: string) => {
               this.inputText = text
             },
@@ -138,6 +150,12 @@ export struct AppShell {
             },
             onAbort: () => {
               this.onAbort()
+            },
+            onModeChange: (mode: string) => {
+              this.onModeChange(mode)
+            },
+            onModelClick: () => {
+              this.onModelClick()
             }
           })
         }
