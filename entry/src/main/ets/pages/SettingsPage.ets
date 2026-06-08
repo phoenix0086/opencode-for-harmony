@@ -2,6 +2,7 @@ import { storageService, AppSettings } from '../services/StorageService'
 import { providerRegistry } from '../services/ProviderRegistry'
 import { CNProvider, CNModel } from '../models/Provider'
 import { Theme } from '../components/Theme'
+import { ProviderIcon } from '../components/ProviderIcon'
 
 /**
  * Settings Page — OpenCode Desktop-style tabbed settings dialog (M16)
@@ -20,6 +21,7 @@ export struct SettingsPage {
   @State showClearConfirm: boolean = false
   @State modelSearch: string = ''
   @State policyOverrides: Record<string, string> = {}
+  @StorageProp('themeId') themeId: string = 'catppuccin'
 
   // ══════════ Lifecycle ══════════
   async aboutToAppear(): Promise<void> {
@@ -191,6 +193,46 @@ export struct SettingsPage {
           })
       }
       .width('100%')
+    }
+    .width('100%')
+    .padding(Theme.sp.xl)
+    .borderRadius(Theme.rd.lg)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .margin({ bottom: Theme.sp.xxl })
+    .alignItems(HorizontalAlign.Start)
+
+    // ── Theme ──
+    this.SectionHeader('THEME')
+    Column() {
+      ForEach(Theme.themeNames(), (name: string) => {
+        Row() {
+          // Theme name
+          Text(name)
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_PRIMARY)
+            .fontFamily(Theme.FONT_MONO)
+            .layoutWeight(1)
+          // Active indicator
+          if (this.themeId === name) {
+            Text('active')
+              .fontSize(Theme.fs.xs)
+              .fontColor(Theme.SUCCESS)
+              .fontFamily(Theme.FONT_MONO)
+              .backgroundColor(Theme.SUCCESS_DIM)
+              .borderRadius(Theme.rd.sm)
+              .padding({ left: Theme.sp.md, right: Theme.sp.md, top: Theme.sp.xs, bottom: Theme.sp.xs })
+          }
+        }
+        .width('100%')
+        .padding({ left: Theme.sp.xl, right: Theme.sp.xl, top: Theme.sp.lg, bottom: Theme.sp.lg })
+        .backgroundColor(this.themeId === name ? Theme.ACTIVE_BG : 'transparent')
+        .borderRadius(Theme.rd.md)
+        .onClick(() => {
+          Theme.switchTheme(name)
+        })
+      }, (name: string) => name)
     }
     .width('100%')
     .padding(Theme.sp.xl)
@@ -520,6 +562,10 @@ export struct SettingsPage {
 
     ForEach(providerRegistry.getAll(), (p: CNProvider) => {
       Row() {
+        // Provider brand icon
+        ProviderIcon({ providerId: p.id, size: 28 })
+          .margin({ right: Theme.sp.lg })
+
         // Connection status indicator (green dot if API key is configured)
         Circle()
           .width(8)

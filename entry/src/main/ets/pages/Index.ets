@@ -10,6 +10,7 @@ import { providerRegistry } from '../services/ProviderRegistry'
 import { AppShell } from '../components/AppShell'
 import { TranscriptBlock } from '../components/AgentTranscript'
 import { ToolTimelineEntry } from '../components/ToolTimelinePanel'
+import { ToastManager } from '../components/ToastNotification'
 
 /**
  * Index - OpenCode Harmony Native 主入口
@@ -107,6 +108,7 @@ struct Index {
       this.serverUrl = `${this.activeRunner.host}:${this.activeRunner.port}`
       if (result.ok) {
         this.addLog(`server.connected v${result.version}`, 'info', 'server')
+        ToastManager.show(`connected to server v${result.version}`, 'success')
         // Load project info
         try {
           const project = await client.getCurrentProject()
@@ -468,6 +470,7 @@ struct Index {
     } catch (e) {
       this.isSending = false
       this.addLog(`message.failed: ${String(e)}`, 'error', 'message')
+      ToastManager.show(`send failed: ${String(e)}`, 'error')
       if (this.eventClient) {
         this.eventClient.markIdle()
       }
@@ -490,6 +493,7 @@ struct Index {
       const client = new OpenCodeClient(this.activeRunner)
       const session = await client.createSession()
       this.addLog(`session.created ${session.id}`, 'info', 'session')
+      ToastManager.show('session created', 'success')
       await this.loadSessions()
       await this.selectSession(session.id)
     } catch (e) {
@@ -576,6 +580,7 @@ struct Index {
       // Fork = create new session, copy context hint
       const session = await client.createSession(`fork-of-${sessionId.substring(0, 8)}`)
       this.addLog(`session.forked ${session.id} from ${sessionId}`, 'info', 'session')
+      ToastManager.show('session forked', 'success')
       await this.loadSessions()
       await this.selectSession(session.id)
     } catch (e) {
@@ -594,6 +599,7 @@ struct Index {
       const client = new OpenCodeClient(this.activeRunner)
       await client.deleteSession(sessionId)
       this.addLog(`session.deleted ${sessionId}`, 'info', 'session')
+      ToastManager.show('session deleted', 'success')
       await this.loadSessions()
       // If we deleted the active session, select the first remaining one
       if (this.activeSessionId === sessionId) {

@@ -14,6 +14,7 @@ import { ProviderPage } from '../pages/ProviderPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { SessionTabs, SessionTab } from './SessionTabs'
 import { SessionContextMenu } from './SessionContextMenu'
+import { ToastContainer, ToastData, ToastManager } from './ToastNotification'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -68,6 +69,14 @@ export struct AppShell {
 
   @State showRightPanel: boolean = true
   @State rightPanelTab: string = 'tools' // 'tools' | 'diff' | 'logs'
+  @State toasts: ToastData[] = []
+  @StorageProp('themeId') themeId: string = 'catppuccin'
+
+  aboutToAppear(): void {
+    ToastManager.setOnChange(() => {
+      this.toasts = ToastManager.getToasts()
+    })
+  }
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
@@ -288,6 +297,14 @@ export struct AppShell {
       },
       onDismiss: () => {
         this.showContextMenu = false
+      }
+    })
+
+    // Toast notifications overlay
+    ToastContainer({
+      toasts: this.toasts,
+      onDismiss: (id: string) => {
+        ToastManager.dismiss(id)
       }
     })
     } // Stack

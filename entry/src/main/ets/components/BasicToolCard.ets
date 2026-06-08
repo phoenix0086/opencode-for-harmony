@@ -12,6 +12,13 @@ export struct BasicToolCard {
   @Prop detail: string = ''
   @Prop step: number = 0
   @State expanded: boolean = false
+  @State cardOpacity: number = 0
+
+  aboutToAppear(): void {
+    setTimeout(() => {
+      this.cardOpacity = 1
+    }, 50)
+  }
 
   build() {
     Column() {
@@ -85,22 +92,29 @@ export struct BasicToolCard {
       }
       .width('100%')
 
-      // Expanded detail
-      if (this.expanded && this.detail.length > 0) {
-        Scroll() {
-          Text(this.detail)
-            .fontSize(Theme.fs.code)
-            .fontColor(Theme.TEXT_SECONDARY)
-            .fontFamily(Theme.FONT_MONO)
-            .lineHeight(Theme.fs.code + 5)
-            .width('100%')
-            .padding(Theme.sp.md)
+      // Expanded detail (animated)
+      if (this.detail.length > 0) {
+        Column() {
+          Scroll() {
+            Text(this.detail)
+              .fontSize(Theme.fs.code)
+              .fontColor(Theme.TEXT_SECONDARY)
+              .fontFamily(Theme.FONT_MONO)
+              .lineHeight(Theme.fs.code + 5)
+              .width('100%')
+              .padding(Theme.sp.md)
+          }
+          .scrollBar(BarState.Auto)
+          .width('100%')
         }
-        .scrollBar(BarState.Auto)
-        .constraintSize({ maxHeight: 250 })
-        .margin({ top: Theme.sp.sm })
+        .constraintSize({ maxHeight: this.expanded ? 250 : 0 })
+        .clip(true)
+        .opacity(this.expanded ? 1 : 0)
+        .animation({ duration: 250, curve: Curve.EaseInOut })
+        .margin({ top: this.expanded ? Theme.sp.sm : 0 })
         .backgroundColor(Theme.CODE_BG)
         .borderRadius(Theme.rd.sm)
+        .width('100%')
       }
     }
     .width('100%')
@@ -111,6 +125,8 @@ export struct BasicToolCard {
     .borderColor(this.toolStatus === 'running' ? Theme.ACCENT_DIM : Theme.TOOL_BORDER)
     .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
     .alignItems(HorizontalAlign.Start)
+    .opacity(this.cardOpacity)
+    .animation({ duration: 200, curve: Curve.FastOutSlowIn })
   }
 
   private getStatusColor(): string {
