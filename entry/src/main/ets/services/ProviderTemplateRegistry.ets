@@ -11,7 +11,7 @@ export class ProviderTemplate {
   id: string = ''
   name: string = ''
   description: string = ''
-  apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic'
+  apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic' | 'openai_responses' | 'bedrock_converse'
   baseURL: string = ''
   authEnv: string = ''
   models: ProviderModelTemplate[] = []
@@ -41,8 +41,10 @@ function template(id: string, name: string, description: string, apiType: string
 export class ProviderTemplateRegistry {
   listTemplates(): ProviderTemplate[] {
     const list: ProviderTemplate[] = []
-    list.push(template('custom-openai-compatible', 'OpenAI Compatible', '通过基础 URL 添加与 OpenAI 兼容的提供商。', 'openai_compatible', '', 'CUSTOM_API_KEY', []))
-    list.push(template('custom-anthropic', 'Anthropic', 'Anthropic Claude 系列模型。', 'anthropic', 'https://api.anthropic.com', 'ANTHROPIC_API_KEY', []))
+    list.push(template('custom-openai-compatible', 'OpenAI Compatible', '标准 Chat Completions API（/v1/chat/completions）。', 'openai_compatible', '', 'CUSTOM_API_KEY', []))
+    list.push(template('custom-anthropic', 'Anthropic', 'Anthropic Messages API（/v1/messages）。', 'anthropic', 'https://api.anthropic.com', 'ANTHROPIC_API_KEY', []))
+    list.push(template('custom-openai-responses', 'OpenAI Responses', 'OpenAI Responses API（/v1/responses）。', 'openai_responses', 'https://api.openai.com', 'OPENAI_API_KEY', []))
+    list.push(template('custom-bedrock', 'AWS Bedrock', 'AWS Bedrock Converse API。API Key 填 AccessKeyID|SecretAccessKey。', 'bedrock_converse', 'https://bedrock-runtime.us-east-1.amazonaws.com', 'BEDROCK_API_KEY', []))
     return list
   }
 
@@ -61,7 +63,7 @@ export class ProviderTemplateRegistry {
     p.baseURL = t.baseURL
     p.authEnv = t.authEnv
     p.apiKeyRef = t.authEnv
-    p.npm = t.apiType === 'anthropic' ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible'
+    p.npm = this.npmForApiType(t.apiType)
     p.enabled = true
     p.builtIn = false
     p.authStatus = 'missing'
@@ -77,6 +79,15 @@ export class ProviderTemplateRegistry {
     }
 
     return p
+  }
+
+  private npmForApiType(apiType: string): string {
+    switch (apiType) {
+      case 'anthropic': return '@ai-sdk/anthropic'
+      case 'openai_responses': return '@ai-sdk/openai'
+      case 'bedrock_converse': return '@ai-sdk/aws-bedrock'
+      default: return '@ai-sdk/openai-compatible'
+    }
   }
 }
 

@@ -13,7 +13,7 @@ export struct ProviderConnectDialog {
   @State displayName: string = ''
   @State baseURL: string = ''
   @State apiKey: string = ''
-  @State apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic'
+  @State apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic' | 'openai_responses' | 'bedrock_converse'
 
   @State modelId: string = ''
   @State modelName: string = ''
@@ -40,10 +40,12 @@ export struct ProviderConnectDialog {
 
     if (this.template === null) return
 
-    if (this.template.id === 'custom-openai-compatible') {
+    this.apiType = this.template.apiType
+
+    if (this.template.id.startsWith('custom-')) {
       this.providerId = ''
       this.displayName = ''
-      this.baseURL = ''
+      this.baseURL = this.template.baseURL
       this.models = []
       this.headers = []
       return
@@ -70,6 +72,22 @@ export struct ProviderConnectDialog {
         case 'apiKey': return 'sk-ant-xxxxxxxx'
         case 'modelId': return 'claude-sonnet-4-20250514'
         case 'modelName': return 'Claude Sonnet 4'
+      }
+    }
+    if (this.apiType === 'openai_responses') {
+      switch (field) {
+        case 'baseURL': return 'https://api.openai.com'
+        case 'apiKey': return 'sk-proj-xxxxxxxx'
+        case 'modelId': return 'gpt-4o'
+        case 'modelName': return 'GPT-4o'
+      }
+    }
+    if (this.apiType === 'bedrock_converse') {
+      switch (field) {
+        case 'baseURL': return 'https://bedrock-runtime.us-east-1.amazonaws.com'
+        case 'apiKey': return 'AKIA...|wJal...'
+        case 'modelId': return 'anthropic.claude-sonnet-4-20250514-v1:0'
+        case 'modelName': return 'Claude Sonnet 4 (Bedrock)'
       }
     }
     switch (field) {
@@ -195,49 +213,75 @@ export struct ProviderConnectDialog {
     Column() {
       this.SectionTitle('API 协议')
 
+      // Row 1: OpenAI Compatible + Anthropic
       Row() {
         Text('OpenAI Compatible')
           .fontSize(Theme.fs.sm)
           .fontWeight(this.apiType === 'openai_compatible' ? FontWeight.Bold : FontWeight.Normal)
           .fontColor(this.apiType === 'openai_compatible' ? Theme.BG : Theme.TEXT_PRIMARY)
           .height(38)
-          .padding({ left: 18, right: 18 })
+          .padding({ left: 16, right: 16 })
           .borderRadius(8)
           .backgroundColor(this.apiType === 'openai_compatible' ? Theme.TEXT_PRIMARY : Theme.BG)
           .borderWidth(1)
           .borderColor(this.apiType === 'openai_compatible' ? Theme.TEXT_PRIMARY : Theme.BORDER)
-          .onClick(() => {
-            if (this.apiType !== 'openai_compatible') {
-              this.apiType = 'openai_compatible'
-              this.testResult = null
-              this.errorText = ''
-            }
-          })
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .onClick(() => { this.setApiType('openai_compatible') })
 
         Text('Anthropic')
           .fontSize(Theme.fs.sm)
           .fontWeight(this.apiType === 'anthropic' ? FontWeight.Bold : FontWeight.Normal)
           .fontColor(this.apiType === 'anthropic' ? Theme.BG : Theme.TEXT_PRIMARY)
           .height(38)
-          .padding({ left: 18, right: 18 })
+          .padding({ left: 16, right: 16 })
           .borderRadius(8)
           .backgroundColor(this.apiType === 'anthropic' ? Theme.TEXT_PRIMARY : Theme.BG)
           .borderWidth(1)
           .borderColor(this.apiType === 'anthropic' ? Theme.TEXT_PRIMARY : Theme.BORDER)
-          .margin({ left: 10 })
-          .onClick(() => {
-            if (this.apiType !== 'anthropic') {
-              this.apiType = 'anthropic'
-              this.testResult = null
-              this.errorText = ''
-            }
-          })
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .margin({ left: 8 })
+          .onClick(() => { this.setApiType('anthropic') })
       }
+      .width('100%')
+      .margin({ bottom: 8 })
+
+      // Row 2: OpenAI Responses + AWS Bedrock
+      Row() {
+        Text('OpenAI Responses')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(this.apiType === 'openai_responses' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.apiType === 'openai_responses' ? Theme.BG : Theme.TEXT_PRIMARY)
+          .height(38)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(8)
+          .backgroundColor(this.apiType === 'openai_responses' ? Theme.TEXT_PRIMARY : Theme.BG)
+          .borderWidth(1)
+          .borderColor(this.apiType === 'openai_responses' ? Theme.TEXT_PRIMARY : Theme.BORDER)
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .onClick(() => { this.setApiType('openai_responses') })
+
+        Text('AWS Bedrock')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(this.apiType === 'bedrock_converse' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.apiType === 'bedrock_converse' ? Theme.BG : Theme.TEXT_PRIMARY)
+          .height(38)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(8)
+          .backgroundColor(this.apiType === 'bedrock_converse' ? Theme.TEXT_PRIMARY : Theme.BG)
+          .borderWidth(1)
+          .borderColor(this.apiType === 'bedrock_converse' ? Theme.TEXT_PRIMARY : Theme.BORDER)
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .margin({ left: 8 })
+          .onClick(() => { this.setApiType('bedrock_converse') })
+      }
+      .width('100%')
       .margin({ bottom: 4 })
 
-      Text(this.apiType === 'anthropic'
-        ? '使用 Anthropic Messages API（/v1/messages）。Base URL 留空则使用官方端点。'
-        : '使用标准 OpenAI Chat Completions API（/v1/chat/completions）。')
+      Text(this.apiTypeDescription())
         .fontSize(Theme.fs.xs)
         .fontColor(Theme.TEXT_SECONDARY)
         .margin({ top: 6 })
@@ -250,6 +294,27 @@ export struct ProviderConnectDialog {
     .borderColor(Theme.BORDER)
     .margin({ bottom: 18 })
     .alignItems(HorizontalAlign.Start)
+  }
+
+  private setApiType(t: string): void {
+    if (this.apiType !== t) {
+      this.apiType = t
+      this.testResult = null
+      this.errorText = ''
+    }
+  }
+
+  private apiTypeDescription(): string {
+    switch (this.apiType) {
+      case 'anthropic':
+        return 'Anthropic Messages API（/v1/messages）。Base URL 留空则使用官方端点。'
+      case 'openai_responses':
+        return 'OpenAI Responses API（/v1/responses），新一代 API 格式。'
+      case 'bedrock_converse':
+        return 'AWS Bedrock Converse API。API Key 填 AccessKeyID|SecretAccessKey，Base URL 填区域端点。'
+      default:
+        return '标准 OpenAI Chat Completions API（/v1/chat/completions）。'
+    }
   }
 
   @Builder
