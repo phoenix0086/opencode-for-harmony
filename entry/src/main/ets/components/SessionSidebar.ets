@@ -97,8 +97,8 @@ export struct SessionSidebar {
 
                 Row() {
                   // Model badge
-                  if (session.model.modelID.length > 0) {
-                    Text(session.model.modelID)
+                  if (session.model.id.length > 0) {
+                    Text(session.model.id)
                       .fontSize(Theme.fs.xs)
                       .fontColor(Theme.ACCENT)
                       .fontFamily(Theme.FONT_MONO)

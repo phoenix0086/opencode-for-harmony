@@ -215,8 +215,8 @@ struct Index {
     // Update session info (model, cost)
     for (const s of this.sessions) {
       if (s.id === sessionId) {
-        if (s.model.modelID.length > 0) {
-          this.modelName = s.model.modelID
+        if (s.model.id.length > 0) {
+          this.modelName = `${s.model.providerID}/${s.model.id}`
         }
         if (s.cost > 0) {
           this.tokenCost = `${s.cost.toFixed(4)} USD`

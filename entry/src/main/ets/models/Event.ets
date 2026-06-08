@@ -27,17 +27,33 @@ export class SessionInfo {
   projectID: string = ''
   workspaceID: string = ''
   directory: string = ''
+  path: string = ''
   agent: string = ''
   version: string = ''
   cost: number = 0
+  tokens: SessionTokens = new SessionTokens()
+  summary: SessionSummary = new SessionSummary()
   model: SessionModel = new SessionModel()
   time: SessionTime = new SessionTime()
   metadata: Record<string, Object> = {}
 }
 
 export class SessionModel {
+  id: string = ''
   providerID: string = ''
-  modelID: string = ''
+  variant: string = ''
+}
+
+export class SessionTokens {
+  input: number = 0
+  output: number = 0
+  reasoning: number = 0
+}
+
+export class SessionSummary {
+  additions: number = 0
+  deletions: number = 0
+  files: number = 0
 }
 
 export class SessionTime {
