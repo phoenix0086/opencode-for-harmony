@@ -5,20 +5,25 @@ import { ProjectEntry } from '../DirectoryPicker'
 /**
  * OpenCodeHomeLaunch
  *
- * Functional home screen based on the original OpenCode Desktop layout.
+ * This component is a FULL-SCREEN home shell.
  *
- * Mapping to real app behavior:
- * - Left purple session badge: shows session count and opens chat area.
- * - Left plus: creates a new OpenCode session through onNewSession().
- * - Gear: opens settings through onOpenSettings().
- * - Help: opens logs/help area through onOpenHelp().
- * - Top search: opens project/directory picker through onOpenDirectoryPicker().
- * - Server icon: opens server/status panel through onOpenServerStatus().
- * - Center project title/path/branch: bound to projectName/projectPath/branchName.
- * - Composer text: bound to Index.inputText.
- * - Send: calls Index.sendMessage(); Index patch auto-creates session if needed.
- * - Model picker: opens model settings through onOpenModels().
- * - Right pane plus/empty state: opens files area through onOpenFiles().
+ * Important:
+ * - Do not render it inside the old AppShell IDE chrome.
+ * - It already owns the title bar, activity rail, center composer, and right editor placeholder.
+ * - AppShell must show this component before rendering TopStatusBar / LeftActivityBar / SessionSidebar.
+ *
+ * Functional mapping:
+ * - Purple session badge: sessions.length, opens chat.
+ * - Left plus: create session.
+ * - Gear: settings.
+ * - Help: logs panel.
+ * - Top search: directory picker.
+ * - Server icon: status popover.
+ * - Right split icon: toggle right panel.
+ * - Center project/path/branch: real project state.
+ * - Composer: inputText + onSend/onAbort.
+ * - Model picker: models page.
+ * - Right editor empty state: files page.
  */
 @Component
 export struct OpenCodeHomeLaunch {
@@ -56,7 +61,7 @@ export struct OpenCodeHomeLaunch {
   private displayProjectPath(): string {
     if (this.projectPath.length > 0) return this.projectPath
     if (this.activeRunner !== null) return `${this.activeRunner.protocol}://${this.activeRunner.host}:${this.activeRunner.port}`
-    return '未连接 OpenCode Server'
+    return '/workspace'
   }
 
   private displayBranch(): string {
@@ -246,7 +251,7 @@ export struct OpenCodeHomeLaunch {
 
   @Builder
   CenterPane() {
-    Stack() {
+    Stack({ alignContent: Alignment.BottomStart }) {
       Column() {
         this.OpenCodeLogo(false)
 
@@ -292,51 +297,58 @@ export struct OpenCodeHomeLaunch {
   @Builder
   Composer() {
     Column() {
-      Stack() {
-        TextArea({ text: this.inputText, placeholder: '随便问点什么... “重构这个函数，让它更易读”' })
+      Stack({ alignContent: Alignment.BottomStart }) {
+        TextArea({ text: this.inputText, placeholder: '随便问点什么... "这个错误是什么意思？"' })
           .width('100%')
           .height(116)
           .fontSize(16)
           .fontColor('#e8e2dd')
           .placeholderColor('#757575')
           .backgroundColor('#111111')
-          .padding({ left: 18, right: 64, top: 18, bottom: 18 })
+          .padding({ left: 18, right: 70, top: 18, bottom: 18 })
           .onChange((v: string) => {
             this.onInputChange(v)
           })
 
-        Text('+')
-          .fontSize(34)
-          .fontColor('#8a8a8a')
-          .position({ x: 20, y: 70 })
+        Row() {
+          Text('+')
+            .fontSize(34)
+            .fontColor('#8a8a8a')
+            .width(48)
+            .height(42)
+            .textAlign(TextAlign.Center)
 
-        if (this.isSending) {
-          Text('×')
-            .fontSize(23)
-            .fontColor('#eeeeee')
-            .width(44)
-            .height(42)
-            .textAlign(TextAlign.Center)
-            .borderRadius(7)
-            .backgroundColor('#7a2f3a')
-            .position({ x: 690, y: 64 })
-            .onClick(() => this.onAbort())
-        } else {
-          Text('↑')
-            .fontSize(23)
-            .fontColor('#171717')
-            .width(44)
-            .height(42)
-            .textAlign(TextAlign.Center)
-            .borderRadius(7)
-            .backgroundColor(this.inputText.trim().length > 0 ? '#8d8d8d' : '#606060')
-            .position({ x: 690, y: 64 })
-            .onClick(() => {
-              if (this.inputText.trim().length > 0) {
-                this.onSend()
-              }
-            })
+          Blank()
+
+          if (this.isSending) {
+            Text('×')
+              .fontSize(23)
+              .fontColor('#eeeeee')
+              .width(44)
+              .height(42)
+              .textAlign(TextAlign.Center)
+              .borderRadius(7)
+              .backgroundColor('#7a2f3a')
+              .onClick(() => this.onAbort())
+          } else {
+            Text('↑')
+              .fontSize(23)
+              .fontColor('#171717')
+              .width(44)
+              .height(42)
+              .textAlign(TextAlign.Center)
+              .borderRadius(7)
+              .backgroundColor(this.inputText.trim().length > 0 ? '#8d8d8d' : '#606060')
+              .onClick(() => {
+                if (this.inputText.trim().length > 0) {
+                  this.onSend()
+                }
+              })
+          }
         }
+        .width('100%')
+        .height(52)
+        .padding({ left: 12, right: 12 })
       }
       .height(116)
       .borderWidth({ bottom: 1 })
@@ -363,9 +375,9 @@ export struct OpenCodeHomeLaunch {
       .backgroundColor('#111111')
       .onClick(() => this.onOpenModels())
     }
-    .width(746)
+    .width('calc(100% - 30px)')
     .height(175)
-    .margin({ left: 0, bottom: 14 })
+    .margin({ left: 15, right: 15, bottom: 14 })
     .borderRadius(14)
     .borderWidth(1)
     .borderColor('#2d2d2d')

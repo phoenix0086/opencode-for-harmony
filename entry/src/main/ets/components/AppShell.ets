@@ -100,6 +100,107 @@ export struct AppShell {
   }
 
   build() {
+    // ══════════ Home 全屏接管 ══════════
+    // 首页模式下 OpenCodeHomeLaunch 全屏渲染，不走旧 AppShell 外壳
+    if (this.activeActivity === 'chat' && this.activeSessionId.length === 0 && this.transcriptBlocks.length === 0) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        OpenCodeHomeLaunch({
+          inputText: $inputText,
+          isSending: $isSending,
+          activeRunner: this.activeRunner,
+          sessions: this.sessions,
+          projectName: this.projectName.length > 0 ? this.projectName : '构建任何东西',
+          projectPath: this.projectName.length > 0 ? this.projectName : '',
+          branchName: this.branchName,
+          modelName: this.modelName,
+          isConnected: this.isConnected,
+          serverVersion: this.serverVersion,
+          projects: this.projects,
+          onInputChange: (value: string) => {
+            this.inputText = value
+          },
+          onSend: () => {
+            this.onSend()
+          },
+          onAbort: () => {
+            this.onAbort()
+          },
+          onNewSession: () => {
+            this.onNewSession()
+          },
+          onOpenChat: () => {
+            this.activeActivity = 'chat'
+          },
+          onOpenSettings: () => {
+            this.activeActivity = 'settings'
+          },
+          onOpenHelp: () => {
+            this.rightPanelTab = 'logs'
+            this.showRightPanel = true
+          },
+          onOpenDirectoryPicker: () => {
+            this.showDirectoryPicker = true
+          },
+          onOpenServerStatus: () => {
+            this.showStatusPopover = true
+          },
+          onOpenRightPanel: () => {
+            this.showRightPanel = !this.showRightPanel
+          },
+          onOpenFiles: () => {
+            this.activeActivity = 'files'
+          },
+          onOpenModels: () => {
+            this.activeActivity = 'models'
+          }
+        })
+
+        StatusPopover({
+          visible: this.showStatusPopover,
+          isConnected: this.isConnected,
+          serverUrl: this.serverUrl,
+          serverVersion: this.serverVersion,
+          projectName: this.projectName,
+          branchName: this.branchName,
+          sessionCount: this.sessions.length,
+          tokensUsed: this.tokensUsed,
+          tokensMax: this.tokensMax,
+          agentMode: this.agentMode,
+          onDismiss: () => {
+            this.showStatusPopover = false
+          },
+          onReconnect: () => {
+            this.showStatusPopover = false
+            this.onReconnect()
+          }
+        })
+
+        DirectoryPicker({
+          visible: this.showDirectoryPicker,
+          projects: this.projects,
+          currentDirectory: this.projectName,
+          onSelect: (directory: string) => {
+            this.showDirectoryPicker = false
+          },
+          onDismiss: () => {
+            this.showDirectoryPicker = false
+          }
+        })
+
+        ToastContainer({
+          toasts: this.toasts,
+          onDismiss: (id: string) => {
+            ToastManager.dismiss(id)
+          }
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#101010')
+      return
+    }
+
+    // ══════════ 正常 AppShell 工作区 ══════════
     Stack({ alignContent: Alignment.TopStart }) {
     Column() {
       // ══════════ Top Status Bar ══════════
@@ -154,91 +255,38 @@ export struct AppShell {
         Column() {
           // Center content area
           if (this.activeActivity === 'chat') {
-            if (this.activeSessionId.length === 0 && this.transcriptBlocks.length === 0) {
-              OpenCodeHomeLaunch({
-                inputText: $inputText,
-                isSending: $isSending,
-                activeRunner: this.activeRunner,
-                sessions: this.sessions,
-                projectName: this.projectName.length > 0 ? this.projectName : '构建任何东西',
-                projectPath: this.projectName.length > 0 ? this.projectName : '',
-                branchName: this.branchName,
-                modelName: this.modelName,
-                isConnected: this.isConnected,
-                serverVersion: this.serverVersion,
-                projects: this.projects,
-                onInputChange: (value: string) => {
-                  this.inputText = value
+            // Session tabs
+            if (this.sessions.length > 0) {
+              SessionTabs({
+                tabs: this.computeTabs(),
+                activeTabId: this.activeSessionId,
+                onSelectTab: (id: string) => {
+                  this.onSelectSession(id)
                 },
-                onSend: () => {
-                  this.onSend()
+                onCloseTab: (id: string) => {
+                  this.onCloseTab(id)
                 },
-                onAbort: () => {
-                  this.onAbort()
-                },
-                onNewSession: () => {
-                  this.onNewSession()
-                },
-                onOpenChat: () => {
-                  this.activeActivity = 'chat'
-                },
-                onOpenSettings: () => {
-                  this.activeActivity = 'settings'
-                },
-                onOpenHelp: () => {
-                  this.rightPanelTab = 'logs'
-                  this.showRightPanel = true
-                },
-                onOpenDirectoryPicker: () => {
-                  this.showDirectoryPicker = true
-                },
-                onOpenServerStatus: () => {
-                  this.showStatusPopover = true
-                },
-                onOpenRightPanel: () => {
-                  this.showRightPanel = !this.showRightPanel
-                },
-                onOpenFiles: () => {
-                  this.activeActivity = 'files'
-                },
-                onOpenModels: () => {
-                  this.activeActivity = 'models'
-                }
-              })
-            } else {
-              // Session tabs
-              if (this.sessions.length > 0) {
-                SessionTabs({
-                  tabs: this.computeTabs(),
-                  activeTabId: this.activeSessionId,
-                  onSelectTab: (id: string) => {
-                    this.onSelectSession(id)
-                  },
-                  onCloseTab: (id: string) => {
-                    this.onCloseTab(id)
-                  },
-                  onNewTab: () => {
-                    this.onNewTab()
-                  }
-                })
-              }
-              // Session header
-              this.SessionHeader()
-              // Transcript
-              AgentTranscript({
-                blocks: this.transcriptBlocks,
-                isStreaming: this.isStreaming,
-                onApprovePermission: (id: string) => {
-                  this.onApprovePermission(id)
-                },
-                onRejectPermission: (id: string) => {
-                  this.onRejectPermission(id)
-                },
-                onAlwaysApprovePermission: (id: string) => {
-                  this.onAlwaysApprovePermission(id)
+                onNewTab: () => {
+                  this.onNewTab()
                 }
               })
             }
+            // Session header
+            this.SessionHeader()
+            // Transcript
+            AgentTranscript({
+              blocks: this.transcriptBlocks,
+              isStreaming: this.isStreaming,
+              onApprovePermission: (id: string) => {
+                this.onApprovePermission(id)
+              },
+              onRejectPermission: (id: string) => {
+                this.onRejectPermission(id)
+              },
+              onAlwaysApprovePermission: (id: string) => {
+                this.onAlwaysApprovePermission(id)
+              }
+            })
           } else if (this.activeActivity === 'diff') {
             DiffPanel({
               diffs: this.diffs,
