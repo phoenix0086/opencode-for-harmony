@@ -65,6 +65,40 @@ export struct ProviderConnectDialog {
     this.models = list
   }
 
+  private providerIdPlaceholder(): string {
+    switch (this.apiType) {
+      case 'anthropic': return 'my-anthropic'
+      case 'openai_responses': return 'my-openai'
+      case 'bedrock_converse': return 'my-bedrock'
+      default: return 'deepseek-cn'
+    }
+  }
+
+  private displayNamePlaceholder(): string {
+    switch (this.apiType) {
+      case 'anthropic': return 'My Anthropic'
+      case 'openai_responses': return 'My OpenAI'
+      case 'bedrock_converse': return 'My Bedrock'
+      default: return 'DeepSeek'
+    }
+  }
+
+  private baseURLHint(): string {
+    switch (this.apiType) {
+      case 'anthropic': return 'Anthropic API 端点。留空则使用官方 https://api.anthropic.com。'
+      case 'bedrock_converse': return 'Bedrock Runtime 区域端点，如 https://bedrock-runtime.us-east-1.amazonaws.com。'
+      case 'openai_responses': return 'OpenAI API 端点。留空则使用官方 https://api.openai.com。'
+      default: return '填写 API 的 Base URL，不是官网或控制台地址。'
+    }
+  }
+
+  private apiKeyHint(): string {
+    switch (this.apiType) {
+      case 'bedrock_converse': return '填写 AccessKeyID|SecretAccessKey（用竖线分隔）。不会写入日志。'
+      default: return 'API Key 不会写入日志，也不会在界面中明文展示。'
+    }
+  }
+
   private getPlaceholder(field: string): string {
     if (this.apiType === 'anthropic') {
       switch (field) {
@@ -323,7 +357,7 @@ export struct ProviderConnectDialog {
       this.SectionTitle('1. 提供商信息')
 
       this.FormLabel('提供商 ID')
-      TextInput({ text: this.providerId, placeholder: this.apiType === 'anthropic' ? 'my-anthropic' : 'deepseek-cn' })
+      TextInput({ text: this.providerId, placeholder: this.providerIdPlaceholder() })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -335,7 +369,7 @@ export struct ProviderConnectDialog {
       this.Hint('只能使用小写字母、数字、连字符或下划线。')
 
       this.FormLabel('显示名称')
-      TextInput({ text: this.displayName, placeholder: this.apiType === 'anthropic' ? 'My Anthropic' : 'DeepSeek' })
+      TextInput({ text: this.displayName, placeholder: this.displayNamePlaceholder() })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -355,9 +389,7 @@ export struct ProviderConnectDialog {
         .borderWidth(1)
         .borderColor(Theme.BORDER)
         .onChange((v: string) => this.baseURL = v)
-      this.Hint(this.apiType === 'anthropic'
-        ? 'Anthropic API 端点。留空则使用官方 https://api.anthropic.com。'
-        : '填写 API 的 Base URL，不是官网或控制台地址。')
+      this.Hint(this.baseURLHint())
 
       this.FormLabel('API 密钥')
       TextInput({ text: this.apiKey, placeholder: this.getPlaceholder('apiKey') })
@@ -370,7 +402,7 @@ export struct ProviderConnectDialog {
         .borderWidth(1)
         .borderColor(Theme.BORDER)
         .onChange((v: string) => this.apiKey = v)
-      this.Hint('API Key 不会写入日志，也不会在界面中明文展示。')
+      this.Hint(this.apiKeyHint())
     }
     .width('100%')
     .padding(18)
@@ -762,8 +794,9 @@ export struct ProviderConnectDialog {
     if (this.providerId.trim().length === 0) return 'Provider ID 不能为空'
     if (!this.isValidProviderId(this.providerId.trim())) return 'Provider ID 只能包含小写字母、数字、连字符或下划线'
     if (this.displayName.trim().length === 0) return '显示名称不能为空'
-    if (this.apiType === 'openai_compatible' && this.baseURL.trim().length === 0) return '基础 URL 不能为空'
+    if (this.apiType !== 'anthropic' && this.apiType !== 'openai_responses' && this.baseURL.trim().length === 0) return '基础 URL 不能为空'
     if (this.baseURL.trim().length > 0 && !this.baseURL.trim().startsWith('http://') && !this.baseURL.trim().startsWith('https://')) return '基础 URL 必须以 http:// 或 https:// 开头'
+    if (this.apiType === 'bedrock_converse' && !this.apiKey.includes('|')) return 'AWS Bedrock 需要填写 AccessKeyID|SecretAccessKey 格式'
     if (this.models.length === 0) return '至少需要添加一个模型'
     return ''
   }
