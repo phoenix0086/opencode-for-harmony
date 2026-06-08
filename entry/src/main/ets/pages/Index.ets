@@ -88,7 +88,7 @@ struct Index {
 
   async initData(): Promise<void> {
     try {
-      await storageService.init(this.getContext())
+      await storageService.init(getContext(this))
       this.runners = await storageService.loadRunners()
 
       const activeId = await storageService.getActiveRunnerId()
