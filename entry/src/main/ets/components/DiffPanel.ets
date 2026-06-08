@@ -5,15 +5,6 @@ import { FileDiff } from '../models/Event'
  * Diff 面板
  * 右侧面板显示文件变更差异
  */
-
-class DiffFileEntry {
-  path: string = ''
-  status: string = ''
-  additions: number = 0
-  deletions: number = 0
-  patch: string = ''
-}
-
 @Component
 export struct DiffPanel {
   @Prop diffs: FileDiff[] = []
@@ -65,73 +56,92 @@ export struct DiffPanel {
         .margin({ left: Theme.sp.md, right: Theme.sp.md })
 
       // File list
-      List() {
-        ForEach(this.diffs, (diff: FileDiff) => {
-          ListItem() {
-            Column() {
-              // File header
-              Row() {
-                // Status icon
-                Text(this.getStatusSymbol(diff.status))
-                  .fontSize(Theme.fs.xs)
-                  .fontColor(this.getStatusColor(diff.status))
-                  .fontFamily(Theme.FONT_MONO)
-                  .fontWeight(FontWeight.Bold)
-                  .width(16)
-
-                // File path
-                Text(diff.file)
-                  .fontSize(Theme.fs.sm)
-                  .fontColor(Theme.TEXT_PRIMARY)
-                  .fontFamily(Theme.FONT_MONO)
-                  .maxLines(1)
-                  .layoutWeight(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-                // Additions / Deletions
-                if (diff.additions > 0) {
-                  Text(`+${diff.additions}`)
+      if (this.diffs.length === 0) {
+        Column() {
+          Text('No changes')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+          Text('No assistant message available for diff. Send a prompt to generate code changes.')
+            .fontSize(Theme.fs.xs)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+            .margin({ top: Theme.sp.md })
+            .textAlign(TextAlign.Center)
+            .padding({ left: Theme.sp.lg, right: Theme.sp.lg })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+      } else {
+        List() {
+          ForEach(this.diffs, (diff: FileDiff) => {
+            ListItem() {
+              Column() {
+                // File header
+                Row() {
+                  // Status icon
+                  Text(this.getStatusSymbol(diff.status))
                     .fontSize(Theme.fs.xs)
-                    .fontColor(Theme.DIFF_ADD_TEXT)
+                    .fontColor(this.getStatusColor(diff.status))
                     .fontFamily(Theme.FONT_MONO)
-                    .margin({ left: Theme.sp.sm })
+                    .fontWeight(FontWeight.Bold)
+                    .width(16)
+
+                  // File path
+                  Text(diff.file)
+                    .fontSize(Theme.fs.sm)
+                    .fontColor(Theme.TEXT_PRIMARY)
+                    .fontFamily(Theme.FONT_MONO)
+                    .maxLines(1)
+                    .layoutWeight(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+                  // Additions / Deletions
+                  if (diff.additions > 0) {
+                    Text(`+${diff.additions}`)
+                      .fontSize(Theme.fs.xs)
+                      .fontColor(Theme.DIFF_ADD_TEXT)
+                      .fontFamily(Theme.FONT_MONO)
+                      .margin({ left: Theme.sp.sm })
+                  }
+                  if (diff.deletions > 0) {
+                    Text(`-${diff.deletions}`)
+                      .fontSize(Theme.fs.xs)
+                      .fontColor(Theme.DIFF_DEL_TEXT)
+                      .fontFamily(Theme.FONT_MONO)
+                      .margin({ left: Theme.sp.sm })
+                  }
                 }
-                if (diff.deletions > 0) {
-                  Text(`-${diff.deletions}`)
+                .width('100%')
+
+                // Patch preview (first few lines)
+                if (diff.patch.length > 0) {
+                  Text(this.getPatchPreview(diff.patch))
                     .fontSize(Theme.fs.xs)
-                    .fontColor(Theme.DIFF_DEL_TEXT)
+                    .fontColor(Theme.TEXT_MUTED)
                     .fontFamily(Theme.FONT_MONO)
-                    .margin({ left: Theme.sp.sm })
+                    .margin({ top: Theme.sp.sm })
+                    .maxLines(4)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .backgroundColor(Theme.CODE_BG)
+                    .borderRadius(Theme.rd.sm)
+                    .padding(Theme.sp.sm)
+                    .width('100%')
                 }
               }
-              .width('100%')
-
-              // Patch preview (first few lines)
-              if (diff.patch.length > 0) {
-                Text(this.getPatchPreview(diff.patch))
-                  .fontSize(Theme.fs.xs)
-                  .fontColor(Theme.TEXT_MUTED)
-                  .fontFamily(Theme.FONT_MONO)
-                  .margin({ top: Theme.sp.sm })
-                  .maxLines(4)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .backgroundColor(Theme.CODE_BG)
-                  .borderRadius(Theme.rd.sm)
-                  .padding(Theme.sp.sm)
-                  .width('100%')
-              }
+              .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
+              .borderWidth({ bottom: 1 })
+              .borderColor(Theme.BORDER)
             }
-            .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
-            .borderWidth({ bottom: 1 })
-            .borderColor(Theme.BORDER)
-          }
-        }, (diff: FileDiff) => diff.file)
+          }, (diff: FileDiff) => diff.file)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .divider({ strokeWidth: 0 })
+        .scrollBar(BarState.Auto)
+        .backgroundColor('transparent')
       }
-      .layoutWeight(1)
-      .width('100%')
-      .divider({ strokeWidth: 0 })
-      .scrollBar(BarState.Auto)
-      .backgroundColor('transparent')
     }
     .width('100%')
     .height('100%')

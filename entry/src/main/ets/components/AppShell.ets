@@ -1,6 +1,6 @@
 import { Theme } from './Theme'
 import { Runner } from '../models/Runner'
-import { SessionInfo, FileDiff, PermissionRequest } from '../models/Event'
+import { SessionInfo, FileDiff, LogEntry } from '../models/Event'
 import { LeftActivityBar } from './LeftActivityBar'
 import { TopStatusBar } from './TopStatusBar'
 import { SessionSidebar } from './SessionSidebar'
@@ -39,7 +39,7 @@ export struct AppShell {
   @Prop isConnected: boolean = false
   @Prop connectionStatus: string = 'disconnected'
   @Prop sessionTitle: string = ''
-  @Prop logEntries: string[] = []
+  @Prop logEntries: LogEntry[] = []
 
   // ══════════ Callbacks ══════════
   onSelectSession: (id: string) => void = () => {}

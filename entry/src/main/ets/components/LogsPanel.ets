@@ -1,12 +1,13 @@
 import { Theme } from './Theme'
+import { LogEntry } from '../models/Event'
 
 /**
  * Logs Panel
- * 右侧面板 — 显示运行时/server 事件日志
+ * 右侧面板 — 显示结构化运行时/server 事件日志
  */
 @Component
 export struct LogsPanel {
-  @Prop entries: string[] = []
+  @Prop entries: LogEntry[] = []
 
   build() {
     Column() {
@@ -55,17 +56,37 @@ export struct LogsPanel {
         .justifyContent(FlexAlign.Center)
       } else {
         List() {
-          ForEach(this.entries, (entry: string) => {
+          ForEach(this.entries, (entry: LogEntry) => {
             ListItem() {
-              Text(entry)
-                .fontSize(Theme.fs.xs)
-                .fontColor(this.getLogColor(entry))
-                .fontFamily(Theme.FONT_MONO)
-                .maxLines(2)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Row() {
+                // Timestamp
+                Text(entry.timestamp)
+                  .fontSize(Theme.fs.xs)
+                  .fontColor(Theme.TEXT_MUTED)
+                  .fontFamily(Theme.FONT_MONO)
+                  .width(75)
+
+                // Source badge
+                Text(entry.source)
+                  .fontSize(Theme.fs.xs)
+                  .fontColor(this.getSourceColor(entry.source))
+                  .fontFamily(Theme.FONT_MONO)
+                  .fontWeight(FontWeight.Bold)
+                  .width(65)
+
+                // Message
+                Text(entry.message)
+                  .fontSize(Theme.fs.xs)
+                  .fontColor(this.getLevelColor(entry.level))
+                  .fontFamily(Theme.FONT_MONO)
+                  .maxLines(2)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+              }
+              .width('100%')
             }
             .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.xs, bottom: Theme.sp.xs })
-          }, (entry: string) => entry)
+          }, (entry: LogEntry) => entry.timestamp + entry.message)
         }
         .layoutWeight(1)
         .width('100%')
@@ -79,10 +100,21 @@ export struct LogsPanel {
     .backgroundColor(Theme.SIDEBAR)
   }
 
-  private getLogColor(entry: string): string {
-    if (entry.includes('error') || entry.includes('failed')) return Theme.DANGER
-    if (entry.includes('connected') || entry.includes('success') || entry.includes('idle')) return Theme.SUCCESS
-    if (entry.includes('started') || entry.includes('Sending')) return Theme.ACCENT
+  private getLevelColor(level: string): string {
+    if (level === 'error') return Theme.DANGER
+    if (level === 'warn') return Theme.WARNING
+    if (level === 'debug') return Theme.TEXT_MUTED
+    return Theme.TEXT_SECONDARY
+  }
+
+  private getSourceColor(source: string): string {
+    if (source === 'server') return Theme.ACCENT
+    if (source === 'session') return Theme.SUCCESS
+    if (source === 'message') return Theme.ACCENT
+    if (source === 'tool') return Theme.WARNING
+    if (source === 'permission') return Theme.DANGER
+    if (source === 'diff') return Theme.TEXT_SECONDARY
+    if (source === 'poll') return Theme.TEXT_MUTED
     return Theme.TEXT_MUTED
   }
 }

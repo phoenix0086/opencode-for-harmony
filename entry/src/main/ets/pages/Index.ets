@@ -1,9 +1,9 @@
-import { Runner, createRunner, RunnerConfig } from '../models/Runner'
+import { Runner } from '../models/Runner'
 import {
-  SessionInfo, NormalizedMessage, NormalizedPart, FileDiff,
-  PermissionRequest, EventTypes, ServerEvent
+  SessionInfo, NormalizedMessage, FileDiff,
+  EventTypes, ServerEvent, LogEntry
 } from '../models/Event'
-import { OpenCodeClient, HealthResult, normalizeFileDiffs } from '../services/OpenCodeClient'
+import { OpenCodeClient, normalizeFileDiffs } from '../services/OpenCodeClient'
 import { EventStreamClient, EventCallback } from '../services/EventStreamClient'
 import { storageService } from '../services/StorageService'
 import { providerRegistry } from '../services/ProviderRegistry'
@@ -38,7 +38,8 @@ struct Index {
   @State toolEntries: ToolTimelineEntry[] = []
   @State diffs: FileDiff[] = []
   @State isStreaming: boolean = false
-  @State logEntries: string[] = []
+  @State logEntries: LogEntry[] = []
+  @State lastAssistantMessageId: string = ''
 
   // ══════════ Composer State ══════════
   @State inputText: string = ''
@@ -98,32 +99,36 @@ struct Index {
   async testConnection(): Promise<void> {
     if (this.activeRunner === null) return
     try {
-      this.addLog(`Connecting to ${this.activeRunner.host}:${this.activeRunner.port}...`)
+      this.addLog(`Connecting to ${this.activeRunner.host}:${this.activeRunner.port}...`, 'info', 'server')
       const client = new OpenCodeClient(this.activeRunner)
       const result = await client.health()
       this.isConnected = result.ok
       this.serverVersion = result.version
       this.serverUrl = `${this.activeRunner.host}:${this.activeRunner.port}`
-      this.addLog(result.ok ? `Connected (v${result.version})` : `Health check failed: ${result.error}`)
-
       if (result.ok) {
+        this.addLog(`server.connected v${result.version}`, 'info', 'server')
         // Load project info
         try {
           const project = await client.getCurrentProject()
           this.projectName = project.name
+          this.addLog(`project: ${project.name}`, 'info', 'server')
         } catch (e) {
-          // ignore
+          this.addLog(`project load failed: ${String(e)}`, 'warn', 'server')
         }
         // Load VCS info (branch from GET /vcs)
         try {
           const vcs = await client.getVcsInfo()
           this.branchName = vcs.branch
+          this.addLog(`branch: ${vcs.branch}`, 'info', 'server')
         } catch (e) {
-          // ignore
+          this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server')
         }
+      } else {
+        this.addLog(`Health check failed: ${result.error}`, 'error', 'server')
       }
     } catch (e) {
       this.isConnected = false
+      this.addLog(`server.error: ${String(e)}`, 'error', 'server')
     }
   }
 
@@ -151,6 +156,7 @@ struct Index {
       }
     }
 
+    this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
     await this.loadMessages()
     await this.loadDiffs()
     this.connectEventStream()
@@ -163,8 +169,12 @@ struct Index {
       const messages = await client.getMessages(this.activeSessionId)
       const blocks: TranscriptBlock[] = []
       const toolMap: Map<string, ToolTimelineEntry> = new Map()
+      let lastAssistantId = ''
 
       for (const msg of messages) {
+        if (msg.role === 'assistant') {
+          lastAssistantId = msg.id
+        }
         const msgBlocks = this.convertMessage(msg)
         for (const b of msgBlocks) {
           blocks.push(b)
@@ -181,6 +191,7 @@ struct Index {
         }
       }
 
+      this.lastAssistantMessageId = lastAssistantId
       this.transcriptBlocks = blocks
       const toolList: ToolTimelineEntry[] = []
       toolMap.forEach((entry: ToolTimelineEntry) => {
@@ -188,19 +199,34 @@ struct Index {
       })
       this.toolEntries = toolList
     } catch (e) {
-      // ignore
+      this.addLog(`loadMessages failed: ${String(e)}`, 'error', 'message')
     }
   }
 
   async loadDiffs(): Promise<void> {
     if (this.activeRunner === null) return
+    this.addLog('diff.loading', 'debug', 'diff')
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      // Use VCS diff (GET /vcs/diff?mode=git) — no messageID required
+
+      // Strategy: try session diff with lastAssistantMessageId first
+      if (this.activeSessionId.length > 0 && this.lastAssistantMessageId.length > 0) {
+        try {
+          const sessionDiffs = await client.getSessionDiff(this.activeSessionId, this.lastAssistantMessageId)
+          this.diffs = normalizeFileDiffs(sessionDiffs)
+          this.addLog(`diff.loaded ${this.diffs.length} files (session)`, 'info', 'diff')
+          return
+        } catch (sessionErr) {
+          this.addLog(`session diff failed, falling back to vcs diff`, 'warn', 'diff')
+        }
+      }
+
+      // Fallback: VCS diff (GET /vcs/diff?mode=git) — no messageID required
       const rawDiffs = await client.getVcsDiff('git')
       this.diffs = normalizeFileDiffs(rawDiffs)
+      this.addLog(`diff.loaded ${this.diffs.length} files (vcs)`, 'info', 'diff')
     } catch (e) {
-      // ignore
+      this.addLog(`diff.failed: ${String(e)}`, 'error', 'diff')
     }
   }
 
@@ -260,22 +286,31 @@ struct Index {
 
   // ══════════ Event Stream ══════════
 
-  private addLog(msg: string): void {
+  private addLog(msg: string, level: string = 'info', source: string = 'app'): void {
     const now = new Date()
     const hh = String(now.getHours()).padStart(2, '0')
     const mm = String(now.getMinutes()).padStart(2, '0')
     const ss = String(now.getSeconds()).padStart(2, '0')
-    const entry = `${hh}:${mm}:${ss} ${msg}`
-    const list: string[] = []
+    const ms = String(now.getMilliseconds()).padStart(3, '0')
+    const entry = new LogEntry()
+    entry.timestamp = `${hh}:${mm}:${ss}.${ms}`
+    entry.level = level
+    entry.source = source
+    entry.message = msg
+    const list: LogEntry[] = []
     for (const e of this.logEntries) {
       list.push(e)
     }
     list.push(entry)
-    // Keep last 200 entries
-    while (list.length > 200) {
+    // Keep last 300 entries
+    while (list.length > 300) {
       list.shift()
     }
     this.logEntries = list
+  }
+
+  clearLogs(): void {
+    this.logEntries = []
   }
 
   connectEventStream(): void {
@@ -288,12 +323,12 @@ struct Index {
 
     const client = new OpenCodeClient(this.activeRunner)
     this.eventClient = new EventStreamClient(client, this.activeSessionId)
-    this.addLog('Event stream connecting...')
+    this.addLog('poll.started', 'info', 'poll')
 
     // Listen for new messages
     this.eventClient.on(EventTypes.SESSION_MESSAGE_UPDATED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
-        this.addLog(`message.updated ${event.id}`)
+        this.addLog(`poll.message.updated ${event.id}`, 'info', 'message')
         this.loadMessages()
       }
     })
@@ -307,7 +342,7 @@ struct Index {
 
     this.eventClient.on(EventTypes.SESSION_LLM_STARTED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
-        this.addLog('llm.started')
+        this.addLog('llm.started', 'info', 'message')
       }
     })
 
@@ -315,7 +350,7 @@ struct Index {
       if (event.properties['sessionID'] === this.activeSessionId) {
         this.isStreaming = false
         this.isSending = false
-        this.addLog('llm.ended')
+        this.addLog('llm.ended', 'info', 'message')
       }
     })
 
@@ -323,7 +358,7 @@ struct Index {
     this.eventClient.on(EventTypes.SESSION_TOOL_STARTED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         const tn = (event.properties['toolName'] as string) || ''
-        this.addLog(`tool.started ${tn}`)
+        this.addLog(`tool.detected ${tn}`, 'info', 'tool')
         this.loadMessages()
       }
     })
@@ -331,7 +366,7 @@ struct Index {
     this.eventClient.on(EventTypes.SESSION_TOOL_SUCCESS, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         const tn = (event.properties['toolName'] as string) || ''
-        this.addLog(`tool.success ${tn}`)
+        this.addLog(`tool.success ${tn}`, 'info', 'tool')
         this.loadMessages()
         this.loadDiffs()
       }
@@ -340,7 +375,7 @@ struct Index {
     this.eventClient.on(EventTypes.SESSION_TOOL_FAILED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         const tn = (event.properties['toolName'] as string) || ''
-        this.addLog(`tool.failed ${tn}`)
+        this.addLog(`tool.failed ${tn}`, 'warn', 'tool')
         this.loadMessages()
       }
     })
@@ -348,11 +383,12 @@ struct Index {
     // Listen for permission requests
     this.eventClient.on(EventTypes.PERMISSION_ASKED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
-        this.addLog(`permission.asked ${(event.properties['permType'] as string) || ''}`)
+        const permType = (event.properties['permType'] as string) || ''
+        this.addLog(`permission.asked ${permType}`, 'warn', 'permission')
         const block = new TranscriptBlock()
         block.id = event.id
         block.type = 'permission'
-        block.permType = (event.properties['permType'] as string) || 'unknown'
+        block.permType = permType.length > 0 ? permType : 'unknown'
         block.permTitle = (event.properties['title'] as string) || ''
         block.permDescription = (event.properties['description'] as string) || ''
         block.permRiskLevel = (event.properties['riskLevel'] as string) || 'low'
@@ -366,23 +402,32 @@ struct Index {
       }
     })
 
-    // Listen for session run ended (replaces idle)
+    // Listen for session run ended
     this.eventClient.on(EventTypes.SESSION_RUN_ENDED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
         this.isSending = false
         this.isStreaming = false
-        this.addLog('session.run.ended')
+        if (this.eventClient) {
+          this.eventClient.markIdle()
+        }
+        this.addLog('session.run.ended', 'info', 'session')
       }
+    })
+
+    // Listen for poll warnings
+    this.eventClient.on('poll.warning', (event: ServerEvent) => {
+      const errMsg = (event.properties['message'] as string) || 'unknown'
+      this.addLog(`poll.warning: ${errMsg}`, 'error', 'poll')
     })
 
     // Listen for errors
     this.eventClient.on('error', (event: ServerEvent) => {
       const errMsg = (event.properties['message'] as string) || 'unknown error'
-      this.addLog(`error: ${errMsg}`)
+      this.addLog(`error: ${errMsg}`, 'error', 'server')
     })
 
     this.eventClient.on('connected', (_event: ServerEvent) => {
-      this.addLog('Event stream connected')
+      this.addLog('poll.connected', 'info', 'poll')
     })
 
     this.eventClient.connect()
@@ -411,10 +456,21 @@ struct Index {
 
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      this.addLog(`Sending message: ${text.substring(0, 40)}...`)
+      this.addLog(`message.sending: ${text.substring(0, 50)}`, 'info', 'message')
+
+      // Mark event stream as active run to catch new messages
+      if (this.eventClient) {
+        this.eventClient.markActiveRun()
+      }
+
       await client.sendMessageAsync(this.activeSessionId, text)
+      this.addLog('message.sent', 'info', 'message')
     } catch (e) {
       this.isSending = false
+      this.addLog(`message.failed: ${String(e)}`, 'error', 'message')
+      if (this.eventClient) {
+        this.eventClient.markIdle()
+      }
       const errBlock = new TranscriptBlock()
       errBlock.id = `err_${Date.now()}`
       errBlock.type = 'system'
@@ -433,10 +489,11 @@ struct Index {
     try {
       const client = new OpenCodeClient(this.activeRunner)
       const session = await client.createSession()
+      this.addLog(`session.created ${session.id}`, 'info', 'session')
       await this.loadSessions()
       await this.selectSession(session.id)
     } catch (e) {
-      // ignore
+      this.addLog(`session.create.failed: ${String(e)}`, 'error', 'session')
     }
   }
 
@@ -445,9 +502,10 @@ struct Index {
     try {
       const client = new OpenCodeClient(this.activeRunner)
       await client.replyPermission(permId, 'once')
+      this.addLog(`permission.reply.once ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'approved')
     } catch (e) {
-      // ignore
+      this.addLog(`permission.reply.failed: ${String(e)}`, 'error', 'permission')
     }
   }
 
@@ -456,9 +514,10 @@ struct Index {
     try {
       const client = new OpenCodeClient(this.activeRunner)
       await client.replyPermission(permId, 'deny')
+      this.addLog(`permission.reply.deny ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'rejected')
     } catch (e) {
-      // ignore
+      this.addLog(`permission.reply.failed: ${String(e)}`, 'error', 'permission')
     }
   }
 

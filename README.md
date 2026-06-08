@@ -133,6 +133,9 @@ entry/src/main/ets/
 - [Runtime 验证报告](docs/harmony-native/runtime-native-verification.md) - 进程管理能力评估
 - [UI Parity Checklist](docs/harmony-native/ui-parity-checklist.md) - IDE 布局重构检查清单
 - [Smoke Test Guide](docs/harmony-native/smoke-test.md) - 运行时联调测试手册
+- [M11 API Smoke Matrix](docs/harmony-native/m11-api-smoke-matrix.md) - M11 端点验证矩阵
+- [M11 Demo Script](docs/harmony-native/m11-demo-script.md) - 演示录屏流程
+- [M11 下一步方案](docs/harmony-native/m11-next-step-plan.md) - 真机闭环验证方案
 - [平板 PRD](docs/opencode_harmony_tablet_prd.md) - 产品需求文档
 
 ## 开发阶段
@@ -150,6 +153,7 @@ entry/src/main/ets/
 | M8: 打包文档 | ✅ | README、API 文档、验证报告 |
 | M9: AppShell Wiring | ✅ | 三栏 IDE 联调、真实页面接入、深色主题统一 |
 | M10: API 联调修复 | ✅ | OpenCodeClient 对齐真实 OpenAPI spec、normalize 层、13 项 endpoint 修正 |
+| M11: 闭环验证准备 | ✅ | 轮询状态机、结构化日志、diff messageID 策略、ArkTS 审计 |
 
 ## 安全策略
 

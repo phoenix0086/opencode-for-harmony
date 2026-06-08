@@ -32,7 +32,7 @@ export struct FilePanel {
       const result = await client.listFiles('/')
       const paths: string[] = []
       for (const item of result) {
-        const pathVal = (item as Record<string, Object>)['path'] as string
+        const pathVal: string = item['path'] as string
         if (pathVal) {
           paths.push(pathVal)
         }

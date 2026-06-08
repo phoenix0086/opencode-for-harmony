@@ -1,5 +1,4 @@
 import { Theme } from './Theme'
-import { PermissionRequest } from '../models/Event'
 
 /**
  * Agent Transcript 组件

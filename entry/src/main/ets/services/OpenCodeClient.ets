@@ -5,7 +5,7 @@ import {
   HealthInfo, ConfigInfo, SessionInfo,
   WithParts, RawPart, NormalizedMessage, NormalizedPart,
   PermissionRequest, FileDiff, VcsInfo, VcsFileStatus,
-  ProjectInfo, AgentInfo, FileNode, PathInfo,
+  ProjectInfo, AgentInfo, PathInfo,
   ProviderListResult, ProviderPublicInfo
 } from '../models/Event'
 
@@ -220,7 +220,7 @@ export class OpenCodeClient {
 
   // ══════════ Path / File ══════════
   // GET /path → { home, state, config, worktree, directory }
-  // GET /file?path=... → FileNode[]
+  // GET /file?path=... → { name, path, absolute, type, ignored }[]
   // GET /file/content?path=... → FileContent
 
   async getPaths(): Promise<PathInfo> {
@@ -228,9 +228,9 @@ export class OpenCodeClient {
     return this.parseJson<PathInfo>(resp)
   }
 
-  async listFiles(path: string): Promise<FileNode[]> {
+  async listFiles(path: string): Promise<Record<string, Object>[]> {
     const resp = await this.doGet(`/file?path=${encodeURIComponent(path)}`)
-    return this.parseJson<FileNode[]>(resp)
+    return this.parseJson<Record<string, Object>[]>(resp)
   }
 
   async readFile(filePath: string): Promise<Record<string, Object>> {

@@ -1,10 +1,16 @@
-import { ServerEvent, GlobalEvent, EventTypes, NormalizedMessage, NormalizedPart, PermissionRequest } from '../models/Event'
+import { ServerEvent, EventTypes, NormalizedMessage } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
 
 /**
  * 轮询式事件客户端
  * 定期从 OpenCode Server 获取新消息和权限请求
  * 替代 SSE 方案，兼容 ArkTS HTTP 模块限制
+ *
+ * 轮询状态机模式:
+ *   cold_start  — 首次轮询，静默记录已有消息 ID
+ *   active_run  — 活跃运行中，有新消息时触发事件
+ *   idle        — 空闲状态，等待新消息
+ *   error       — 连续错误过多，进入错误状态
  */
 export class EventStreamClient {
   private client: OpenCodeClient
@@ -16,6 +22,8 @@ export class EventStreamClient {
   private seenPermissionIds: string[] = []
   private listeners: Map<string, EventCallback[]> = new Map()
   private initialized: boolean = false
+  private pollingMode: string = 'cold_start'
+  private consecutiveErrors: number = 0
 
   constructor(client: OpenCodeClient, sessionId: string) {
     this.client = client
@@ -33,10 +41,39 @@ export class EventStreamClient {
   }
 
   /**
+   * 将轮询模式切换为 active_run
+   */
+  markActiveRun(): void {
+    this.pollingMode = 'active_run'
+  }
+
+  /**
+   * 将轮询模式切换为 idle
+   */
+  markIdle(): void {
+    this.pollingMode = 'idle'
+  }
+
+  /**
+   * 更新轮询间隔
+   */
+  setPollingInterval(ms: number): void {
+    this.pollingInterval = ms
+  }
+
+  /**
+   * 获取当前轮询模式
+   */
+  getStatus(): string {
+    return this.pollingMode
+  }
+
+  /**
    * 开始轮询
    */
   connect(): void {
     if (this.polling) return
+    this.pollingMode = 'cold_start'
     this.polling = true
     this.doPoll()
   }
@@ -61,6 +98,7 @@ export class EventStreamClient {
     this.seenMessageIds = []
     this.seenPermissionIds = []
     this.initialized = false
+    this.pollingMode = 'cold_start'
     this.connect()
   }
 
@@ -75,6 +113,9 @@ export class EventStreamClient {
       await this.pollMessages()
       await this.pollPermissions()
 
+      // 成功轮询：重置连续错误计数
+      this.consecutiveErrors = 0
+
       // 首次轮询完成后发送 connected 事件
       if (!this.initialized) {
         this.initialized = true
@@ -84,11 +125,28 @@ export class EventStreamClient {
         this.emit('connected', connectedEvent)
       }
 
+      // cold_start 模式下，首次成功轮询后过渡到 idle
+      if (this.pollingMode === 'cold_start') {
+        this.pollingMode = 'idle'
+      }
+
       // 发送心跳事件保持连接状态
       const heartbeat = new ServerEvent()
       heartbeat.type = EventTypes.SERVER_HEARTBEAT
       this.emit(EventTypes.SERVER_HEARTBEAT, heartbeat)
     } catch (e) {
+      // 失败轮询：递增连续错误计数
+      this.consecutiveErrors++
+
+      // 连续错误达到阈值，进入 error 模式并发出警告事件
+      if (this.consecutiveErrors >= 3) {
+        this.pollingMode = 'error'
+        const warningEvent = new ServerEvent()
+        warningEvent.type = 'poll.warning'
+        warningEvent.properties['message'] = 'Consecutive poll errors reached ' + String(this.consecutiveErrors)
+        this.emit('poll.warning', warningEvent)
+      }
+
       const errEvent = new ServerEvent()
       errEvent.type = 'error'
       errEvent.properties['message'] = String(e)
@@ -108,17 +166,23 @@ export class EventStreamClient {
 
     const messages = await this.client.getMessages(this.sessionId)
 
-    // First poll: record existing message IDs without firing events
-    if (this.seenMessageIds.length === 0 && messages.length > 0) {
+    // cold_start 模式：静默记录所有已有消息 ID，不触发事件
+    if (this.pollingMode === 'cold_start') {
       for (const msg of messages) {
-        this.seenMessageIds.push(msg.id)
+        if (!this.containsString(this.seenMessageIds, msg.id)) {
+          this.seenMessageIds.push(msg.id)
+        }
       }
       return
     }
 
+    // active_run 或 idle 模式：为新消息触发事件
+    let newMessageCount: number = 0
+
     for (const msg of messages) {
       if (!this.containsString(this.seenMessageIds, msg.id)) {
         this.seenMessageIds.push(msg.id)
+        newMessageCount++
 
         // Fire message updated event
         const msgEvent = new ServerEvent()
@@ -149,7 +213,7 @@ export class EventStreamClient {
         for (const part of msg.parts) {
           if (part.type === 'tool-invocation') {
             const toolEvent = new ServerEvent()
-            toolEvent.id = `${msg.id}_${part.id}`
+            toolEvent.id = msg.id + '_' + part.id
             toolEvent.type = EventTypes.SESSION_TOOL_SUCCESS
             toolEvent.properties['sessionID'] = this.sessionId
             toolEvent.properties['toolName'] = part.toolName
@@ -159,6 +223,11 @@ export class EventStreamClient {
           }
         }
       }
+    }
+
+    // active_run 模式下无新消息时，过渡到 idle
+    if (this.pollingMode === 'active_run' && newMessageCount === 0) {
+      this.markIdle()
     }
   }
 

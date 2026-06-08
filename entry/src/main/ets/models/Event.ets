@@ -228,6 +228,15 @@ export class PathInfo {
   directory: string = ''
 }
 
+// ══════════ Log Entry ══════════
+
+export class LogEntry {
+  timestamp: string = ''
+  level: string = ''
+  source: string = ''
+  message: string = ''
+}
+
 // ══════════ Event Type Constants ══════════
 
 export class EventTypes {
