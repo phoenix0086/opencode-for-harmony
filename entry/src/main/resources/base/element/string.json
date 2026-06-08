@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "OpenCode for HarmonyOS Tablet"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "AI 编程助手"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "OpenCode"
+    }
+  ]
+}
