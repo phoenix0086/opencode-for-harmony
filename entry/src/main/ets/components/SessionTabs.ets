@@ -55,8 +55,7 @@ export struct SessionTabs {
                   tab.id === this.hoveredTabId
                   ? Visibility.Visible
                   : Visibility.None)
-                .onClick((event: ClickEvent) => {
-                  event.stopPropagation()
+                .onClick(() => {
                   this.onCloseTab(tab.id)
                 })
             }

@@ -20,14 +20,11 @@ export struct AgentTranscript {
   onRejectPermission: (id: string) => void = () => {}
   onAlwaysApprovePermission: (id: string) => void = () => {}
   @State turns: TurnData[] = []
+  private lastBlocksLen: number = -1
 
   aboutToAppear(): void {
     this.buildTurns()
-  }
-
-  @Watch('blocks')
-  onBlocksChanged(): void {
-    this.buildTurns()
+    this.lastBlocksLen = this.blocks.length
   }
 
   /**
@@ -110,6 +107,11 @@ export struct AgentTranscript {
   }
 
   build() {
+    // Rebuild turns when blocks array changes (replaces invalid @Watch on @Prop)
+    if (this.blocks.length !== this.lastBlocksLen) {
+      this.buildTurns()
+      this.lastBlocksLen = this.blocks.length
+    }
     List() {
       // ═══════ Interleaved turns and permissions ═══════
       ForEach(this.getRenderItems(), (item: RenderItem) => {

@@ -565,7 +565,7 @@ export struct SettingsPage {
     ForEach(providerRegistry.getAll(), (p: CNProvider) => {
       Row() {
         // Provider brand icon
-        ProviderIcon({ providerId: p.id, size: 28 })
+        ProviderIcon({ providerId: p.id, iconSize: 28 })
           .margin({ right: Theme.sp.lg })
 
         // Connection status indicator (green dot if API key is configured)

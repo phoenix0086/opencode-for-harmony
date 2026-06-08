@@ -8,21 +8,21 @@ import { Theme } from './Theme'
 export struct ProviderIcon {
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop providerId: string = ''
-  @Prop size: number = 20 // pixel size of the icon
+  @Prop iconSize: number = 20 // pixel size of the icon
 
   build() {
     Row() {
       Text(this.getAbbreviation())
-        .fontSize(this.size * 0.55)
+        .fontSize(this.iconSize * 0.55)
         .fontWeight(FontWeight.Bold)
         .fontFamily(Theme.FONT_MONO)
         .fontColor(this.getTextColor())
     }
-    .width(this.size)
-    .height(this.size)
+    .width(this.iconSize)
+    .height(this.iconSize)
     .justifyContent(FlexAlign.Center)
     .backgroundColor(this.getBgColor())
-    .borderRadius(this.size * 0.2)
+    .borderRadius(this.iconSize * 0.2)
     .borderWidth(1)
     .borderColor(this.getBorderColor())
   }

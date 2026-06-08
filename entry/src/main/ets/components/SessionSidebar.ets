@@ -125,13 +125,8 @@ export struct SessionSidebar {
             })
             .gesture(
               LongPressGesture()
-                .onAction((event: GestureEvent) => {
-                  const currentTouches = event.currentTouches
-                  if (currentTouches && currentTouches.length > 0) {
-                    this.onLongPressSession(session.id, currentTouches[0].x, currentTouches[0].y)
-                  } else {
-                    this.onLongPressSession(session.id, 100, 100)
-                  }
+                .onAction(() => {
+                  this.onLongPressSession(session.id, 100, 100)
                 })
             )
           }
