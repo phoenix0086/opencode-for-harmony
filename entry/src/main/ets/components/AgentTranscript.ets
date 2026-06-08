@@ -107,11 +107,6 @@ export struct AgentTranscript {
   }
 
   build() {
-    // Rebuild turns when blocks array changes (replaces invalid @Watch on @Prop)
-    if (this.blocks.length !== this.lastBlocksLen) {
-      this.buildTurns()
-      this.lastBlocksLen = this.blocks.length
-    }
     List() {
       // ═══════ Interleaved turns and permissions ═══════
       ForEach(this.getRenderItems(), (item: RenderItem) => {
@@ -138,6 +133,11 @@ export struct AgentTranscript {
    * to preserve the original block ordering.
    */
   private getRenderItems(): RenderItem[] {
+    // Rebuild turns when blocks array changes (replaces invalid @Watch on @Prop)
+    if (this.blocks.length !== this.lastBlocksLen) {
+      this.buildTurns()
+      this.lastBlocksLen = this.blocks.length
+    }
     const items: RenderItem[] = []
     let turnIdx = 0
 
