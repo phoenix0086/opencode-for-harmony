@@ -11,6 +11,7 @@ export class ProviderTemplate {
   id: string = ''
   name: string = ''
   description: string = ''
+  apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic'
   baseURL: string = ''
   authEnv: string = ''
   models: ProviderModelTemplate[] = []
@@ -25,11 +26,12 @@ function model(id: string, name: string, coding: boolean = true, recommended: bo
   return m
 }
 
-function template(id: string, name: string, description: string, baseURL: string, authEnv: string, models: ProviderModelTemplate[]): ProviderTemplate {
+function template(id: string, name: string, description: string, apiType: string, baseURL: string, authEnv: string, models: ProviderModelTemplate[]): ProviderTemplate {
   const t = new ProviderTemplate()
   t.id = id
   t.name = name
   t.description = description
+  t.apiType = apiType
   t.baseURL = baseURL
   t.authEnv = authEnv
   t.models = models
@@ -39,7 +41,8 @@ function template(id: string, name: string, description: string, baseURL: string
 export class ProviderTemplateRegistry {
   listTemplates(): ProviderTemplate[] {
     const list: ProviderTemplate[] = []
-    list.push(template('custom-openai-compatible', '自定义提供商', '通过基础 URL 添加与 OpenAI 兼容的提供商。', '', 'CUSTOM_API_KEY', []))
+    list.push(template('custom-openai-compatible', 'OpenAI Compatible', '通过基础 URL 添加与 OpenAI 兼容的提供商。', 'openai_compatible', '', 'CUSTOM_API_KEY', []))
+    list.push(template('custom-anthropic', 'Anthropic', 'Anthropic Claude 系列模型。', 'anthropic', 'https://api.anthropic.com', 'ANTHROPIC_API_KEY', []))
     return list
   }
 
@@ -58,9 +61,9 @@ export class ProviderTemplateRegistry {
     p.baseURL = t.baseURL
     p.authEnv = t.authEnv
     p.apiKeyRef = t.authEnv
-    p.npm = '@ai-sdk/openai-compatible'
+    p.npm = t.apiType === 'anthropic' ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible'
     p.enabled = true
-    p.builtIn = t.id !== 'custom-openai-compatible'
+    p.builtIn = false
     p.authStatus = 'missing'
 
     for (const tm of t.models) {

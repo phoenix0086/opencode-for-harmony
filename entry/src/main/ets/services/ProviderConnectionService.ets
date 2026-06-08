@@ -1,3 +1,4 @@
+import { http } from '@kit.NetworkKit'
 import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { Runner } from '../models/Runner'
 import { providerRegistry } from './ProviderRegistry'
@@ -16,11 +17,20 @@ export class ProviderHeaderInput {
 export class ProviderConnectInput {
   providerId: string = ''
   displayName: string = ''
+  apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic'
   baseURL: string = ''
   apiKey: string = ''
   authEnv: string = ''
   models: ProviderModelInput[] = []
   headers: ProviderHeaderInput[] = []
+}
+
+export class TestConnectionResult {
+  ok: boolean = false
+  latencyMs: number = 0
+  modelUsed: string = ''
+  responsePreview: string = ''
+  error: string = ''
 }
 
 export class ProviderConnectResult {
@@ -35,6 +45,161 @@ export class ProviderConnectResult {
 }
 
 export class ProviderConnectionService {
+
+  async testConnection(input: ProviderConnectInput): Promise<TestConnectionResult> {
+    const result = new TestConnectionResult()
+    const startTime = Date.now()
+
+    if (input.baseURL.length === 0 || input.apiKey.length === 0 || input.models.length === 0) {
+      result.error = '需要填写 Base URL、API Key 并至少添加一个模型才能测试。'
+      return result
+    }
+
+    const modelId = input.models[0].id
+    result.modelUsed = modelId
+
+    try {
+      if (input.apiType === 'anthropic') {
+        return await this.testAnthropic(input, modelId, startTime)
+      } else {
+        return await this.testOpenAICompatible(input, modelId, startTime)
+      }
+    } catch (e) {
+      result.ok = false
+      result.latencyMs = Date.now() - startTime
+      result.error = String(e)
+      return result
+    }
+  }
+
+  private async testOpenAICompatible(input: ProviderConnectInput, modelId: string, startTime: number): Promise<TestConnectionResult> {
+    const result = new TestConnectionResult()
+    result.modelUsed = modelId
+
+    let url = input.baseURL
+    if (!url.endsWith('/')) url += '/'
+    url += 'v1/chat/completions'
+    // Handle baseURL already ending with /v1 or /v1/
+    if (input.baseURL.endsWith('/v1') || input.baseURL.endsWith('/v1/')) {
+      url = input.baseURL.endsWith('/') ? `${input.baseURL}chat/completions` : `${input.baseURL}/chat/completions`
+    }
+
+    const headers: Record<string, string> = {}
+    headers['Content-Type'] = 'application/json'
+    headers['Authorization'] = `Bearer ${input.apiKey}`
+    for (const h of input.headers) {
+      if (h.name.length > 0) headers[h.name] = h.value
+    }
+
+    const body = JSON.stringify({
+      model: modelId,
+      messages: [{ role: 'user', content: 'Say "ok" only.' }],
+      max_tokens: 10,
+      stream: false
+    })
+
+    const resp = await this.httpPost(url, headers, body, 15000)
+    result.latencyMs = Date.now() - startTime
+
+    if (resp.responseCode >= 200 && resp.responseCode < 300) {
+      result.ok = true
+      try {
+        const data = JSON.parse(resp.result as string) as Record<string, Object>
+        const choices = data['choices'] as Array<Record<string, Object>>
+        if (choices && choices.length > 0) {
+          const msg = choices[0]['message'] as Record<string, string>
+          result.responsePreview = (msg['content'] || '').substring(0, 100)
+        }
+      } catch (e) {
+        result.responsePreview = '(parse error)'
+      }
+    } else {
+      result.ok = false
+      try {
+        const err = JSON.parse(resp.result as string) as Record<string, Object>
+        const errObj = err['error'] as Record<string, string>
+        result.error = errObj ? (errObj['message'] || `HTTP ${resp.responseCode}`) : `HTTP ${resp.responseCode}`
+      } catch (e) {
+        result.error = `HTTP ${resp.responseCode}`
+      }
+    }
+
+    return result
+  }
+
+  private async testAnthropic(input: ProviderConnectInput, modelId: string, startTime: number): Promise<TestConnectionResult> {
+    const result = new TestConnectionResult()
+    result.modelUsed = modelId
+
+    let url = input.baseURL
+    if (!url.endsWith('/')) url += '/'
+    // Anthropic Messages API
+    if (!url.includes('/v1/messages')) {
+      url += 'v1/messages'
+    }
+    // Handle baseURL already ending with /v1 or /v1/
+    if (input.baseURL.endsWith('/v1')) {
+      url = `${input.baseURL}/messages`
+    } else if (input.baseURL.endsWith('/v1/')) {
+      url = `${input.baseURL}messages`
+    }
+
+    const headers: Record<string, string> = {}
+    headers['Content-Type'] = 'application/json'
+    headers['x-api-key'] = input.apiKey
+    headers['anthropic-version'] = '2023-06-01'
+    for (const h of input.headers) {
+      if (h.name.length > 0) headers[h.name] = h.value
+    }
+
+    const body = JSON.stringify({
+      model: modelId,
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Say "ok" only.' }]
+    })
+
+    const resp = await this.httpPost(url, headers, body, 15000)
+    result.latencyMs = Date.now() - startTime
+
+    if (resp.responseCode >= 200 && resp.responseCode < 300) {
+      result.ok = true
+      try {
+        const data = JSON.parse(resp.result as string) as Record<string, Object>
+        const content = data['content'] as Array<Record<string, string>>
+        if (content && content.length > 0) {
+          result.responsePreview = (content[0]['text'] || '').substring(0, 100)
+        }
+      } catch (e) {
+        result.responsePreview = '(parse error)'
+      }
+    } else {
+      result.ok = false
+      try {
+        const err = JSON.parse(resp.result as string) as Record<string, Object>
+        const errObj = err['error'] as Record<string, string>
+        result.error = errObj ? (errObj['message'] || `HTTP ${resp.responseCode}`) : `HTTP ${resp.responseCode}`
+      } catch (e) {
+        result.error = `HTTP ${resp.responseCode}`
+      }
+    }
+
+    return result
+  }
+
+  private async httpPost(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<http.HttpResponse> {
+    const req = http.createHttp()
+    const options: http.HttpRequestOptions = {
+      method: http.RequestMethod.POST,
+      header: headers,
+      connectTimeout: Math.min(timeoutMs, 10000),
+      readTimeout: timeoutMs,
+      extraData: body
+    }
+    const resp = await req.request(url, options)
+    req.destroy()
+    return resp
+  }
+
   async connectProvider(input: ProviderConnectInput, runner: Runner | null): Promise<ProviderConnectResult> {
     const result = new ProviderConnectResult()
     result.providerId = input.providerId
@@ -145,7 +310,7 @@ export class ProviderConnectionService {
     const p = new CNProvider()
     p.id = input.providerId
     p.name = input.displayName
-    p.npm = '@ai-sdk/openai-compatible'
+    p.npm = input.apiType === 'anthropic' ? '@ai-sdk/anthropic' : '@ai-sdk/openai-compatible'
     p.baseURL = input.baseURL
     p.authEnv = input.authEnv.length > 0 ? input.authEnv : this.toEnvName(input.providerId)
     p.apiKeyRef = p.authEnv
@@ -205,7 +370,9 @@ export class ProviderConnectionService {
     }
 
     const options: Record<string, Object> = {}
-    options['baseURL'] = provider.baseURL
+    if (provider.baseURL.length > 0) {
+      options['baseURL'] = provider.baseURL
+    }
     options['apiKey'] = `{env:${provider.authEnv}}`
 
     if (provider.headers.length > 0) {

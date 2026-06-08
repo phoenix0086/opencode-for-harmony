@@ -1,6 +1,6 @@
 import { Theme } from '../Theme'
 import { ProviderTemplate } from '../../services/ProviderTemplateRegistry'
-import { ProviderConnectInput, ProviderModelInput, ProviderHeaderInput } from '../../services/ProviderConnectionService'
+import { ProviderConnectInput, ProviderModelInput, ProviderHeaderInput, providerConnectionService, TestConnectionResult } from '../../services/ProviderConnectionService'
 
 @Component
 export struct ProviderConnectDialog {
@@ -13,6 +13,7 @@ export struct ProviderConnectDialog {
   @State displayName: string = ''
   @State baseURL: string = ''
   @State apiKey: string = ''
+  @State apiType: string = 'openai_compatible' // 'openai_compatible' | 'anthropic'
 
   @State modelId: string = ''
   @State modelName: string = ''
@@ -25,6 +26,10 @@ export struct ProviderConnectDialog {
   @State initializedFromTemplate: boolean = false
   @State errorText: string = ''
 
+  // Test connection state
+  @State testing: boolean = false
+  @State testResult: TestConnectionResult | null = null
+
   aboutToAppear(): void {
     this.applyTemplateIfNeeded()
   }
@@ -35,7 +40,6 @@ export struct ProviderConnectDialog {
 
     if (this.template === null) return
 
-    // The custom provider template should open as an empty form.
     if (this.template.id === 'custom-openai-compatible') {
       this.providerId = ''
       this.displayName = ''
@@ -59,6 +63,24 @@ export struct ProviderConnectDialog {
     this.models = list
   }
 
+  private getPlaceholder(field: string): string {
+    if (this.apiType === 'anthropic') {
+      switch (field) {
+        case 'baseURL': return 'https://api.anthropic.com'
+        case 'apiKey': return 'sk-ant-xxxxxxxx'
+        case 'modelId': return 'claude-sonnet-4-20250514'
+        case 'modelName': return 'Claude Sonnet 4'
+      }
+    }
+    switch (field) {
+      case 'baseURL': return 'https://api.deepseek.com'
+      case 'apiKey': return 'sk-xxxxxxxx'
+      case 'modelId': return 'deepseek-chat'
+      case 'modelName': return 'DeepSeek Chat'
+    }
+    return ''
+  }
+
   build() {
     if (this.visible) {
       Stack() {
@@ -74,9 +96,11 @@ export struct ProviderConnectDialog {
           Scroll() {
             Column() {
               this.IntroBlock()
+              this.ApiTypeBlock()
               this.ProviderBlock()
               this.ModelBlock()
               this.HeaderBlock()
+              this.TestResultBlock()
 
               if (this.errorText.length > 0) {
                 Text(this.errorText)
@@ -153,7 +177,7 @@ export struct ProviderConnectDialog {
             .fontWeight(FontWeight.Bold)
             .fontColor(Theme.TEXT_PRIMARY)
 
-          Text('配置与 OpenAI 兼容的 API。填入服务商地址、API 密钥和模型 ID。')
+          Text('填入服务商地址、API 密钥和模型 ID，然后测试连接。')
             .fontSize(Theme.fs.md)
             .fontColor(Theme.TEXT_MUTED)
             .margin({ top: 8 })
@@ -163,7 +187,69 @@ export struct ProviderConnectDialog {
       }
     }
     .width('100%')
-    .margin({ bottom: 24 })
+    .margin({ bottom: 20 })
+  }
+
+  @Builder
+  ApiTypeBlock() {
+    Column() {
+      this.SectionTitle('API 协议')
+
+      Row() {
+        Text('OpenAI Compatible')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(this.apiType === 'openai_compatible' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.apiType === 'openai_compatible' ? Theme.BG : Theme.TEXT_PRIMARY)
+          .height(38)
+          .padding({ left: 18, right: 18 })
+          .borderRadius(8)
+          .backgroundColor(this.apiType === 'openai_compatible' ? Theme.TEXT_PRIMARY : Theme.BG)
+          .borderWidth(1)
+          .borderColor(this.apiType === 'openai_compatible' ? Theme.TEXT_PRIMARY : Theme.BORDER)
+          .onClick(() => {
+            if (this.apiType !== 'openai_compatible') {
+              this.apiType = 'openai_compatible'
+              this.testResult = null
+              this.errorText = ''
+            }
+          })
+
+        Text('Anthropic')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(this.apiType === 'anthropic' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(this.apiType === 'anthropic' ? Theme.BG : Theme.TEXT_PRIMARY)
+          .height(38)
+          .padding({ left: 18, right: 18 })
+          .borderRadius(8)
+          .backgroundColor(this.apiType === 'anthropic' ? Theme.TEXT_PRIMARY : Theme.BG)
+          .borderWidth(1)
+          .borderColor(this.apiType === 'anthropic' ? Theme.TEXT_PRIMARY : Theme.BORDER)
+          .margin({ left: 10 })
+          .onClick(() => {
+            if (this.apiType !== 'anthropic') {
+              this.apiType = 'anthropic'
+              this.testResult = null
+              this.errorText = ''
+            }
+          })
+      }
+      .margin({ bottom: 4 })
+
+      Text(this.apiType === 'anthropic'
+        ? '使用 Anthropic Messages API（/v1/messages）。Base URL 留空则使用官方端点。'
+        : '使用标准 OpenAI Chat Completions API（/v1/chat/completions）。')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .margin({ top: 6 })
+    }
+    .width('100%')
+    .padding(18)
+    .borderRadius(14)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .margin({ bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -172,7 +258,7 @@ export struct ProviderConnectDialog {
       this.SectionTitle('1. 提供商信息')
 
       this.FormLabel('提供商 ID')
-      TextInput({ text: this.providerId, placeholder: 'deepseek-cn' })
+      TextInput({ text: this.providerId, placeholder: this.apiType === 'anthropic' ? 'my-anthropic' : 'deepseek-cn' })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -181,10 +267,10 @@ export struct ProviderConnectDialog {
         .borderWidth(1)
         .borderColor(Theme.BORDER)
         .onChange((v: string) => this.providerId = v)
-      this.Hint('只能使用小写字母、数字、连字符或下划线，例如 deepseek-cn、qwen-cn。')
+      this.Hint('只能使用小写字母、数字、连字符或下划线。')
 
       this.FormLabel('显示名称')
-      TextInput({ text: this.displayName, placeholder: 'DeepSeek' })
+      TextInput({ text: this.displayName, placeholder: this.apiType === 'anthropic' ? 'My Anthropic' : 'DeepSeek' })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -195,7 +281,7 @@ export struct ProviderConnectDialog {
         .onChange((v: string) => this.displayName = v)
 
       this.FormLabel('基础 URL')
-      TextInput({ text: this.baseURL, placeholder: 'https://api.deepseek.com' })
+      TextInput({ text: this.baseURL, placeholder: this.getPlaceholder('baseURL') })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -204,10 +290,12 @@ export struct ProviderConnectDialog {
         .borderWidth(1)
         .borderColor(Theme.BORDER)
         .onChange((v: string) => this.baseURL = v)
-      this.Hint('填写 OpenAI Compatible API 的 Base URL，不是官网或控制台地址。')
+      this.Hint(this.apiType === 'anthropic'
+        ? 'Anthropic API 端点。留空则使用官方 https://api.anthropic.com。'
+        : '填写 API 的 Base URL，不是官网或控制台地址。')
 
       this.FormLabel('API 密钥')
-      TextInput({ text: this.apiKey, placeholder: 'sk-xxxxxxxx' })
+      TextInput({ text: this.apiKey, placeholder: this.getPlaceholder('apiKey') })
         .height(46)
         .fontSize(Theme.fs.md)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -235,7 +323,7 @@ export struct ProviderConnectDialog {
       this.SectionTitle('2. 模型')
 
       if (this.models.length === 0) {
-        Text('还没有添加模型。至少添加一个模型后才能提交。')
+        Text('还没有添加模型。至少添加一个模型后才能提交或测试。')
           .fontSize(Theme.fs.sm)
           .fontColor(Theme.TEXT_MUTED)
           .margin({ bottom: 12 })
@@ -246,7 +334,7 @@ export struct ProviderConnectDialog {
       }
 
       Row() {
-        TextInput({ text: this.modelId, placeholder: 'deepseek-chat' })
+        TextInput({ text: this.modelId, placeholder: this.getPlaceholder('modelId') })
           .layoutWeight(1)
           .height(42)
           .fontSize(Theme.fs.sm)
@@ -257,7 +345,7 @@ export struct ProviderConnectDialog {
           .borderColor(Theme.BORDER)
           .onChange((v: string) => this.modelId = v)
 
-        TextInput({ text: this.modelName, placeholder: 'DeepSeek Chat' })
+        TextInput({ text: this.modelName, placeholder: this.getPlaceholder('modelName') })
           .layoutWeight(1)
           .height(42)
           .fontSize(Theme.fs.sm)
@@ -297,7 +385,9 @@ export struct ProviderConnectDialog {
       this.SectionTitle('3. 请求头（可选）')
 
       if (this.headers.length === 0) {
-        Text('普通 OpenAI Compatible API 通常不需要额外请求头。')
+        Text(this.apiType === 'anthropic'
+          ? '通常不需要额外请求头。Anthropic 认证通过 x-api-key 头自动处理。'
+          : '普通 API 通常不需要额外请求头。')
           .fontSize(Theme.fs.sm)
           .fontColor(Theme.TEXT_MUTED)
           .margin({ bottom: 12 })
@@ -354,6 +444,52 @@ export struct ProviderConnectDialog {
   }
 
   @Builder
+  TestResultBlock() {
+    if (this.testResult !== null) {
+      Row() {
+        if (this.testResult!.ok) {
+          Text('✓')
+            .fontSize(Theme.fs.md)
+            .fontColor(Theme.SUCCESS)
+            .margin({ right: 10 })
+
+          Column() {
+            Text(`连接成功 · ${this.testResult!.latencyMs}ms`)
+              .fontSize(Theme.fs.sm)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.SUCCESS)
+
+            if (this.testResult!.responsePreview.length > 0) {
+              Text(`模型回复: "${this.testResult!.responsePreview}"`)
+                .fontSize(Theme.fs.xs)
+                .fontColor(Theme.TEXT_MUTED)
+                .margin({ top: 4 })
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+        } else {
+          Text('✗')
+            .fontSize(Theme.fs.md)
+            .fontColor(Theme.DANGER)
+            .margin({ right: 10 })
+
+          Text(this.testResult!.error)
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.DANGER)
+            .layoutWeight(1)
+        }
+      }
+      .width('100%')
+      .padding(14)
+      .borderRadius(10)
+      .backgroundColor(this.testResult!.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)')
+      .borderWidth(1)
+      .borderColor(this.testResult!.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)')
+      .margin({ top: 14 })
+    }
+  }
+
+  @Builder
   Footer() {
     Row() {
       if (this.errorText.length > 0) {
@@ -362,11 +498,23 @@ export struct ProviderConnectDialog {
           .fontColor(Theme.DANGER)
           .layoutWeight(1)
       } else {
-        Text('提交后会保存本地配置，并在已连接 Server 时写入 OpenCode 配置和 Auth。')
+        Text(this.testing ? '正在测试连接...' : '提交后会保存本地配置，并在已连接 Server 时写入 OpenCode 配置。')
           .fontSize(Theme.fs.xs)
           .fontColor(Theme.TEXT_MUTED)
           .layoutWeight(1)
       }
+
+      Text(this.testing ? '测试中...' : '测试连接')
+        .fontSize(Theme.fs.sm)
+        .fontColor(this.testing ? Theme.TEXT_MUTED : Theme.ACCENT)
+        .height(42)
+        .padding({ left: 18, right: 18 })
+        .borderRadius(8)
+        .backgroundColor(this.testing ? Theme.PANEL : Theme.ACTIVE_BG)
+        .borderWidth(1)
+        .borderColor(this.testing ? Theme.BORDER : Theme.ACCENT)
+        .margin({ right: 10 })
+        .onClick(() => this.runTest())
 
       Text('取消')
         .fontSize(Theme.fs.sm)
@@ -533,38 +681,63 @@ export struct ProviderConnectDialog {
     this.headers = list
   }
 
-  private submit(): void {
+  private buildInput(): ProviderConnectInput {
     const input = new ProviderConnectInput()
     input.providerId = this.providerId.trim()
     input.displayName = this.displayName.trim()
+    input.apiType = this.apiType
     input.baseURL = this.baseURL.trim()
     input.apiKey = this.apiKey
     input.models = this.models
     input.headers = this.headers
+    return input
+  }
 
-    if (input.providerId.length === 0) {
-      this.errorText = 'Provider ID 不能为空'
+  private validate(): string {
+    if (this.providerId.trim().length === 0) return 'Provider ID 不能为空'
+    if (!this.isValidProviderId(this.providerId.trim())) return 'Provider ID 只能包含小写字母、数字、连字符或下划线'
+    if (this.displayName.trim().length === 0) return '显示名称不能为空'
+    if (this.apiType === 'openai_compatible' && this.baseURL.trim().length === 0) return '基础 URL 不能为空'
+    if (this.baseURL.trim().length > 0 && !this.baseURL.trim().startsWith('http://') && !this.baseURL.trim().startsWith('https://')) return '基础 URL 必须以 http:// 或 https:// 开头'
+    if (this.models.length === 0) return '至少需要添加一个模型'
+    return ''
+  }
+
+  private async runTest(): Promise<void> {
+    if (this.testing) return
+
+    const err = this.validate()
+    if (err.length > 0) {
+      this.errorText = err
       return
     }
-    if (!this.isValidProviderId(input.providerId)) {
-      this.errorText = 'Provider ID 只能包含小写字母、数字、连字符或下划线'
+
+    this.testing = true
+    this.errorText = ''
+    this.testResult = null
+
+    const input = this.buildInput()
+    // For Anthropic, fill in default baseURL if empty
+    if (this.apiType === 'anthropic' && input.baseURL.length === 0) {
+      input.baseURL = 'https://api.anthropic.com'
+    }
+
+    const result = await providerConnectionService.testConnection(input)
+    this.testResult = result
+    this.testing = false
+  }
+
+  private submit(): void {
+    const err = this.validate()
+    if (err.length > 0) {
+      this.errorText = err
       return
     }
-    if (input.displayName.length === 0) {
-      this.errorText = '显示名称不能为空'
-      return
-    }
-    if (input.baseURL.length === 0) {
-      this.errorText = '基础 URL 不能为空'
-      return
-    }
-    if (!input.baseURL.startsWith('http://') && !input.baseURL.startsWith('https://')) {
-      this.errorText = '基础 URL 必须以 http:// 或 https:// 开头'
-      return
-    }
-    if (input.models.length === 0) {
-      this.errorText = '至少需要添加一个模型'
-      return
+
+    const input = this.buildInput()
+    // For Anthropic, fill in default baseURL if empty
+    if (this.apiType === 'anthropic' && input.baseURL.length === 0) {
+      input.baseURL = 'https://api.anthropic.com'
     }
 
     this.errorText = ''
