@@ -64,7 +64,6 @@ export struct AppShell {
   onCloseTab: (id: string) => void = () => {}
   onNewTab: () => void = () => {}
   onReconnect: () => void = () => {}
-  @State sessionTabs: SessionTab[] = []
   @State showContextMenu: boolean = false
   @State contextMenuSessionId: string = ''
   @State contextMenuX: number = 0
@@ -82,10 +81,9 @@ export struct AppShell {
     ToastManager.setOnChange(() => {
       this.toasts = ToastManager.getToasts()
     })
-    this.syncSessionTabs()
   }
 
-  private syncSessionTabs(): void {
+  private computeTabs(): SessionTab[] {
     const tabs: SessionTab[] = []
     for (const s of this.sessions) {
       const tab = new SessionTab()
@@ -94,7 +92,7 @@ export struct AppShell {
       tab.isActive = s.id === this.activeSessionId
       tabs.push(tab)
     }
-    this.sessionTabs = tabs
+    return tabs
   }
 
   build() {
@@ -136,11 +134,9 @@ export struct AppShell {
           onSelectSession: (id: string) => {
             this.onSelectSession(id)
             this.activeActivity = 'chat'
-            this.syncSessionTabs()
           },
           onNewSession: () => {
             this.onNewSession()
-            this.syncSessionTabs()
           },
           onLongPressSession: (id: string, x: number, y: number) => {
             this.contextMenuSessionId = id
@@ -155,9 +151,9 @@ export struct AppShell {
           // Center content area
           if (this.activeActivity === 'chat') {
             // Session tabs
-            if (this.sessionTabs.length > 0) {
+            if (this.sessions.length > 0) {
               SessionTabs({
-                tabs: this.sessionTabs,
+                tabs: this.computeTabs(),
                 activeTabId: this.activeSessionId,
                 onSelectTab: (id: string) => {
                   this.onSelectSession(id)

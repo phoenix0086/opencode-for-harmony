@@ -458,7 +458,7 @@ export struct ProviderPage {
     ForEach(this.getHeadersForSelectedProvider(), (h: ProviderHeader) => {
       Row() {
         Text(h.name).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_PRIMARY).fontFamily(Theme.FONT_MONO)
-        Text(h.value).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_MUTED).fontFamily(Theme.FONT_MONO).margin({ left: 10 })
+        Text(providerRegistry.maskApiKey(h.value)).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_MUTED).fontFamily(Theme.FONT_MONO).margin({ left: 10 })
         Blank()
         Text('删除').fontSize(Theme.fs.xs).fontColor(Theme.DANGER).onClick(() => this.removeHeader(h.name))
       }
@@ -627,8 +627,8 @@ export struct ProviderPage {
   }
 
   private generateConfig(): void {
-    this.configOutput = providerRegistry.generateConfigWithSecrets(this.defaultModel, this.smallModel)
+    this.configOutput = providerRegistry.generatePreviewConfig(this.defaultModel, this.smallModel)
     this.activeTab = 'config'
-    this.statusMsg = '配置已生成（含密钥）'
+    this.statusMsg = '配置预览已生成（密钥已脱敏）'
   }
 }
