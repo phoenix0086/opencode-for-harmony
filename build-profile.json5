@@ -11,8 +11,7 @@
         "buildOption": {
           "strictMode": {
             "caseSensitiveCheck": true,
-            "useNormalizedOHMUrl": true,
-            "throwCheck": false
+            "useNormalizedOHMUrl": true
           }
         }
       }
