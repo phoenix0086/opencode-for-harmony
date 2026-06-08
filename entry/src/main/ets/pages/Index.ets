@@ -269,6 +269,11 @@ struct Index {
     }
   }
 
+  async refreshAfterToolSuccess(): Promise<void> {
+    await this.loadMessages()
+    await this.loadDiffs()
+  }
+
   async loadDiffs(): Promise<void> {
     const client = this.getClient()
     if (client === null) return
@@ -433,8 +438,7 @@ struct Index {
       if (event.properties['sessionID'] === this.activeSessionId) {
         const tn = (event.properties['toolName'] as string) || ''
         this.addLog(`tool.success ${tn}`, 'info', 'tool')
-        this.loadMessages()
-        this.loadDiffs()
+        this.refreshAfterToolSuccess()
       }
     })
 
@@ -539,7 +543,12 @@ struct Index {
     this.transcriptBlocks = blocks
 
     try {
-      this.addLog(`message.sending: ${text.substring(0, 50)}`, 'info', 'message')
+      this.addLog(`message.sending length=${text.length}`, 'info', 'message')
+
+      // Ensure event stream is connected before marking active run
+      if (!this.eventClient) {
+        this.connectEventStream()
+      }
 
       // Mark event stream as active run to catch new messages
       if (this.eventClient) {

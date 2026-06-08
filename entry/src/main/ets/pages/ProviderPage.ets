@@ -1,5 +1,6 @@
 import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { providerRegistry } from '../services/ProviderRegistry'
+import { OpenCodeClient } from '../services/OpenCodeClient'
 import { Runner } from '../models/Runner'
 import { Theme } from '../components/Theme'
 
@@ -301,14 +302,23 @@ export struct ProviderPage {
             .backgroundColor(Theme.ACCENT)
             .onClick(() => this.saveProvider())
 
-          Text('保存 API Key')
+          Text('Save Key Locally')
             .fontSize(Theme.fs.sm)
             .fontColor(Theme.ACCENT)
             .padding({ left: 18, right: 18, top: 10, bottom: 10 })
             .borderRadius(8)
             .backgroundColor(Theme.ACTIVE_BG)
             .margin({ left: 10 })
-            .onClick(() => this.saveApiKey())
+            .onClick(() => this.saveApiKeyLocal())
+
+          Text('Write Key to Server')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.SUCCESS)
+            .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(Theme.SUCCESS_DIM)
+            .margin({ left: 10 })
+            .onClick(() => this.saveApiKeyToServer())
         }
         .margin({ top: 18, bottom: 20 })
 
@@ -479,7 +489,7 @@ export struct ProviderPage {
           .fontSize(Theme.fs.sm)
           .fontColor(Theme.TEXT_MUTED)
           .margin({ bottom: 16 })
-        Text(this.configOutput.length > 0 ? this.configOutput : providerRegistry.generateFullConfig(this.defaultModel, this.smallModel))
+        Text(this.configOutput.length > 0 ? this.configOutput : providerRegistry.generatePreviewConfig(this.defaultModel, this.smallModel))
           .fontSize(Theme.fs.code)
           .fontColor(Theme.TEXT_PRIMARY)
           .fontFamily(Theme.FONT_MONO)
@@ -542,10 +552,52 @@ export struct ProviderPage {
     this.refreshProviders()
   }
 
-  private async saveApiKey(): Promise<void> {
+  private async saveApiKeyLocal(): Promise<void> {
     const ok = await providerRegistry.setApiKey(this.selectedProviderId, this.editApiKey, this.editApiKeyMode)
-    this.statusMsg = ok ? 'API Key 已保存' : '保存失败'
+    this.statusMsg = ok ? 'API Key saved locally' : 'Local save failed'
     this.refreshProviders()
+  }
+
+  private async saveApiKeyToServer(): Promise<void> {
+    if (this.activeRunner === null) {
+      this.statusMsg = 'Connect to OpenCode Server first'
+      return
+    }
+
+    if (this.selectedProviderId.length === 0) {
+      this.statusMsg = 'Select a provider first'
+      return
+    }
+
+    if (this.editApiKey.length === 0) {
+      this.statusMsg = 'API Key is empty'
+      return
+    }
+
+    try {
+      const client = new OpenCodeClient(this.activeRunner)
+      const ok = await client.setAuth(this.selectedProviderId, this.editApiKey)
+
+      if (!ok) {
+        this.statusMsg = 'Server auth failed'
+        return
+      }
+
+      const providerList = await client.listProviders()
+      let connected = false
+      for (const id of providerList.connected) {
+        if (id === this.selectedProviderId) {
+          connected = true
+          break
+        }
+      }
+
+      await providerRegistry.setApiKey(this.selectedProviderId, this.editApiKey, this.editApiKeyMode)
+      this.statusMsg = connected ? 'API Key written to server' : 'Key saved, but provider not reported as connected'
+      this.refreshProviders()
+    } catch (e) {
+      this.statusMsg = `Server auth failed: ${String(e)}`
+    }
   }
 
   private async addHeader(): Promise<void> {
@@ -575,8 +627,8 @@ export struct ProviderPage {
   }
 
   private generateConfig(): void {
-    this.configOutput = providerRegistry.generateFullConfig(this.defaultModel, this.smallModel)
+    this.configOutput = providerRegistry.generateConfigWithSecrets(this.defaultModel, this.smallModel)
     this.activeTab = 'config'
-    this.statusMsg = '配置已生成'
+    this.statusMsg = '配置已生成（含密钥）'
   }
 }

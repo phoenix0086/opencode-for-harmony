@@ -154,8 +154,10 @@ entry/src/main/ets/
 | M8: 打包文档 | ✅ | README、API 文档、验证报告 |
 | M9: AppShell Wiring | ✅ | 三栏 IDE 联调、真实页面接入、深色主题统一 |
 | M10: API 联调修复 | ✅ | OpenCodeClient 对齐真实 OpenAPI spec、normalize 层、13 项 endpoint 修正 |
-| M11: 闭环验证准备 | ✅ | 轮询状态机、结构化日志、diff messageID 策略、ArkTS 审计 |
-| M12: Provider/Model UI 迁移 | ✅ | OpenCode Desktop 风格 Provider 设置中心、Model 选择器、配置预览生成 |
+| M11: Closed-loop verification | 🟡 In Progress | 轮询状态机、结构化日志、diff messageID 策略已准备；真实 API smoke matrix 待验证 |
+| M12: Provider/Model UI 迁移 | 🟡 In Progress | OpenCode Desktop 风格 Provider UI 已集成；真实服务器 auth/模型调用待验证 |
+
+> M11 is not complete until `docs/harmony-native/m11-api-smoke-matrix.md` contains real PASS / FAIL / SKIP / BLOCKED results from a real OpenCode Server.
 
 ## 安全策略
 

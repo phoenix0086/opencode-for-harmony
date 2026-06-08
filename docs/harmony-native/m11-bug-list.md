@@ -1,12 +1,12 @@
-# M11 Bug List Template
+# M11-Fix Bug List
 
-| ID | 类型 | 严重度 | 问题描述 | 复现步骤 | 期望结果 | 实际结果 | 状态 | 负责人 |
-|---|---|---|---|---|---|---|---|---|
-| M11-B001 | Build | High | DevEco 编译失败 |  |  |  | TODO |  |
-| M11-B002 | Network | High | App 无法访问 OpenCode Server |  |  |  | TODO |  |
-| M11-B003 | API | High | sendMessageAsync 返回非 204/200 |  |  |  | TODO |  |
-| M11-B004 | Event | Medium | 轮询漏掉第一条 assistant message |  |  |  | TODO |  |
-| M11-B005 | Tool | Medium | ToolTimeline 出现重复 tool |  |  |  | TODO |  |
-| M11-B006 | Permission | High | allow/deny 后 Agent 无反应 |  |  |  | TODO |  |
-| M11-B007 | Diff | Medium | Diff 请求 messageID 为空 |  |  |  | TODO |  |
-| M11-B008 | Provider | High | API Key 保存成功但模型不可用 |  |  |  | TODO |  |
+| ID | Severity | Area | Problem | Fix | Status |
+|---|---|---|---|---|---|
+| M11F-001 | High | Docs | README overclaims M11/M12 completion | Mark as In Progress until real smoke results exist | DONE |
+| M11F-002 | High | EventStreamClient | Same message ID updates are missed | Add message fingerprint tracking | DONE |
+| M11F-003 | Medium | EventStreamClient | setSessionId does not fully reset polling state | Reset mode/errors/fingerprints/llm flag | DONE |
+| M11F-004 | High | Diff | Tool success refresh can use stale assistant message ID | Await loadMessages before loadDiffs via refreshAfterToolSuccess() | DONE |
+| M11F-005 | High | Provider | API Key save is local only | Add server auth write via OpenCodeClient.setAuth + connected check | DONE |
+| M11F-006 | High | Security | Config preview can expose API keys | Mask by default (generatePreviewConfig); secrets only via explicit generateConfigWithSecrets | DONE |
+| M11F-007 | Medium | SessionTabs | Tabs can become stale after async session load | Already addressed in M19.1 (syncSessionTabs) | DONE |
+| M11F-008 | High | Verification | Smoke matrix still all TODO | Updated to BLOCKED with reasons | DONE |

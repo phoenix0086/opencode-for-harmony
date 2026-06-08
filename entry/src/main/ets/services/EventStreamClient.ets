@@ -1,31 +1,37 @@
-import { ServerEvent, EventTypes, NormalizedMessage } from '../models/Event'
+import { ServerEvent, EventTypes, NormalizedMessage, NormalizedPart } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
 
 /**
- * 轮询式事件客户端
- * 定期从 OpenCode Server 获取新消息和权限请求
- * 替代 SSE 方案，兼容 ArkTS HTTP 模块限制
+ * Polling-based event client for ArkTS.
  *
- * 轮询状态机模式:
- *   cold_start  — 首次轮询，静默记录已有消息 ID
- *   active_run  — 活跃运行中，有新消息时触发事件
- *   idle        — 空闲状态，等待新消息
- *   error       — 连续错误过多，进入错误状态
+ * Why polling:
+ * - ArkTS HTTP/SSE support can vary across devices.
+ * - This client provides a stable compatibility path before native SSE is implemented.
+ *
+ * Important behavior:
+ * - Tracks both message IDs and message fingerprints.
+ * - Emits SESSION_MESSAGE_UPDATED when a new message appears OR an existing message changes.
+ * - Handles OpenCode's in-place message updates, especially tool result/state changes.
  */
 export class EventStreamClient {
   private client: OpenCodeClient
   private sessionId: string = ''
+
   private polling: boolean = false
   private pollingTimer: number = -1
   private pollingInterval: number = 2000
+
   private seenMessageIds: string[] = []
+  private messageFingerprints: Map<string, string> = new Map()
   private seenPermissionIds: string[] = []
+
   private listeners: Map<string, EventCallback[]> = new Map()
+
   private initialized: boolean = false
   private pollingMode: string = 'cold_start'
   private consecutiveErrors: number = 0
   private lastActivityTime: number = 0
-  private runTimeout: number = 30000  // 30 seconds
+  private runTimeout: number = 30000
   private llmStartedEmitted: boolean = false
 
   constructor(client: OpenCodeClient, sessionId: string) {
@@ -33,59 +39,53 @@ export class EventStreamClient {
     this.sessionId = sessionId
   }
 
-  /**
-   * 设置监听的会话 ID
-   */
   setSessionId(id: string): void {
     this.sessionId = id
-    this.seenMessageIds = []
-    this.seenPermissionIds = []
-    this.initialized = false
+    this.resetSessionTracking()
   }
 
-  /**
-   * 将轮询模式切换为 active_run
-   */
+  private resetSessionTracking(): void {
+    this.seenMessageIds = []
+    this.messageFingerprints = new Map()
+    this.seenPermissionIds = []
+    this.initialized = false
+    this.pollingMode = 'cold_start'
+    this.consecutiveErrors = 0
+    this.llmStartedEmitted = false
+    this.lastActivityTime = 0
+  }
+
   markActiveRun(): void {
     this.pollingMode = 'active_run'
     this.lastActivityTime = Date.now()
     this.llmStartedEmitted = false
   }
 
-  /**
-   * 将轮询模式切换为 idle
-   */
   markIdle(): void {
     this.pollingMode = 'idle'
   }
 
-  /**
-   * 更新轮询间隔
-   */
   setPollingInterval(ms: number): void {
+    if (ms < 500) {
+      this.pollingInterval = 500
+      return
+    }
     this.pollingInterval = ms
   }
 
-  /**
-   * 获取当前轮询模式
-   */
   getStatus(): string {
     return this.pollingMode
   }
 
-  /**
-   * 开始轮询
-   */
   connect(): void {
     if (this.polling) return
-    this.pollingMode = 'cold_start'
     this.polling = true
+    if (this.pollingMode.length === 0) {
+      this.pollingMode = 'cold_start'
+    }
     this.doPoll()
   }
 
-  /**
-   * 停止轮询
-   */
   close(): void {
     this.polling = false
     if (this.pollingTimer !== -1) {
@@ -95,15 +95,9 @@ export class EventStreamClient {
     this.emit('closed', new ServerEvent())
   }
 
-  /**
-   * 手动触发一次轮询
-   */
   reconnect(): void {
     this.close()
-    this.seenMessageIds = []
-    this.seenPermissionIds = []
-    this.initialized = false
-    this.pollingMode = 'cold_start'
+    this.resetSessionTracking()
     this.connect()
   }
 
@@ -118,10 +112,8 @@ export class EventStreamClient {
       await this.pollMessages()
       await this.pollPermissions()
 
-      // 成功轮询：重置连续错误计数
       this.consecutiveErrors = 0
 
-      // 首次轮询完成后发送 connected 事件
       if (!this.initialized) {
         this.initialized = true
         const connectedEvent = new ServerEvent()
@@ -130,20 +122,17 @@ export class EventStreamClient {
         this.emit('connected', connectedEvent)
       }
 
-      // cold_start 模式下，首次成功轮询后过渡到 idle
       if (this.pollingMode === 'cold_start') {
         this.pollingMode = 'idle'
       }
 
-      // 发送心跳事件保持连接状态
       const heartbeat = new ServerEvent()
       heartbeat.type = EventTypes.SERVER_HEARTBEAT
+      heartbeat.properties['mode'] = this.pollingMode
       this.emit(EventTypes.SERVER_HEARTBEAT, heartbeat)
     } catch (e) {
-      // 失败轮询：递增连续错误计数
       this.consecutiveErrors++
 
-      // 连续错误达到阈值，进入 error 模式并发出警告事件
       if (this.consecutiveErrors >= 3) {
         this.pollingMode = 'error'
         const warningEvent = new ServerEvent()
@@ -158,7 +147,6 @@ export class EventStreamClient {
       this.emit('error', errEvent)
     }
 
-    // 安排下一次轮询
     if (this.polling) {
       this.pollingTimer = setTimeout((): void => {
         this.doPoll()
@@ -171,93 +159,152 @@ export class EventStreamClient {
 
     const messages = await this.client.getMessages(this.sessionId)
 
-    // cold_start 模式：静默记录所有已有消息 ID，不触发事件
     if (this.pollingMode === 'cold_start') {
       for (const msg of messages) {
         if (!this.containsString(this.seenMessageIds, msg.id)) {
           this.seenMessageIds.push(msg.id)
         }
+        this.messageFingerprints.set(msg.id, this.fingerprintMessage(msg))
       }
       return
     }
 
-    // active_run 或 idle 模式：为新消息触发事件
-    let newMessageCount: number = 0
+    let changedCount: number = 0
 
     for (const msg of messages) {
-      if (!this.containsString(this.seenMessageIds, msg.id)) {
+      const fp = this.fingerprintMessage(msg)
+      const existingFp = this.messageFingerprints.get(msg.id)
+      const isNew = !this.containsString(this.seenMessageIds, msg.id)
+      const isChanged = existingFp !== undefined && existingFp !== fp
+
+      if (isNew) {
         this.seenMessageIds.push(msg.id)
-        newMessageCount++
+      }
 
-        // Fire message updated event
-        const msgEvent = new ServerEvent()
-        msgEvent.id = msg.id
-        msgEvent.type = EventTypes.SESSION_MESSAGE_UPDATED
-        msgEvent.properties['sessionID'] = this.sessionId
-        msgEvent.properties['message'] = msg as Object
-        this.emit(EventTypes.SESSION_MESSAGE_UPDATED, msgEvent)
-
-        // Infer LLM events from message content
-        if (msg.role === 'assistant') {
-          this.lastActivityTime = Date.now()
-          // Emit LLM started once per run
-          if (!this.llmStartedEmitted) {
-            this.llmStartedEmitted = true
-            const llmStartEvent = new ServerEvent()
-            llmStartEvent.type = EventTypes.SESSION_LLM_STARTED
-            llmStartEvent.properties['sessionID'] = this.sessionId
-            this.emit(EventTypes.SESSION_LLM_STARTED, llmStartEvent)
-          }
-          const llmEvent = new ServerEvent()
-          llmEvent.id = msg.id
-          llmEvent.type = EventTypes.SESSION_LLM_DELTA
-          llmEvent.properties['sessionID'] = this.sessionId
-          llmEvent.properties['messageID'] = msg.id
-          let deltaText = ''
-          for (const part of msg.parts) {
-            if (part.type === 'text') {
-              deltaText += part.content
-            }
-          }
-          llmEvent.properties['delta'] = deltaText
-          this.emit(EventTypes.SESSION_LLM_DELTA, llmEvent)
-        }
-
-        // Check tool invocation parts
-        for (const part of msg.parts) {
-          if (part.type === 'tool-invocation') {
-            const toolEvent = new ServerEvent()
-            toolEvent.id = msg.id + '_' + part.id
-            toolEvent.type = EventTypes.SESSION_TOOL_SUCCESS
-            toolEvent.properties['sessionID'] = this.sessionId
-            toolEvent.properties['toolName'] = part.toolName
-            toolEvent.properties['input'] = part.toolArgs
-            toolEvent.properties['step'] = part.step
-            this.emit(EventTypes.SESSION_TOOL_SUCCESS, toolEvent)
-          }
-        }
+      if (isNew || isChanged) {
+        changedCount++
+        this.messageFingerprints.set(msg.id, fp)
+        this.emitMessageUpdated(msg, isNew, isChanged)
+        this.inferAssistantEvents(msg)
+        this.inferToolEvents(msg)
       }
     }
 
-    // active_run 模式下无新消息时，检查是否应该过渡到 idle
-    if (this.pollingMode === 'active_run' && newMessageCount === 0) {
-      const elapsed = Date.now() - this.lastActivityTime
-      if (elapsed > this.runTimeout) {
-        // Timeout or idle detected — emit run-end events before transitioning
-        const runEndEvent = new ServerEvent()
-        runEndEvent.type = EventTypes.SESSION_RUN_ENDED
-        runEndEvent.properties['sessionID'] = this.sessionId
-        runEndEvent.properties['reason'] = elapsed > this.runTimeout ? 'timeout' : 'idle'
-        this.emit(EventTypes.SESSION_RUN_ENDED, runEndEvent)
-
-        const llmEndEvent = new ServerEvent()
-        llmEndEvent.type = EventTypes.SESSION_LLM_ENDED
-        llmEndEvent.properties['sessionID'] = this.sessionId
-        this.emit(EventTypes.SESSION_LLM_ENDED, llmEndEvent)
-
-        this.markIdle()
+    if (this.pollingMode === 'active_run') {
+      if (changedCount > 0) {
+        this.lastActivityTime = Date.now()
+      } else {
+        const elapsed = Date.now() - this.lastActivityTime
+        if (elapsed > this.runTimeout) {
+          this.emitRunEnded('timeout')
+          this.markIdle()
+        }
       }
     }
+  }
+
+  private fingerprintMessage(msg: NormalizedMessage): string {
+    const parts: string[] = []
+    for (const part of msg.parts) {
+      parts.push(this.fingerprintPart(part))
+    }
+    return `${msg.id}|${msg.role}|${parts.length}|${parts.join('||')}`
+  }
+
+  private fingerprintPart(part: NormalizedPart): string {
+    return [
+      part.id,
+      part.type,
+      part.content,
+      part.toolName,
+      part.toolState,
+      part.toolArgs,
+      part.toolResult,
+      String(part.step)
+    ].join('|')
+  }
+
+  private emitMessageUpdated(msg: NormalizedMessage, isNew: boolean, isChanged: boolean): void {
+    const msgEvent = new ServerEvent()
+    msgEvent.id = msg.id
+    msgEvent.type = EventTypes.SESSION_MESSAGE_UPDATED
+    msgEvent.properties['sessionID'] = this.sessionId
+    msgEvent.properties['messageID'] = msg.id
+    msgEvent.properties['isNew'] = isNew
+    msgEvent.properties['isChanged'] = isChanged
+    msgEvent.properties['message'] = msg as Object
+    this.emit(EventTypes.SESSION_MESSAGE_UPDATED, msgEvent)
+  }
+
+  private inferAssistantEvents(msg: NormalizedMessage): void {
+    if (msg.role !== 'assistant') return
+
+    this.lastActivityTime = Date.now()
+
+    if (!this.llmStartedEmitted) {
+      this.llmStartedEmitted = true
+      const llmStartEvent = new ServerEvent()
+      llmStartEvent.type = EventTypes.SESSION_LLM_STARTED
+      llmStartEvent.properties['sessionID'] = this.sessionId
+      this.emit(EventTypes.SESSION_LLM_STARTED, llmStartEvent)
+    }
+
+    const llmEvent = new ServerEvent()
+    llmEvent.id = msg.id
+    llmEvent.type = EventTypes.SESSION_LLM_DELTA
+    llmEvent.properties['sessionID'] = this.sessionId
+    llmEvent.properties['messageID'] = msg.id
+
+    let text = ''
+    for (const part of msg.parts) {
+      if (part.type === 'text' || part.type === 'reasoning') {
+        text += part.content
+      }
+    }
+    llmEvent.properties['delta'] = text
+    this.emit(EventTypes.SESSION_LLM_DELTA, llmEvent)
+  }
+
+  private inferToolEvents(msg: NormalizedMessage): void {
+    for (const part of msg.parts) {
+      if (part.type === 'tool-invocation') {
+        const toolEvent = new ServerEvent()
+        toolEvent.id = msg.id + '_' + part.id
+        toolEvent.type = this.mapToolStateToEventType(part.toolState)
+        toolEvent.properties['sessionID'] = this.sessionId
+        toolEvent.properties['messageID'] = msg.id
+        toolEvent.properties['toolID'] = part.id
+        toolEvent.properties['toolName'] = part.toolName
+        toolEvent.properties['state'] = part.toolState
+        toolEvent.properties['input'] = part.toolArgs
+        toolEvent.properties['result'] = part.toolResult
+        toolEvent.properties['step'] = part.step
+        this.emit(toolEvent.type, toolEvent)
+      }
+    }
+  }
+
+  private mapToolStateToEventType(state: string): string {
+    if (state === 'running' || state === 'pending' || state === 'start') {
+      return EventTypes.SESSION_TOOL_STARTED
+    }
+    if (state === 'error' || state === 'failed') {
+      return EventTypes.SESSION_TOOL_FAILED
+    }
+    return EventTypes.SESSION_TOOL_SUCCESS
+  }
+
+  private emitRunEnded(reason: string): void {
+    const runEndEvent = new ServerEvent()
+    runEndEvent.type = EventTypes.SESSION_RUN_ENDED
+    runEndEvent.properties['sessionID'] = this.sessionId
+    runEndEvent.properties['reason'] = reason
+    this.emit(EventTypes.SESSION_RUN_ENDED, runEndEvent)
+
+    const llmEndEvent = new ServerEvent()
+    llmEndEvent.type = EventTypes.SESSION_LLM_ENDED
+    llmEndEvent.properties['sessionID'] = this.sessionId
+    this.emit(EventTypes.SESSION_LLM_ENDED, llmEndEvent)
   }
 
   private async pollPermissions(): Promise<void> {
@@ -287,9 +334,6 @@ export class EventStreamClient {
     return false
   }
 
-  /**
-   * 注册事件监听
-   */
   on(eventType: string, callback: EventCallback): void {
     if (!this.listeners.has(eventType)) {
       const emptyArr: EventCallback[] = []
@@ -298,9 +342,6 @@ export class EventStreamClient {
     this.listeners.get(eventType)!.push(callback)
   }
 
-  /**
-   * 移除事件监听
-   */
   off(eventType: string, callback?: EventCallback): void {
     if (!callback) {
       this.listeners.delete(eventType)
@@ -322,26 +363,17 @@ export class EventStreamClient {
     const list = this.listeners.get(eventType)
     if (list) {
       for (const cb of list) {
-        try {
-          cb(event)
-        } catch (e) {
-          // 回调错误不影响其他监听器
-        }
+        try { cb(event) } catch (e) {}
       }
     }
-    // 通配符监听器
+
     const wildcardList = this.listeners.get('*')
     if (wildcardList) {
       for (const cb of wildcardList) {
-        try {
-          cb(event)
-        } catch (e) {
-          // ignore
-        }
+        try { cb(event) } catch (e) {}
       }
     }
   }
 }
 
-/** 事件回调类型 */
 export type EventCallback = (event: ServerEvent) => void
