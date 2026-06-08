@@ -1,76 +1,125 @@
 import { Theme } from './Theme'
+import { SessionTurn, TurnData, TranscriptBlock } from './SessionTurn'
+
+export { TranscriptBlock }
 
 /**
- * Agent Transcript 组件
- * 以 IDE transcript 格式展示用户消息、AI 回复、工具调用
- * 替代聊天气泡布局
+ * Agent Transcript 组件 — M13 重构
+ * 以 OpenCode Desktop 风格渲染对话:
+ * - 用户消息 + AI 回复 + 工具调用按 turn 分组
+ * - AI 回复使用 MarkdownRenderer 渲染
+ * - 工具调用使用专用卡片 (Bash/Edit/Write/Read/Grep/Glob/WebFetch)
+ * - 流式状态使用 ThinkingHeading 指示器
  */
-
-export class TranscriptBlock {
-  id: string = ''
-  type: string = '' // 'user' | 'assistant' | 'tool' | 'permission' | 'system'
-  content: string = ''
-  role: string = ''
-  // Tool-specific
-  toolName: string = ''
-  toolId: string = ''
-  toolStatus: string = '' // 'running' | 'success' | 'error' | 'cancelled'
-  toolInput: string = ''
-  toolOutput: string = ''
-  toolStep: number = 0
-  // Permission-specific
-  permType: string = ''
-  permTitle: string = ''
-  permDescription: string = ''
-  permRiskLevel: string = ''
-  permStatus: string = ''
-  // Metadata
-  isStreaming: boolean = false
-  timestamp: string = ''
-}
-
 @Component
 export struct AgentTranscript {
   @Prop blocks: TranscriptBlock[] = []
   @Prop isStreaming: boolean = false
   onApprovePermission: (id: string) => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
+  @State turns: TurnData[] = []
+
+  aboutToAppear(): void {
+    this.buildTurns()
+  }
+
+  @Watch('blocks')
+  onBlocksChanged(): void {
+    this.buildTurns()
+  }
+
+  /**
+   * Group flat block list into turns.
+   * A turn = optional user message + subsequent assistant/tool/system blocks.
+   */
+  private buildTurns(): void {
+    const result: TurnData[] = []
+    for (let i = 0; i < this.blocks.length; i++) {
+      const block = this.blocks[i]
+
+      if (block.type === 'permission') {
+        // Permissions stay at transcript level, not in turns
+        continue
+      }
+
+      if (block.type === 'user') {
+        const turn = new TurnData()
+        turn.id = block.id
+        turn.userContent = block.content
+        result.push(turn)
+        continue
+      }
+
+      // assistant / tool / system
+      if (block.type === 'assistant') {
+        const prev = i > 0 ? this.blocks[i - 1] : null
+        const isNewTurn = prev === null || prev.type === 'user' || prev.type === 'permission' || prev.type === 'system'
+        if (isNewTurn || result.length === 0) {
+          const turn = new TurnData()
+          turn.id = block.id
+          turn.assistantBlocks = [block]
+          result.push(turn)
+        } else {
+          result[result.length - 1].assistantBlocks.push(block)
+        }
+      } else {
+        // tool or system — append to current turn
+        if (result.length > 0) {
+          result[result.length - 1].assistantBlocks.push(block)
+        } else {
+          const turn = new TurnData()
+          turn.id = block.id
+          turn.assistantBlocks = [block]
+          result.push(turn)
+        }
+      }
+    }
+
+    // Attach streaming state to last turn
+    if (this.isStreaming && result.length > 0) {
+      const last = result[result.length - 1]
+      let hasRunningTool = false
+      let runningToolName = ''
+      for (let j = 0; j < last.assistantBlocks.length; j++) {
+        const b = last.assistantBlocks[j]
+        if (b.type === 'tool' && b.toolStatus === 'running') {
+          hasRunningTool = true
+          runningToolName = b.toolName
+          break
+        }
+      }
+      if (hasRunningTool) {
+        last.streamingState = 'acting'
+        last.activeToolName = runningToolName
+      } else {
+        // Check if last block is assistant (text streaming)
+        const lastBlock = last.assistantBlocks.length > 0
+          ? last.assistantBlocks[last.assistantBlocks.length - 1]
+          : null
+        if (lastBlock !== null && lastBlock.type === 'assistant') {
+          last.streamingState = 'responding'
+        } else {
+          last.streamingState = 'thinking'
+        }
+      }
+    }
+
+    this.turns = result
+  }
 
   build() {
     List() {
-      ForEach(this.blocks, (block: TranscriptBlock) => {
+      // ═══════ Interleaved turns and permissions ═══════
+      ForEach(this.getRenderItems(), (item: RenderItem) => {
         ListItem() {
-          if (block.type === 'user') {
-            this.UserBlock(block)
-          } else if (block.type === 'assistant') {
-            this.AssistantBlock(block)
-          } else if (block.type === 'tool') {
-            this.ToolBlock(block)
-          } else if (block.type === 'permission') {
-            this.PermissionBlock(block)
-          } else if (block.type === 'system') {
-            this.SystemBlock(block)
+          if (item.kind === 'turn') {
+            SessionTurn({ turn: item.turn })
+          } else if (item.kind === 'permission') {
+            this.PermissionBlock(item.block)
           }
         }
-      }, (block: TranscriptBlock) => block.id)
+      }, (item: RenderItem) => item.id)
 
-      // Streaming indicator
-      if (this.isStreaming) {
-        ListItem() {
-          Row() {
-            LoadingProgress()
-              .width(14)
-              .height(14)
-              .color(Theme.ACCENT)
-            Text('agent is thinking...')
-              .fontSize(Theme.fs.sm)
-              .fontColor(Theme.TEXT_MUTED)
-              .fontFamily(Theme.FONT_MONO)
-              .margin({ left: Theme.sp.md })
-          }
-          .padding({ left: Theme.sp.xl, top: Theme.sp.md, bottom: Theme.sp.md })
-        }
-      }
     }
     .layoutWeight(1)
     .width('100%')
@@ -80,141 +129,50 @@ export struct AgentTranscript {
     .padding({ left: Theme.sp.xl, right: Theme.sp.xl })
   }
 
-  // ══════════ User Block ══════════
-  @Builder
-  UserBlock(block: TranscriptBlock) {
-    Column() {
-      // Role label
-      Text('user')
-        .fontSize(Theme.fs.xs)
-        .fontColor(Theme.ACCENT_TEXT)
-        .fontFamily(Theme.FONT_MONO)
-        .fontWeight(FontWeight.Bold)
-        .margin({ bottom: Theme.sp.sm })
+  /**
+   * Build render items: interleave turns with permission blocks
+   * to preserve the original block ordering.
+   */
+  private getRenderItems(): RenderItem[] {
+    const items: RenderItem[] = []
+    let turnIdx = 0
 
-      Text(block.content)
-        .fontSize(Theme.fs.md)
-        .fontColor(Theme.TEXT_PRIMARY)
-        .fontFamily(Theme.FONT_MONO)
-        .lineHeight(20)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: Theme.sp.lg, bottom: Theme.sp.lg })
-    .borderWidth({ bottom: 1 })
-    .borderColor(Theme.BORDER)
-  }
-
-  // ══════════ Assistant Block ══════════
-  @Builder
-  AssistantBlock(block: TranscriptBlock) {
-    Column() {
-      Text('agent')
-        .fontSize(Theme.fs.xs)
-        .fontColor(Theme.SUCCESS)
-        .fontFamily(Theme.FONT_MONO)
-        .fontWeight(FontWeight.Bold)
-        .margin({ bottom: Theme.sp.sm })
-
-      Text(block.content)
-        .fontSize(Theme.fs.md)
-        .fontColor(Theme.TEXT_PRIMARY)
-        .lineHeight(20)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: Theme.sp.lg, bottom: Theme.sp.lg })
-    .borderWidth({ bottom: 1 })
-    .borderColor(Theme.BORDER)
-  }
-
-  // ══════════ Tool Block (Compact Timeline) ══════════
-  @Builder
-  ToolBlock(block: TranscriptBlock) {
-    Row() {
-      // Status indicator
-      Column()
-        .width(3)
-        .height('100%')
-        .backgroundColor(this.getToolStatusColor(block.toolStatus))
-        .borderRadius(2)
-        .margin({ right: Theme.sp.md })
-
-      // Tool info
-      Column() {
-        Row() {
-          // Tool name badge
-          Text(block.toolName)
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_SECONDARY)
-            .fontFamily(Theme.FONT_MONO)
-            .backgroundColor(Theme.CODE_BG)
-            .borderRadius(Theme.rd.sm)
-            .padding({ left: Theme.sp.md, right: Theme.sp.md, top: 1, bottom: 1 })
-
-          // Status
-          Text(this.getToolStatusLabel(block.toolStatus))
-            .fontSize(Theme.fs.xs)
-            .fontColor(this.getToolStatusColor(block.toolStatus))
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ left: Theme.sp.md })
-
-          // Step number
-          if (block.toolStep > 0) {
-            Text(`step ${block.toolStep}`)
-              .fontSize(Theme.fs.xs)
-              .fontColor(Theme.TEXT_MUTED)
-              .fontFamily(Theme.FONT_MONO)
-              .margin({ left: Theme.sp.md })
-          }
-
-          Blank()
-
-          // Running spinner
-          if (block.toolStatus === 'running') {
-            LoadingProgress()
-              .width(12)
-              .height(12)
-              .color(Theme.ACCENT)
-          }
-        }
-        .width('100%')
-
-        // Tool input (compact)
-        if (block.toolInput.length > 0) {
-          Text(block.toolInput)
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ top: Theme.sp.sm })
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .backgroundColor(Theme.CODE_BG)
-            .borderRadius(Theme.rd.sm)
-            .padding(Theme.sp.sm)
-            .width('100%')
-        }
-
-        // Tool output (compact)
-        if (block.toolOutput.length > 0 && block.toolStatus !== 'running') {
-          Text(block.toolOutput)
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_SECONDARY)
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ top: Theme.sp.sm })
-            .maxLines(3)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+    // Walk through original blocks to maintain ordering
+    for (let i = 0; i < this.blocks.length; i++) {
+      const block = this.blocks[i]
+      if (block.type === 'permission') {
+        const ri = new RenderItem()
+        ri.id = block.id
+        ri.kind = 'permission'
+        ri.block = block
+        items.push(ri)
+      } else if (block.type === 'user' || (turnIdx < this.turns.length && this.turns[turnIdx].id === block.id)) {
+        // This block starts a turn
+        if (turnIdx < this.turns.length) {
+          const ri = new RenderItem()
+          ri.id = this.turns[turnIdx].id
+          ri.kind = 'turn'
+          ri.turn = this.turns[turnIdx]
+          items.push(ri)
+          turnIdx += 1
         }
       }
-      .layoutWeight(1)
+      // assistant/tool/system blocks that are part of a turn are already included in the turn
     }
-    .width('100%')
-    .padding({ top: Theme.sp.md, bottom: Theme.sp.md, left: Theme.sp.md, right: Theme.sp.md })
-    .backgroundColor(Theme.TOOL_BG)
-    .borderRadius(Theme.rd.md)
-    .borderWidth(1)
-    .borderColor(Theme.TOOL_BORDER)
-    .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
+
+    // If streaming with no blocks yet, add a placeholder
+    if (items.length === 0 && this.isStreaming) {
+      const placeholder = new TurnData()
+      placeholder.id = '__streaming__'
+      placeholder.streamingState = 'thinking'
+      const ri = new RenderItem()
+      ri.id = '__streaming__'
+      ri.kind = 'turn'
+      ri.turn = placeholder
+      items.push(ri)
+    }
+
+    return items
   }
 
   // ══════════ Permission Block ══════════
@@ -313,41 +271,7 @@ export struct AgentTranscript {
     .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
   }
 
-  // ══════════ System Block ══════════
-  @Builder
-  SystemBlock(block: TranscriptBlock) {
-    Row() {
-      Text('--')
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_MUTED)
-        .fontFamily(Theme.FONT_MONO)
-        .margin({ right: Theme.sp.md })
-      Text(block.content)
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_MUTED)
-        .fontFamily(Theme.FONT_MONO)
-    }
-    .width('100%')
-    .padding({ top: Theme.sp.sm, bottom: Theme.sp.sm })
-  }
-
-  // ══════════ Helpers ══════════
-
-  private getToolStatusColor(status: string): string {
-    if (status === 'running') return Theme.ACCENT
-    if (status === 'success') return Theme.SUCCESS
-    if (status === 'error') return Theme.DANGER
-    if (status === 'cancelled') return Theme.TEXT_MUTED
-    return Theme.TEXT_MUTED
-  }
-
-  private getToolStatusLabel(status: string): string {
-    if (status === 'running') return 'running'
-    if (status === 'success') return 'done'
-    if (status === 'error') return 'error'
-    if (status === 'cancelled') return 'cancelled'
-    return status
-  }
+  // ══════════ Permission Helpers ══════════
 
   private getRiskColor(level: string): string {
     if (level === 'high') return Theme.DANGER
@@ -363,4 +287,14 @@ export struct AgentTranscript {
     if (permType === 'webfetch') return 'G'
     return '?'
   }
+}
+
+/**
+ * Internal render item for interleaving turns and permissions.
+ */
+class RenderItem {
+  id: string = ''
+  kind: string = '' // 'turn' | 'permission'
+  turn: TurnData = new TurnData()
+  block: TranscriptBlock = new TranscriptBlock()
 }
