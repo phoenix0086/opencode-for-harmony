@@ -12,6 +12,8 @@ import { FilePanel } from './FilePanel'
 import { LogsPanel } from './LogsPanel'
 import { ProviderPage } from '../pages/ProviderPage'
 import { SettingsPage } from '../pages/SettingsPage'
+import { SessionTabs, SessionTab } from './SessionTabs'
+import { SessionContextMenu } from './SessionContextMenu'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -54,11 +56,21 @@ export struct AppShell {
   onModeChange: (mode: string) => void = () => {}
   onModelClick: () => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
+  onSessionAction: (sessionId: string, action: string) => void = () => {}
+  onLongPressSession: (id: string, x: number, y: number) => void = () => {}
+  onCloseTab: (id: string) => void = () => {}
+  onNewTab: () => void = () => {}
+  @State sessionTabs: SessionTab[] = []
+  @State showContextMenu: boolean = false
+  @State contextMenuSessionId: string = ''
+  @State contextMenuX: number = 0
+  @State contextMenuY: number = 0
 
   @State showRightPanel: boolean = true
   @State rightPanelTab: string = 'tools' // 'tools' | 'diff' | 'logs'
 
   build() {
+    Stack({ alignContent: Alignment.TopStart }) {
     Column() {
       // ══════════ Top Status Bar ══════════
       TopStatusBar({
@@ -93,6 +105,12 @@ export struct AppShell {
           },
           onNewSession: () => {
             this.onNewSession()
+          },
+          onLongPressSession: (id: string, x: number, y: number) => {
+            this.contextMenuSessionId = id
+            this.contextMenuX = x
+            this.contextMenuY = y
+            this.showContextMenu = true
           }
         })
 
@@ -100,6 +118,22 @@ export struct AppShell {
         Column() {
           // Center content area
           if (this.activeActivity === 'chat') {
+            // Session tabs
+            if (this.sessionTabs.length > 0) {
+              SessionTabs({
+                tabs: this.sessionTabs,
+                activeTabId: this.activeSessionId,
+                onSelectTab: (id: string) => {
+                  this.onSelectSession(id)
+                },
+                onCloseTab: (id: string) => {
+                  this.onCloseTab(id)
+                },
+                onNewTab: () => {
+                  this.onNewTab()
+                }
+              })
+            }
             // Session header
             this.SessionHeader()
             // Transcript
@@ -240,6 +274,23 @@ export struct AppShell {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.BG)
+
+    // Context menu overlay
+    SessionContextMenu({
+      visible: this.showContextMenu,
+      sessionId: this.contextMenuSessionId,
+      sessionTitle: '',
+      positionX: this.contextMenuX,
+      positionY: this.contextMenuY,
+      onAction: (sid: string, action: string) => {
+        this.onSessionAction(sid, action)
+        this.showContextMenu = false
+      },
+      onDismiss: () => {
+        this.showContextMenu = false
+      }
+    })
+    } // Stack
   }
 
   // ══════════ Session Header (inside center column) ══════════

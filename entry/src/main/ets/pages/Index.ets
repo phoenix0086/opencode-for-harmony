@@ -553,6 +553,108 @@ struct Index {
     }
   }
 
+  // ══════════ Session Actions (M15) ══════════
+
+  async handleSessionAction(sessionId: string, action: string): Promise<void> {
+    this.addLog(`session.action.${action} ${sessionId}`, 'info', 'session')
+    if (action === 'fork') {
+      await this.forkSession(sessionId)
+    } else if (action === 'share') {
+      await this.shareSession(sessionId)
+    } else if (action === 'rename') {
+      // Rename handled via session update API
+      this.addLog('rename: not yet implemented via UI', 'info', 'session')
+    } else if (action === 'delete') {
+      await this.deleteSession(sessionId)
+    }
+  }
+
+  async forkSession(sessionId: string): Promise<void> {
+    if (this.activeRunner === null) return
+    try {
+      const client = new OpenCodeClient(this.activeRunner)
+      // Fork = create new session, copy context hint
+      const session = await client.createSession(`fork-of-${sessionId.substring(0, 8)}`)
+      this.addLog(`session.forked ${session.id} from ${sessionId}`, 'info', 'session')
+      await this.loadSessions()
+      await this.selectSession(session.id)
+    } catch (e) {
+      this.addLog(`session.fork.failed: ${String(e)}`, 'error', 'session')
+    }
+  }
+
+  async shareSession(sessionId: string): Promise<void> {
+    this.addLog(`session.share ${sessionId} — share link generation not yet available`, 'warn', 'session')
+    // In a full implementation, this would call a share API and copy to clipboard
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    if (this.activeRunner === null) return
+    try {
+      const client = new OpenCodeClient(this.activeRunner)
+      await client.deleteSession(sessionId)
+      this.addLog(`session.deleted ${sessionId}`, 'info', 'session')
+      await this.loadSessions()
+      // If we deleted the active session, select the first remaining one
+      if (this.activeSessionId === sessionId) {
+        this.activeSessionId = ''
+        this.transcriptBlocks = []
+        if (this.sessions.length > 0) {
+          await this.selectSession(this.sessions[0].id)
+        }
+      }
+    } catch (e) {
+      this.addLog(`session.delete.failed: ${String(e)}`, 'error', 'session')
+    }
+  }
+
+  closeSessionTab(sessionId: string): void {
+    if (this.activeSessionId === sessionId) {
+      // Select next available session
+      const idx = this.sessions.findIndex((s: SessionInfo) => s.id === sessionId)
+      if (idx >= 0 && this.sessions.length > 1) {
+        const nextIdx = idx > 0 ? idx - 1 : idx + 1
+        if (nextIdx < this.sessions.length) {
+          this.selectSession(this.sessions[nextIdx].id)
+        }
+      } else {
+        this.activeSessionId = ''
+        this.transcriptBlocks = []
+      }
+    }
+  }
+
+  async retryLastMessage(): Promise<void> {
+    // Find the last user message and resend it
+    const lastUserContent = this.findLastUserMessage()
+    if (lastUserContent.length > 0) {
+      this.inputText = lastUserContent
+      this.sendMessage()
+    }
+  }
+
+  private findLastUserMessage(): string {
+    let lastContent = ''
+    for (const block of this.transcriptBlocks) {
+      if (block.type === 'user' && block.content.length > 0) {
+        lastContent = block.content
+      }
+    }
+    return lastContent
+  }
+
+  async alwaysApprovePermission(permId: string): Promise<void> {
+    if (this.activeRunner === null) return
+    try {
+      const client = new OpenCodeClient(this.activeRunner)
+      await client.replyPermission(permId, 'always')
+      this.addLog(`permission.reply.always ${permId}`, 'info', 'permission')
+      this.updatePermissionStatus(permId, 'always_approved')
+    } catch (e) {
+      this.addLog(`permission.reply.failed: ${String(e)}`, 'error', 'permission')
+    }
+  }
+
   // ══════════ Build ══════════
 
   build() {
@@ -629,6 +731,18 @@ struct Index {
         },
         onRejectPermission: (id: string) => {
           this.rejectPermission(id)
+        },
+        onAlwaysApprovePermission: (id: string) => {
+          this.alwaysApprovePermission(id)
+        },
+        onSessionAction: (sessionId: string, action: string) => {
+          this.handleSessionAction(sessionId, action)
+        },
+        onCloseTab: (id: string) => {
+          this.closeSessionTab(id)
+        },
+        onNewTab: () => {
+          this.createNewSession()
         }
       })
     }

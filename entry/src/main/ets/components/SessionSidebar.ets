@@ -21,6 +21,7 @@ export struct SessionSidebar {
   @Prop activeSessionId: string = ''
   onSelectSession: (id: string) => void = () => {}
   onNewSession: () => void = () => {}
+  onLongPressSession: (id: string, x: number, y: number) => void = () => {}
 
   build() {
     Column() {
@@ -121,6 +122,17 @@ export struct SessionSidebar {
             .onClick(() => {
               this.onSelectSession(session.id)
             })
+            .gesture(
+              LongPressGesture()
+                .onAction((event: GestureEvent) => {
+                  const currentTouches = event.currentTouches
+                  if (currentTouches && currentTouches.length > 0) {
+                    this.onLongPressSession(session.id, currentTouches[0].x, currentTouches[0].y)
+                  } else {
+                    this.onLongPressSession(session.id, 100, 100)
+                  }
+                })
+            )
           }
         }, (session: SessionInfo) => session.id)
       }
