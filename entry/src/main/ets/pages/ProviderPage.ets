@@ -1,370 +1,581 @@
-import { CNProvider, CNModel } from '../models/Provider'
+import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { providerRegistry } from '../services/ProviderRegistry'
 import { Runner } from '../models/Runner'
-import { OpenCodeClient } from '../services/OpenCodeClient'
 import { Theme } from '../components/Theme'
 
 /**
- * Provider 配置页面 (Dark Theme)
- * 管理国内大模型供应商：启用/禁用、API Key、模型选择
+ * OpenCode-style Provider / Model settings page.
+ *
+ * Goals:
+ * - Match OpenCode Desktop provider flow: Provider list -> custom provider -> model list.
+ * - Persist Base URL, API Key, optional headers and custom models.
+ * - Generate usable opencode.json config, not just a preview with missing values.
  */
 @Component
 export struct ProviderPage {
   @Prop activeRunner: Runner | null = null
+
   @State providers: CNProvider[] = []
+  @State activeTab: string = 'providers' // providers | models | config
   @State selectedProviderId: string = ''
-  @State apiKeyInput: string = ''
+  @State statusMsg: string = ''
+  @State configOutput: string = ''
+  @State isInitialized: boolean = false
+
+  @State editId: string = ''
+  @State editName: string = ''
+  @State editBaseURL: string = ''
+  @State editNpm: string = '@ai-sdk/openai-compatible'
+  @State editAuthEnv: string = ''
+  @State editApiKey: string = ''
+  @State editApiKeyMode: string = 'direct'
+  @State editHeaderName: string = ''
+  @State editHeaderValue: string = ''
+  @State editModelId: string = ''
+  @State editModelName: string = ''
   @State defaultModel: string = ''
   @State smallModel: string = ''
-  @State configOutput: string = ''
-  @State statusMsg: string = ''
-  @State isInitialized: boolean = false
-  private codingModelsMap: Map<string, CNModel[]> = new Map()
+  @State searchText: string = ''
 
   async aboutToAppear(): Promise<void> {
     await providerRegistry.init()
     this.providers = providerRegistry.getAll()
-    this.buildCodingModelsMap()
+    if (this.providers.length > 0) {
+      this.selectedProviderId = this.providers[0].id
+      this.loadProviderForm(this.providers[0])
+    }
     this.isInitialized = true
   }
 
-  private buildCodingModelsMap(): void {
-    this.codingModelsMap = new Map()
-    for (const provider of this.providers) {
-      const codingList: CNModel[] = []
-      for (const m of provider.models) {
-        if (m.coding) {
-          codingList.push(m)
-        }
-      }
-      this.codingModelsMap.set(provider.id, codingList)
+  private refreshProviders(): void {
+    this.providers = providerRegistry.getAll()
+  }
+
+  private selectedProvider(): CNProvider | undefined {
+    for (const p of this.providers) {
+      if (p.id === this.selectedProviderId) return p
     }
+    return undefined
+  }
+
+  private loadProviderForm(p: CNProvider): void {
+    this.editId = p.id
+    this.editName = p.name
+    this.editBaseURL = p.baseURL
+    this.editNpm = p.npm.length > 0 ? p.npm : '@ai-sdk/openai-compatible'
+    this.editAuthEnv = p.authEnv
+    this.editApiKey = p.apiKey
+    this.editApiKeyMode = p.apiKeyMode || 'direct'
+    this.editHeaderName = ''
+    this.editHeaderValue = ''
+    this.editModelId = ''
+    this.editModelName = ''
   }
 
   build() {
     Column() {
-      // Title bar
-      Row() {
-        Text('PROVIDER')
-          .fontSize(Theme.fs.xs)
-          .fontColor(Theme.TEXT_MUTED)
-          .fontFamily(Theme.FONT_MONO)
-          .fontWeight(FontWeight.Bold)
-          .letterSpacing(1)
-
-        Blank()
-
-        Text('generate config')
-          .fontSize(Theme.fs.xs)
-          .fontColor(Theme.ACCENT)
-          .fontFamily(Theme.FONT_MONO)
-          .fontWeight(FontWeight.Bold)
-          .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.sm, bottom: Theme.sp.sm })
-          .borderRadius(Theme.rd.md)
-          .backgroundColor(Theme.ACCENT_DIM)
-          .onClick(() => this.generateConfig())
-      }
-      .width('100%')
-      .padding({ left: Theme.sp.xl, right: Theme.sp.xl, top: Theme.sp.lg, bottom: Theme.sp.md })
+      this.HeaderBar()
 
       if (!this.isInitialized) {
         Column() {
-          LoadingProgress()
-            .width(24)
-            .height(24)
-            .color(Theme.ACCENT)
-        }
-        .justifyContent(FlexAlign.Center)
-        .layoutWeight(1)
+          LoadingProgress().width(24).height(24).color(Theme.ACCENT)
+        }.justifyContent(FlexAlign.Center).layoutWeight(1)
       } else {
-        Scroll() {
+        Row() {
+          this.ProviderSidebar()
           Column() {
-            // Provider list
-            ForEach(this.providers, (provider: CNProvider) => {
-              this.ProviderCard(provider)
-            }, (provider: CNProvider) => provider.id)
-
-            // Config output
-            if (this.configOutput.length > 0) {
-              Column() {
-                Row() {
-                  Text('opencode.json')
-                    .fontSize(Theme.fs.sm)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(Theme.TEXT_PRIMARY)
-                    .fontFamily(Theme.FONT_MONO)
-
-                  Blank()
-
-                  Text('copy')
-                    .fontSize(Theme.fs.xs)
-                    .fontColor(Theme.ACCENT)
-                    .fontFamily(Theme.FONT_MONO)
-                    .padding({ left: Theme.sp.md, right: Theme.sp.md, top: Theme.sp.xs, bottom: Theme.sp.xs })
-                    .borderRadius(Theme.rd.sm)
-                    .backgroundColor(Theme.ACTIVE_BG)
-                    .onClick(() => {
-                      this.statusMsg = 'copied to clipboard'
-                    })
-                }
-                .width('100%')
-                .margin({ bottom: Theme.sp.md })
-
-                Text(this.configOutput)
-                  .fontSize(Theme.fs.code)
-                  .fontColor(Theme.TEXT_PRIMARY)
-                  .backgroundColor(Theme.PANEL)
-                  .padding(Theme.sp.lg)
-                  .borderRadius(Theme.rd.lg)
-                  .width('100%')
-                  .fontFamily(Theme.FONT_MONO)
-                  .constraintSize({ maxHeight: 300 })
-              }
-              .width('100%')
-              .padding(Theme.sp.xl)
-              .borderRadius(Theme.rd.lg)
-              .backgroundColor(Theme.SUCCESS_DIM)
-              .borderWidth(1)
-              .borderColor(Theme.SUCCESS)
-              .margin({ top: Theme.sp.xl })
-              .alignItems(HorizontalAlign.Start)
-            }
-
-            if (this.statusMsg.length > 0) {
-              Text(this.statusMsg)
-                .fontSize(Theme.fs.sm)
-                .fontColor(this.statusMsg.includes('failed') || this.statusMsg.includes('失败') ? Theme.DANGER : Theme.SUCCESS)
-                .fontFamily(Theme.FONT_MONO)
-                .margin({ top: Theme.sp.lg })
+            this.TabBar()
+            if (this.activeTab === 'providers') {
+              this.ProviderEditor()
+            } else if (this.activeTab === 'models') {
+              this.ModelEditor()
+            } else {
+              this.ConfigPreview()
             }
           }
+          .layoutWeight(1)
+          .height('100%')
+          .backgroundColor(Theme.BG)
         }
         .layoutWeight(1)
+        .width('100%')
       }
     }
     .width('100%')
     .layoutWeight(1)
     .backgroundColor(Theme.BG)
+  }
+
+  @Builder
+  HeaderBar() {
+    Row() {
+      Column() {
+        Text('PROVIDERS')
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.TEXT_MUTED)
+          .fontFamily(Theme.FONT_MONO)
+          .fontWeight(FontWeight.Bold)
+          .letterSpacing(1)
+        Text('OpenCode compatible provider / model settings')
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.TEXT_SECONDARY)
+          .margin({ top: 4 })
+      }
+      .alignItems(HorizontalAlign.Start)
+
+      Blank()
+
+      Text('generate opencode.json')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_INVERSE)
+        .fontFamily(Theme.FONT_MONO)
+        .fontWeight(FontWeight.Bold)
+        .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+        .borderRadius(6)
+        .backgroundColor(Theme.ACCENT)
+        .onClick(() => this.generateConfig())
+    }
+    .width('100%')
+    .padding({ left: 20, right: 20, top: 14, bottom: 12 })
+    .borderWidth({ bottom: 1 })
+    .borderColor(Theme.BORDER)
+  }
+
+  @Builder
+  ProviderSidebar() {
+    Column() {
+      Text('已连接的提供商')
+        .fontSize(Theme.fs.sm)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .margin({ bottom: 10 })
+
+      Scroll() {
+        Column() {
+          ForEach(this.providers, (p: CNProvider) => {
+            this.ProviderRow(p)
+          }, (p: CNProvider) => p.id)
+        }
+      }
+      .layoutWeight(1)
+
+      Text('+ 自定义提供商')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.ACCENT)
+        .fontFamily(Theme.FONT_MONO)
+        .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+        .borderRadius(6)
+        .backgroundColor(Theme.ACTIVE_BG)
+        .width('100%')
+        .onClick(() => this.createBlankCustomProvider())
+
+      if (this.statusMsg.length > 0) {
+        Text(this.statusMsg)
+          .fontSize(Theme.fs.xs)
+          .fontColor(this.statusMsg.includes('失败') || this.statusMsg.includes('failed') ? Theme.DANGER : Theme.SUCCESS)
+          .margin({ top: 12 })
+      }
+    }
+    .width(260)
+    .height('100%')
+    .padding(16)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth({ right: 1 })
+    .borderColor(Theme.BORDER)
     .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
-  ProviderCard(provider: CNProvider) {
-    Column() {
-      Row() {
-        // Enable/disable toggle
-        Toggle({ type: ToggleType.Switch, isOn: provider.enabled })
-          .selectedColor(Theme.ACCENT)
-          .onChange((isOn: boolean) => {
-            if (isOn) {
-              providerRegistry.enable(provider.id)
-            } else {
-              providerRegistry.disable(provider.id)
-            }
-            this.refreshProviders()
-          })
-
-        Column() {
-          Text(provider.name)
-            .fontSize(Theme.fs.lg)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.TEXT_PRIMARY)
-          Text(provider.baseURL.length > 0 ? provider.baseURL : 'custom endpoint')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ top: Theme.sp.xs })
-        }
-        .layoutWeight(1)
-        .margin({ left: Theme.sp.lg })
-        .alignItems(HorizontalAlign.Start)
-
-        Text(provider.authStatus === 'configured' ? 'configured' : 'not set')
+  ProviderRow(p: CNProvider) {
+    Row() {
+      Column() {
+        Text(p.name)
+          .fontSize(Theme.fs.sm)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.selectedProviderId === p.id ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(p.baseURL.length > 0 ? p.baseURL : 'base url not set')
           .fontSize(Theme.fs.xs)
-          .fontColor(provider.authStatus === 'configured' ? Theme.SUCCESS : Theme.TEXT_MUTED)
+          .fontColor(Theme.TEXT_MUTED)
           .fontFamily(Theme.FONT_MONO)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 2 })
       }
-      .width('100%')
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
 
-      // Expanded details
-      if (this.selectedProviderId === provider.id) {
-        Column() {
-          // Model list
-          if (provider.models.length > 0) {
-            Text('MODELS')
-              .fontSize(Theme.fs.xs)
-              .fontColor(Theme.TEXT_MUTED)
-              .fontFamily(Theme.FONT_MONO)
-              .fontWeight(FontWeight.Bold)
-              .letterSpacing(1)
-              .margin({ bottom: Theme.sp.md })
-
-            ForEach(provider.models, (model: CNModel) => {
-              Row() {
-                Text(model.name)
-                  .fontSize(Theme.fs.sm)
-                  .fontColor(Theme.TEXT_PRIMARY)
-                  .fontFamily(Theme.FONT_MONO)
-
-                Blank()
-
-                if (model.recommended) {
-                  Text('rec')
-                    .fontSize(9)
-                    .fontColor(Theme.ACCENT)
-                    .fontFamily(Theme.FONT_MONO)
-                    .backgroundColor(Theme.ACCENT_DIM)
-                    .borderRadius(Theme.rd.sm)
-                    .padding({ left: Theme.sp.sm, right: Theme.sp.sm, top: 1, bottom: 1 })
-                }
-                if (model.coding) {
-                  Text('code')
-                    .fontSize(9)
-                    .fontColor(Theme.INFO)
-                    .fontFamily(Theme.FONT_MONO)
-                    .backgroundColor(Theme.ACCENT_DIM)
-                    .borderRadius(Theme.rd.sm)
-                    .padding({ left: Theme.sp.sm, right: Theme.sp.sm, top: 1, bottom: 1 })
-                    .margin({ left: Theme.sp.sm })
-                }
-              }
-              .width('100%')
-              .padding({ top: Theme.sp.sm, bottom: Theme.sp.sm })
-            }, (model: CNModel) => model.id)
-          }
-
-          // API Key input
-          Text(provider.authEnv)
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ top: Theme.sp.xl, bottom: Theme.sp.md })
-
-          Row() {
-            TextInput({ text: this.apiKeyInput, placeholder: provider.authEnv })
-              .layoutWeight(1)
-              .height(36)
-              .fontSize(Theme.fs.sm)
-              .backgroundColor(Theme.INPUT_BG)
-              .borderRadius(Theme.rd.lg)
-              .borderWidth(1)
-              .borderColor(Theme.BORDER)
-              .fontColor(Theme.TEXT_PRIMARY)
-              .type(InputType.Password)
-              .onChange((v: string) => { this.apiKeyInput = v })
-
-            Text('save')
-              .fontSize(Theme.fs.xs)
-              .fontColor(Theme.TEXT_INVERSE)
-              .fontFamily(Theme.FONT_MONO)
-              .fontWeight(FontWeight.Bold)
-              .backgroundColor(Theme.ACCENT)
-              .borderRadius(Theme.rd.lg)
-              .padding({ left: Theme.sp.xl, right: Theme.sp.xl, top: Theme.sp.md, bottom: Theme.sp.md })
-              .margin({ left: Theme.sp.md })
-              .onClick(() => this.saveApiKey(provider.id))
-          }
-          .width('100%')
-
-          // Default model selection
-          if (this.codingModelsMap.has(provider.id)) {
-            Row() {
-              Text('default')
-                .fontSize(Theme.fs.xs)
-                .fontColor(Theme.TEXT_MUTED)
-                .fontFamily(Theme.FONT_MONO)
-
-              Blank()
-
-              ForEach(this.codingModelsMap.get(provider.id) as CNModel[], (cm: CNModel) => {
-                Text(cm.name)
-                  .fontSize(Theme.fs.xs)
-                  .fontColor(this.defaultModel === `${provider.id}/${cm.id}` ? Theme.TEXT_INVERSE : Theme.ACCENT)
-                  .fontFamily(Theme.FONT_MONO)
-                  .backgroundColor(this.defaultModel === `${provider.id}/${cm.id}` ? Theme.ACCENT : Theme.ACCENT_DIM)
-                  .borderRadius(Theme.rd.md)
-                  .padding({ left: Theme.sp.md, right: Theme.sp.md, top: Theme.sp.sm, bottom: Theme.sp.sm })
-                  .margin({ left: Theme.sp.md })
-                  .onClick(() => {
-                    this.defaultModel = `${provider.id}/${cm.id}`
-                    if (this.smallModel.length === 0) {
-                      this.smallModel = this.defaultModel
-                    }
-                  })
-              }, (cm: CNModel) => cm.id)
-            }
-            .width('100%')
-            .margin({ top: Theme.sp.xl })
-          }
-        }
-        .margin({ top: Theme.sp.lg })
-        .padding({ top: Theme.sp.lg })
-        .borderWidth({ top: 1 })
-        .borderColor(Theme.BORDER)
-      }
+      Text(p.authStatus === 'configured' ? '✓' : '·')
+        .fontSize(Theme.fs.sm)
+        .fontColor(p.authStatus === 'configured' ? Theme.SUCCESS : Theme.TEXT_MUTED)
     }
     .width('100%')
-    .padding(Theme.sp.xl)
-    .borderRadius(Theme.rd.lg)
-    .backgroundColor(Theme.SIDEBAR)
-    .borderWidth(1)
-    .borderColor(Theme.BORDER)
-    .margin({ bottom: Theme.sp.md, left: Theme.sp.xl, right: Theme.sp.xl })
-    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 10, right: 10, top: 10, bottom: 10 })
+    .borderRadius(8)
+    .backgroundColor(this.selectedProviderId === p.id ? Theme.ACTIVE_BG : 'transparent')
+    .margin({ bottom: 6 })
     .onClick(() => {
-      this.selectedProviderId = this.selectedProviderId === provider.id ? '' : provider.id
+      this.selectedProviderId = p.id
+      this.loadProviderForm(p)
     })
   }
 
-  refreshProviders(): void {
-    this.providers = providerRegistry.getAll()
-    this.buildCodingModelsMap()
+  @Builder
+  TabBar() {
+    Row() {
+      this.TabButton('providers', '提供商')
+      this.TabButton('models', '模型')
+      this.TabButton('config', '配置预览')
+      Blank()
+    }
+    .width('100%')
+    .padding({ left: 20, right: 20, top: 14 })
   }
 
-  async saveApiKey(providerId: string): Promise<void> {
-    if (this.apiKeyInput.length === 0) {
-      this.statusMsg = 'enter API key first'
+  @Builder
+  TabButton(id: string, label: string) {
+    Text(label)
+      .fontSize(Theme.fs.sm)
+      .fontColor(this.activeTab === id ? Theme.TEXT_PRIMARY : Theme.TEXT_MUTED)
+      .fontWeight(this.activeTab === id ? FontWeight.Bold : FontWeight.Normal)
+      .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+      .borderRadius(6)
+      .backgroundColor(this.activeTab === id ? Theme.ACTIVE_BG : 'transparent')
+      .margin({ right: 8 })
+      .onClick(() => { this.activeTab = id })
+  }
+
+  @Builder
+  ProviderEditor() {
+    Scroll() {
+      Column() {
+        Text('自定义 / 编辑提供商')
+          .fontSize(Theme.fs.xl)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .margin({ bottom: 18 })
+
+        this.FormLabel('提供商 ID')
+        TextInput({ text: this.editId, placeholder: 'myprovider' })
+          .enabled(this.selectedProvider()?.builtIn !== true)
+          .height(44)
+          .fontSize(Theme.fs.md)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER)
+          .onChange((v: string) => { this.editId = v })
+        this.Hint('使用小写字母、数字、连字符或下划线，例如 deepseek-cn / myprovider')
+
+        this.FormLabel('显示名称')
+        TextInput({ text: this.editName, placeholder: '我的 AI 提供商' })
+          .height(44).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+          .onChange((v: string) => { this.editName = v })
+
+        this.FormLabel('基础 URL')
+        TextInput({ text: this.editBaseURL, placeholder: 'https://api.myprovider.com/v1' })
+          .height(44).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
+          .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+          .onChange((v: string) => { this.editBaseURL = v })
+        this.Hint('OpenAI compatible endpoint，一般以 /v1 或 compatible-mode/v1 结尾')
+
+        this.FormLabel('API 密钥')
+        TextInput({ text: this.editApiKey, placeholder: 'sk-...' })
+          .height(44).fontSize(Theme.fs.md).fontColor(Theme.TEXT_PRIMARY)
+          .type(InputType.Password)
+          .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+          .onChange((v: string) => { this.editApiKey = v })
+        this.Hint('本地保存，用于生成可直接使用的 OpenCode provider 配置。生产版建议换成 Harmony KeyStore。')
+
+        Row() {
+          Text('保存提供商')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_INVERSE)
+            .fontWeight(FontWeight.Bold)
+            .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(Theme.ACCENT)
+            .onClick(() => this.saveProvider())
+
+          Text('保存 API Key')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.ACCENT)
+            .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(Theme.ACTIVE_BG)
+            .margin({ left: 10 })
+            .onClick(() => this.saveApiKey())
+        }
+        .margin({ top: 18, bottom: 20 })
+
+        this.FormLabel('请求头（可选）')
+        Row() {
+          TextInput({ text: this.editHeaderName, placeholder: 'Header-Name' })
+            .layoutWeight(1).height(40).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
+            .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+            .onChange((v: string) => { this.editHeaderName = v })
+          TextInput({ text: this.editHeaderValue, placeholder: 'value' })
+            .layoutWeight(1).height(40).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
+            .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+            .margin({ left: 8 })
+            .onChange((v: string) => { this.editHeaderValue = v })
+          Text('+ 添加')
+            .fontSize(Theme.fs.sm).fontColor(Theme.ACCENT)
+            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+            .borderRadius(8).backgroundColor(Theme.ACTIVE_BG).margin({ left: 8 })
+            .onClick(() => this.addHeader())
+        }
+        this.HeaderList()
+      }
+      .padding(28)
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+    }
+    .layoutWeight(1)
+  }
+
+  @Builder
+  ModelEditor() {
+    Scroll() {
+      Column() {
+        Text('模型')
+          .fontSize(Theme.fs.xl)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .margin({ bottom: 18 })
+
+        Row() {
+          TextInput({ text: this.searchText, placeholder: '搜索模型' })
+            .layoutWeight(1).height(40).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
+            .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+            .onChange((v: string) => { this.searchText = v })
+        }
+        .margin({ bottom: 16 })
+
+        this.FormLabel('添加模型')
+        Row() {
+          TextInput({ text: this.editModelId, placeholder: 'model-id' })
+            .layoutWeight(1).height(40).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
+            .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+            .onChange((v: string) => { this.editModelId = v })
+          TextInput({ text: this.editModelName, placeholder: '显示名称' })
+            .layoutWeight(1).height(40).fontSize(Theme.fs.sm).fontColor(Theme.TEXT_PRIMARY)
+            .backgroundColor(Theme.INPUT_BG).borderRadius(8).borderWidth(1).borderColor(Theme.BORDER)
+            .margin({ left: 8 })
+            .onChange((v: string) => { this.editModelName = v })
+          Text('+ 添加模型')
+            .fontSize(Theme.fs.sm).fontColor(Theme.ACCENT)
+            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+            .borderRadius(8).backgroundColor(Theme.ACTIVE_BG).margin({ left: 8 })
+            .onClick(() => this.addModel())
+        }
+        .margin({ bottom: 18 })
+
+        ForEach(this.getModelsForSelectedProvider(), (m: CNModel) => {
+          if (this.searchText.length === 0 || m.id.includes(this.searchText) || m.name.includes(this.searchText)) {
+            this.ModelRow(this.selectedProviderId, m)
+          }
+        }, (m: CNModel) => m.id)
+      }
+      .padding(28)
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+    }
+    .layoutWeight(1)
+  }
+
+  private getModelsForSelectedProvider(): CNModel[] {
+    const p = this.selectedProvider()
+    if (!p) return []
+    return p.models
+  }
+
+  @Builder
+  ModelRow(providerId: string, m: CNModel) {
+    Row() {
+      Toggle({ type: ToggleType.Switch, isOn: m.enabled !== false })
+        .selectedColor(Theme.ACCENT)
+        .onChange(async (v: boolean) => {
+          await providerRegistry.setModelEnabled(providerId, m.id, v)
+          this.refreshProviders()
+        })
+      Column() {
+        Text(m.name.length > 0 ? m.name : m.id)
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .fontWeight(FontWeight.Medium)
+        Text(`${providerId}/${m.id}`)
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.TEXT_MUTED)
+          .fontFamily(Theme.FONT_MONO)
+          .margin({ top: 2 })
+      }
+      .layoutWeight(1)
+      .margin({ left: 12 })
+      .alignItems(HorizontalAlign.Start)
+      Text(this.defaultModel === `${providerId}/${m.id}` ? '默认' : '设默认')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.ACCENT)
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .borderRadius(6)
+        .backgroundColor(Theme.ACTIVE_BG)
+        .onClick(() => {
+          this.defaultModel = `${providerId}/${m.id}`
+          if (this.smallModel.length === 0) this.smallModel = this.defaultModel
+        })
+      Text('删除')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.DANGER)
+        .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+        .margin({ left: 6 })
+        .onClick(() => this.removeModel(providerId, m.id))
+    }
+    .width('100%')
+    .padding(12)
+    .borderRadius(8)
+    .backgroundColor(Theme.SIDEBAR)
+    .borderWidth(1)
+    .borderColor(Theme.BORDER)
+    .margin({ bottom: 8 })
+  }
+
+  @Builder
+  HeaderList() {
+    ForEach(this.getHeadersForSelectedProvider(), (h: ProviderHeader) => {
+      Row() {
+        Text(h.name).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_PRIMARY).fontFamily(Theme.FONT_MONO)
+        Text(h.value).fontSize(Theme.fs.xs).fontColor(Theme.TEXT_MUTED).fontFamily(Theme.FONT_MONO).margin({ left: 10 })
+        Blank()
+        Text('删除').fontSize(Theme.fs.xs).fontColor(Theme.DANGER).onClick(() => this.removeHeader(h.name))
+      }
+      .width('100%')
+      .padding(8)
+      .backgroundColor(Theme.SIDEBAR)
+      .borderRadius(6)
+      .margin({ top: 6 })
+    }, (h: ProviderHeader) => h.name)
+  }
+
+  private getHeadersForSelectedProvider(): ProviderHeader[] {
+    const p = this.selectedProvider()
+    if (!p) return []
+    return p.headers
+  }
+
+  @Builder
+  ConfigPreview() {
+    Scroll() {
+      Column() {
+        Text('配置预览')
+          .fontSize(Theme.fs.xl)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .margin({ bottom: 14 })
+        Text('生成的 opencode.json 可以复制到 OpenCode 配置中。')
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_MUTED)
+          .margin({ bottom: 16 })
+        Text(this.configOutput.length > 0 ? this.configOutput : providerRegistry.generateFullConfig(this.defaultModel, this.smallModel))
+          .fontSize(Theme.fs.code)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .fontFamily(Theme.FONT_MONO)
+          .backgroundColor(Theme.PANEL)
+          .padding(16)
+          .borderRadius(8)
+          .width('100%')
+      }
+      .padding(28)
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
+    .layoutWeight(1)
+  }
+
+  @Builder
+  FormLabel(label: string) {
+    Text(label)
+      .fontSize(Theme.fs.sm)
+      .fontColor(Theme.TEXT_SECONDARY)
+      .fontWeight(FontWeight.Medium)
+      .margin({ top: 14, bottom: 6 })
+  }
+
+  @Builder
+  Hint(text: string) {
+    Text(text)
+      .fontSize(Theme.fs.xs)
+      .fontColor(Theme.TEXT_MUTED)
+      .margin({ top: 5, bottom: 2 })
+  }
+
+  private async createBlankCustomProvider(): Promise<void> {
+    let index = 1
+    let id = `custom-provider-${index}`
+    while (providerRegistry.getById(id)) {
+      index += 1
+      id = `custom-provider-${index}`
+    }
+    await providerRegistry.createCustomProvider(id, `自定义提供商 ${index}`, '', '', '')
+    this.refreshProviders()
+    this.selectedProviderId = id
+    const p = this.selectedProvider()
+    if (p) this.loadProviderForm(p)
+    this.activeTab = 'providers'
+  }
+
+  private async saveProvider(): Promise<void> {
+    if (this.editId.length === 0) {
+      this.statusMsg = '提供商 ID 不能为空'
       return
     }
-    if (this.activeRunner !== null) {
-      try {
-        const client = new OpenCodeClient(this.activeRunner)
-        const success = await client.setAuth(providerId, this.apiKeyInput)
-        if (success) {
-          providerRegistry.setAuthStatus(providerId, 'configured')
-          await providerRegistry.save()
-          this.apiKeyInput = ''
-          this.statusMsg = 'API key saved'
-          this.refreshProviders()
-        } else {
-          this.statusMsg = 'save failed'
-        }
-      } catch (e) {
-        this.statusMsg = `save failed: ${String(e)}`
-      }
+    if (!providerRegistry.getById(this.editId)) {
+      const ok = await providerRegistry.createCustomProvider(this.editId, this.editName, this.editBaseURL, this.editApiKey, this.editModelId)
+      this.statusMsg = ok ? '已创建提供商' : '创建失败：ID 已存在'
     } else {
-      providerRegistry.setAuthStatus(providerId, 'configured')
-      await providerRegistry.save()
-      this.apiKeyInput = ''
-      this.statusMsg = 'marked as configured (server required)'
-      this.refreshProviders()
+      const ok = await providerRegistry.setProviderConfig(this.editId, this.editName, this.editBaseURL, this.editNpm, this.editAuthEnv)
+      this.statusMsg = ok ? '已保存提供商' : '保存失败'
     }
+    this.refreshProviders()
   }
 
-  generateConfig(): void {
-    if (this.defaultModel.length === 0) {
-      for (const p of this.providers) {
-        if (p.enabled) {
-          const rec = providerRegistry.getRecommendedModel(p.id)
-          if (rec) {
-            this.defaultModel = rec
-            this.smallModel = rec
-            break
-          }
-        }
-      }
-    }
+  private async saveApiKey(): Promise<void> {
+    const ok = await providerRegistry.setApiKey(this.selectedProviderId, this.editApiKey, this.editApiKeyMode)
+    this.statusMsg = ok ? 'API Key 已保存' : '保存失败'
+    this.refreshProviders()
+  }
+
+  private async addHeader(): Promise<void> {
+    const ok = await providerRegistry.addOrUpdateHeader(this.selectedProviderId, this.editHeaderName, this.editHeaderValue)
+    this.statusMsg = ok ? '请求头已保存' : '请求头保存失败'
+    this.editHeaderName = ''
+    this.editHeaderValue = ''
+    this.refreshProviders()
+  }
+
+  private async removeHeader(name: string): Promise<void> {
+    await providerRegistry.removeHeader(this.selectedProviderId, name)
+    this.refreshProviders()
+  }
+
+  private async addModel(): Promise<void> {
+    const ok = await providerRegistry.addOrUpdateModel(this.selectedProviderId, this.editModelId, this.editModelName, true)
+    this.statusMsg = ok ? '模型已添加' : '模型添加失败'
+    this.editModelId = ''
+    this.editModelName = ''
+    this.refreshProviders()
+  }
+
+  private async removeModel(providerId: string, modelId: string): Promise<void> {
+    await providerRegistry.removeModel(providerId, modelId)
+    this.refreshProviders()
+  }
+
+  private generateConfig(): void {
     this.configOutput = providerRegistry.generateFullConfig(this.defaultModel, this.smallModel)
-    this.statusMsg = 'config generated'
+    this.activeTab = 'config'
+    this.statusMsg = '配置已生成'
   }
 }

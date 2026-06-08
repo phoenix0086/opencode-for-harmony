@@ -36,7 +36,7 @@ LLM Providers (DeepSeek / Qwen / GLM / Kimi / ...)
 - 工具调用展示：实时展示 AI 执行工具的状态和结果
 - 权限审批：bash/edit/write 等高风险操作需要用户确认
 - 代码 Diff 查看：文件变更列表 + 行级 patch 查看
-- Provider 管理：启用/禁用国内模型、配置 API Key、生成 opencode.json
+- Provider 管理：OpenCode Desktop 风格提供商/模型设置中心，支持自定义提供商、Base URL、API Key、请求头、模型增删、opencode.json 配置预览
 - 设置：字号、主题、默认模型、审批策略
 
 ## 目录结构
@@ -58,17 +58,18 @@ entry/src/main/ets/
 │   └── LogsPanel.ets              # 事件日志面板
 ├── models/
 │   ├── Runner.ets                 # Server 连接模型
-│   ├── Provider.ets               # CN Provider 模型
-│   └── Event.ets                  # SSE 事件 + API 数据模型 (WithParts/Normalized)
+│   ├── Provider.ets               # OpenCode Provider/Model 数据模型 (含 Header/EditDraft)
+│   └── Event.ets                  # SSE 事件 + API 数据模型 (WithParts/Normalized/LogEntry)
 ├── services/
 │   ├── OpenCodeClient.ets         # 完整 API 客户端 (含 normalize 层)
-│   ├── EventStreamClient.ets      # SSE 事件流客户端 (轮询模式)
-│   ├── ProviderRegistry.ets       # Provider 注册表
+│   ├── EventStreamClient.ets      # SSE 事件流客户端 (轮询状态机)
+│   ├── ProviderRegistry.ets       # Provider 注册表 (合并/持久化/配置生成)
 │   ├── RuntimeManager.ets         # Runtime 管理器
-│   └── StorageService.ets         # 持久化服务
+│   └── StorageService.ets         # 持久化服务 (含 API Key 本地存储)
 ├── pages/
 │   ├── Index.ets                  # 主入口 / 全局状态管理
-│   ├── ProviderPage.ets           # Provider 配置 (深色主题)
+│   ├── ProviderPage.ets           # OpenCode 风格 Provider/Model 设置 (三标签页)
+│   ├── ModelPage.ets              # 独立模型选择器页面
 │   ├── SettingsPage.ets           # 设置 (深色主题)
 │   ├── ChatAgentPage.ets          # AI 编程会话 (简化)
 │   ├── ServerConnectionPage.ets   # 服务器管理
@@ -154,6 +155,7 @@ entry/src/main/ets/
 | M9: AppShell Wiring | ✅ | 三栏 IDE 联调、真实页面接入、深色主题统一 |
 | M10: API 联调修复 | ✅ | OpenCodeClient 对齐真实 OpenAPI spec、normalize 层、13 项 endpoint 修正 |
 | M11: 闭环验证准备 | ✅ | 轮询状态机、结构化日志、diff messageID 策略、ArkTS 审计 |
+| M12: Provider/Model UI 迁移 | ✅ | OpenCode Desktop 风格 Provider 设置中心、Model 选择器、配置预览生成 |
 
 ## 安全策略
 

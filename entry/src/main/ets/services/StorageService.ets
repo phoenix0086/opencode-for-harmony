@@ -12,8 +12,12 @@ const RECENT_WORKSPACES_KEY = 'recent_workspaces'
 const SETTINGS_KEY = 'app_settings'
 
 /**
- * 本地持久化服务
- * 使用 HarmonyOS Preferences API 存储配置
+ * Local persistence service.
+ *
+ * NOTE: For a production build, move provider API keys to Harmony KeyStore or
+ * a secure credential service. This implementation intentionally stores the
+ * configured key locally so the OpenCode-compatible Provider UX works without
+ * external env var wiring on Harmony devices.
  */
 export class StorageService {
   private store: preferences.Preferences | null = null
@@ -21,8 +25,6 @@ export class StorageService {
   async init(context: Context): Promise<void> {
     this.store = await preferences.getPreferences(context, STORE_NAME)
   }
-
-  // ══════════ Runner ══════════
 
   async saveRunners(runners: Runner[]): Promise<void> {
     if (this.store === null) return
@@ -51,27 +53,9 @@ export class StorageService {
     return (await this.store.get(ACTIVE_RUNNER_KEY, '')) as string
   }
 
-  // ══════════ Provider ══════════
-
   async saveProviders(providers: CNProvider[]): Promise<void> {
     if (this.store === null) return
-    // 保存时脱敏 apiKey
-    const safe: CNProvider[] = []
-    for (const p of providers) {
-      const copy = new CNProvider()
-      copy.id = p.id
-      copy.name = p.name
-      copy.npm = p.npm
-      copy.baseURL = p.baseURL
-      copy.authEnv = p.authEnv
-      copy.models = p.models
-      copy.enabled = p.enabled
-      copy.authStatus = p.authStatus
-      copy.apiKeyRef = p.apiKeyRef
-      // 不保存实际 key
-      safe.push(copy)
-    }
-    await this.store.put(PROVIDERS_KEY, JSON.stringify(safe))
+    await this.store.put(PROVIDERS_KEY, JSON.stringify(providers))
     await this.store.flush()
   }
 
@@ -85,8 +69,6 @@ export class StorageService {
     }
   }
 
-  // ══════════ Server URL ══════════
-
   async saveServerUrl(url: string): Promise<void> {
     if (this.store === null) return
     await this.store.put(SERVER_URL_KEY, url)
@@ -97,8 +79,6 @@ export class StorageService {
     if (this.store === null) return 'http://127.0.0.1:4096'
     return (await this.store.get(SERVER_URL_KEY, 'http://127.0.0.1:4096')) as string
   }
-
-  // ══════════ Workspace ══════════
 
   async saveWorkspacePath(path: string): Promise<void> {
     if (this.store === null) return
@@ -120,12 +100,9 @@ export class StorageService {
     } catch {
       list = []
     }
-    // 去重
     const newList: string[] = [path]
     for (const p of list) {
-      if (p !== path && newList.length < 20) {
-        newList.push(p)
-      }
+      if (p !== path && newList.length < 20) newList.push(p)
     }
     await this.store.put(RECENT_WORKSPACES_KEY, JSON.stringify(newList))
     await this.store.flush()
@@ -141,8 +118,6 @@ export class StorageService {
     }
   }
 
-  // ══════════ Settings ══════════
-
   async saveSettings(settings: AppSettings): Promise<void> {
     if (this.store === null) return
     await this.store.put(SETTINGS_KEY, JSON.stringify(settings))
@@ -154,7 +129,6 @@ export class StorageService {
     try {
       const raw = await this.store.get(SETTINGS_KEY, '{}') as string
       const parsed = JSON.parse(raw) as AppSettings
-      // 填充默认值
       const s = new AppSettings()
       if (parsed.fontSize) s.fontSize = parsed.fontSize
       if (parsed.darkMode !== undefined) s.darkMode = parsed.darkMode
@@ -168,8 +142,6 @@ export class StorageService {
     }
   }
 
-  // ══════════ 清除 ══════════
-
   async clearAll(): Promise<void> {
     if (this.store === null) return
     await this.store.clear()
@@ -177,7 +149,6 @@ export class StorageService {
   }
 }
 
-/** 应用设置 */
 export class AppSettings {
   fontSize: number = 14
   darkMode: boolean = false
