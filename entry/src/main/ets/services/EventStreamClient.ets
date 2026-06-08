@@ -21,9 +21,9 @@ export class EventStreamClient {
   private pollingTimer: number = -1
   private pollingInterval: number = 2000
 
-  private seenMessageIds: string[] = []
+  private seenMessageIds: Set<string> = new Set()
   private messageFingerprints: Map<string, string> = new Map()
-  private seenPermissionIds: string[] = []
+  private seenPermissionIds: Set<string> = new Set()
 
   private listeners: Map<string, EventCallback[]> = new Map()
 
@@ -33,6 +33,7 @@ export class EventStreamClient {
   private lastActivityTime: number = 0
   private runTimeout: number = 30000
   private llmStartedEmitted: boolean = false
+  private pollInFlight: boolean = false
 
   constructor(client: OpenCodeClient, sessionId: string) {
     this.client = client
@@ -45,9 +46,9 @@ export class EventStreamClient {
   }
 
   private resetSessionTracking(): void {
-    this.seenMessageIds = []
+    this.seenMessageIds = new Set()
     this.messageFingerprints = new Map()
-    this.seenPermissionIds = []
+    this.seenPermissionIds = new Set()
     this.initialized = false
     this.pollingMode = 'cold_start'
     this.consecutiveErrors = 0
@@ -88,6 +89,7 @@ export class EventStreamClient {
 
   close(): void {
     this.polling = false
+    this.pollInFlight = false
     if (this.pollingTimer !== -1) {
       clearTimeout(this.pollingTimer)
       this.pollingTimer = -1
@@ -107,6 +109,8 @@ export class EventStreamClient {
 
   private async doPoll(): Promise<void> {
     if (!this.polling) return
+    if (this.pollInFlight) return
+    this.pollInFlight = true
 
     try {
       await this.pollMessages()
@@ -145,12 +149,13 @@ export class EventStreamClient {
       errEvent.type = 'error'
       errEvent.properties['message'] = String(e)
       this.emit('error', errEvent)
-    }
-
-    if (this.polling) {
-      this.pollingTimer = setTimeout((): void => {
-        this.doPoll()
-      }, this.pollingInterval)
+    } finally {
+      this.pollInFlight = false
+      if (this.polling) {
+        this.pollingTimer = setTimeout((): void => {
+          this.doPoll()
+        }, this.pollingInterval)
+      }
     }
   }
 
@@ -161,9 +166,7 @@ export class EventStreamClient {
 
     if (this.pollingMode === 'cold_start') {
       for (const msg of messages) {
-        if (!this.containsString(this.seenMessageIds, msg.id)) {
-          this.seenMessageIds.push(msg.id)
-        }
+        this.seenMessageIds.add(msg.id)
         this.messageFingerprints.set(msg.id, this.fingerprintMessage(msg))
       }
       return
@@ -174,11 +177,11 @@ export class EventStreamClient {
     for (const msg of messages) {
       const fp = this.fingerprintMessage(msg)
       const existingFp = this.messageFingerprints.get(msg.id)
-      const isNew = !this.containsString(this.seenMessageIds, msg.id)
+      const isNew = !this.seenMessageIds.has(msg.id)
       const isChanged = existingFp !== undefined && existingFp !== fp
 
       if (isNew) {
-        this.seenMessageIds.push(msg.id)
+        this.seenMessageIds.add(msg.id)
       }
 
       if (isNew || isChanged) {
@@ -204,24 +207,29 @@ export class EventStreamClient {
   }
 
   private fingerprintMessage(msg: NormalizedMessage): string {
-    const parts: string[] = []
-    for (const part of msg.parts) {
-      parts.push(this.fingerprintPart(part))
+    const partCount = msg.parts.length
+    let hash = 0
+    for (let i = 0; i < partCount; i++) {
+      const part = msg.parts[i]
+      hash = this.hashString(hash, part.id)
+      hash = this.hashString(hash, part.type)
+      hash = this.hashString(hash, part.content)
+      hash = this.hashString(hash, part.toolName)
+      hash = this.hashString(hash, part.toolState)
+      hash = this.hashString(hash, part.toolArgs)
+      hash = this.hashString(hash, part.toolResult)
+      hash = this.hashString(hash, String(part.step))
     }
-    return `${msg.id}|${msg.role}|${parts.length}|${parts.join('||')}`
+    return `${msg.role}|${partCount}|${hash}`
   }
 
-  private fingerprintPart(part: NormalizedPart): string {
-    return [
-      part.id,
-      part.type,
-      part.content,
-      part.toolName,
-      part.toolState,
-      part.toolArgs,
-      part.toolResult,
-      String(part.step)
-    ].join('|')
+  private hashString(seed: number, s: string): number {
+    const len = s.length
+    let h = seed
+    for (let i = 0; i < len; i++) {
+      h = ((h * 31) + s.charCodeAt(i)) & 0x7fffffff
+    }
+    return h
   }
 
   private emitMessageUpdated(msg: NormalizedMessage, isNew: boolean, isChanged: boolean): void {
@@ -311,8 +319,8 @@ export class EventStreamClient {
     const permissions = await this.client.listPermissions()
 
     for (const perm of permissions) {
-      if (!this.containsString(this.seenPermissionIds, perm.id) && perm.status === 'pending') {
-        this.seenPermissionIds.push(perm.id)
+      if (!this.seenPermissionIds.has(perm.id) && perm.status === 'pending') {
+        this.seenPermissionIds.add(perm.id)
 
         const permEvent = new ServerEvent()
         permEvent.id = perm.id
@@ -325,13 +333,6 @@ export class EventStreamClient {
         this.emit(EventTypes.PERMISSION_ASKED, permEvent)
       }
     }
-  }
-
-  private containsString(arr: string[], value: string): boolean {
-    for (const item of arr) {
-      if (item === value) return true
-    }
-    return false
   }
 
   on(eventType: string, callback: EventCallback): void {

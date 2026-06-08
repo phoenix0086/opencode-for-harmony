@@ -40,10 +40,10 @@ export class OpenCodeClient {
       return ''
     }
     const encoder = new util.TextEncoder()
-    const data = encoder.encodeInto(`${this.username}:${this.password}`)
+    const encoded = encoder.encodeInto(`${this.username}:${this.password}`)
     const base64Helper = new util.Base64Helper()
-    const encoded = base64Helper.encodeToStringSync(data)
-    return `Basic ${encoded}`
+    const b64 = base64Helper.encodeToStringSync(encoded)
+    return `Basic ${b64}`
   }
 
   private buildHeaders(): Record<string, string> {
@@ -455,34 +455,30 @@ export class OpenCodeClient {
   // GET /lsp → LspStatus[]
   // GET /formatter → FormatterStatus[]
 
-  async listMcpServers(): Promise<Record<string, Object>[]> {
+  private async fetchJsonList(path: string): Promise<Record<string, Object>[]> {
     try {
-      const resp = await this.doGet('/mcp')
-      if (resp.responseCode !== 200) return []
+      const resp = await this.doGet(path)
+      if (resp.responseCode !== 200) {
+        const empty: Record<string, Object>[] = []
+        return empty
+      }
       return this.parseJson<Record<string, Object>[]>(resp)
     } catch (e) {
-      return []
+      const empty: Record<string, Object>[] = []
+      return empty
     }
+  }
+
+  async listMcpServers(): Promise<Record<string, Object>[]> {
+    return this.fetchJsonList('/mcp')
   }
 
   async listLspStatus(): Promise<Record<string, Object>[]> {
-    try {
-      const resp = await this.doGet('/lsp')
-      if (resp.responseCode !== 200) return []
-      return this.parseJson<Record<string, Object>[]>(resp)
-    } catch (e) {
-      return []
-    }
+    return this.fetchJsonList('/lsp')
   }
 
   async listFormatters(): Promise<Record<string, Object>[]> {
-    try {
-      const resp = await this.doGet('/formatter')
-      if (resp.responseCode !== 200) return []
-      return this.parseJson<Record<string, Object>[]>(resp)
-    } catch (e) {
-      return []
-    }
+    return this.fetchJsonList('/formatter')
   }
 
   // ══════════ Instance ══════════

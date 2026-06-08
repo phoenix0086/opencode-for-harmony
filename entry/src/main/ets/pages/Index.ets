@@ -64,6 +64,9 @@ struct Index {
   private sendTimeoutId: number = -1
   private cachedClient: OpenCodeClient | null = null
   private cachedClientRunnerId: string = ''
+  private loadMessagesInFlight: boolean = false
+  private loadMessagesPending: boolean = false
+  private loadDiffsInFlight: boolean = false
 
   private getClient(): OpenCodeClient | null {
     if (this.activeRunner === null) return null
@@ -134,34 +137,32 @@ struct Index {
       if (result.ok) {
         this.addLog(`server.connected v${result.version}`, 'info', 'server')
         ToastManager.show(`connected to server v${result.version}`, 'success')
-        // Load project info
-        try {
-          const project = await client.getCurrentProject()
-          this.projectName = project.name
-          this.addLog(`project: ${project.name}`, 'info', 'server')
-        } catch (e) {
-          this.addLog(`project load failed: ${String(e)}`, 'warn', 'server')
-        }
-        // Load VCS info (branch from GET /vcs)
-        try {
-          const vcs = await client.getVcsInfo()
-          this.branchName = vcs.branch
-          this.addLog(`branch: ${vcs.branch}`, 'info', 'server')
-        } catch (e) {
-          this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server')
-        }
-        // Load config for model info
-        try {
-          const config = await client.getConfig()
-          if (config.model.length > 0) {
-            this.modelName = config.model
-          }
-          this.addLog(`config.model: ${config.model}`, 'info', 'server')
-        } catch (e) {
-          this.addLog(`config load failed: ${String(e)}`, 'warn', 'server')
-        }
-        // Load projects for DirectoryPicker
-        await this.loadProjects()
+        // Parallel load: project / vcs / config / projects list
+        const pProj = client.getCurrentProject().then(
+          (project) => {
+            this.projectName = project.name
+            this.addLog(`project: ${project.name}`, 'info', 'server')
+          },
+          (e) => { this.addLog(`project load failed: ${String(e)}`, 'warn', 'server') }
+        )
+        const pVcs = client.getVcsInfo().then(
+          (vcs) => {
+            this.branchName = vcs.branch
+            this.addLog(`branch: ${vcs.branch}`, 'info', 'server')
+          },
+          (e) => { this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server') }
+        )
+        const pConfig = client.getConfig().then(
+          (config) => {
+            if (config.model.length > 0) {
+              this.modelName = config.model
+            }
+            this.addLog(`config.model: ${config.model}`, 'info', 'server')
+          },
+          (e) => { this.addLog(`config load failed: ${String(e)}`, 'warn', 'server') }
+        )
+        const pProjects = this.loadProjects()
+        await Promise.all([pProj, pVcs, pConfig, pProjects])
       } else {
         this.addLog(`Health check failed: ${result.error}`, 'error', 'server')
       }
@@ -208,20 +209,11 @@ struct Index {
     if (this.activeRunner === null) return
     this.activeSessionId = sessionId
 
-    // Find session title
+    // Find session title + info (model, cost)
+    let title = 'untitled'
     for (const s of this.sessions) {
       if (s.id === sessionId) {
-        this.sessionTitle = s.title.length > 0 ? s.title : 'untitled'
-        break
-      }
-    }
-
-    this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
-    await this.loadMessages()
-    await this.loadDiffs()
-    // Update session info (model, cost)
-    for (const s of this.sessions) {
-      if (s.id === sessionId) {
+        title = s.title.length > 0 ? s.title : 'untitled'
         if (s.model.id.length > 0) {
           this.modelName = `${s.model.providerID}/${s.model.id}`
         }
@@ -231,13 +223,27 @@ struct Index {
         break
       }
     }
+    this.sessionTitle = title
+
+    this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
+    const p1 = this.loadMessages()
+    const p2 = this.loadDiffs()
+    await Promise.all([p1, p2])
     this.connectEventStream()
   }
 
   async loadMessages(): Promise<void> {
     if (this.activeSessionId.length === 0) return
+
+    if (this.loadMessagesInFlight) {
+      this.loadMessagesPending = true
+      return
+    }
+
     const client = this.getClient()
     if (client === null) return
+
+    this.loadMessagesInFlight = true
     try {
       const messages = await client.getMessages(this.activeSessionId)
       const blocks: TranscriptBlock[] = []
@@ -251,7 +257,6 @@ struct Index {
         const msgBlocks = this.convertMessage(msg)
         for (const b of msgBlocks) {
           blocks.push(b)
-          // Collect tool entries from tool-type blocks, dedup by toolId
           if (b.type === 'tool' && b.toolId.length > 0) {
             const entry = new ToolTimelineEntry()
             entry.id = b.toolId
@@ -273,21 +278,28 @@ struct Index {
       this.toolEntries = toolList
     } catch (e) {
       this.addLog(`loadMessages failed: ${String(e)}`, 'error', 'message')
+    } finally {
+      this.loadMessagesInFlight = false
+      if (this.loadMessagesPending) {
+        this.loadMessagesPending = false
+        this.loadMessages()
+      }
     }
   }
 
   async refreshAfterToolSuccess(): Promise<void> {
-    await this.loadMessages()
-    await this.loadDiffs()
+    const p1 = this.loadMessages()
+    const p2 = this.loadDiffs()
+    await Promise.all([p1, p2])
   }
 
   async loadDiffs(): Promise<void> {
     const client = this.getClient()
     if (client === null) return
+    if (this.loadDiffsInFlight) return
+    this.loadDiffsInFlight = true
     this.addLog('diff.loading', 'debug', 'diff')
     try {
-
-      // Strategy: try session diff with lastAssistantMessageId first
       if (this.activeSessionId.length > 0 && this.lastAssistantMessageId.length > 0) {
         try {
           const sessionDiffs = await client.getSessionDiff(this.activeSessionId, this.lastAssistantMessageId)
@@ -295,16 +307,17 @@ struct Index {
           this.addLog(`diff.loaded ${this.diffs.length} files (session)`, 'info', 'diff')
           return
         } catch (sessionErr) {
-          this.addLog(`session diff failed, falling back to vcs diff`, 'warn', 'diff')
+          this.addLog('session diff failed, falling back to vcs diff', 'warn', 'diff')
         }
       }
 
-      // Fallback: VCS diff (GET /vcs/diff?mode=git) — no messageID required
       const rawDiffs = await client.getVcsDiff('git')
       this.diffs = normalizeFileDiffs(rawDiffs)
       this.addLog(`diff.loaded ${this.diffs.length} files (vcs)`, 'info', 'diff')
     } catch (e) {
       this.addLog(`diff.failed: ${String(e)}`, 'error', 'diff')
+    } finally {
+      this.loadDiffsInFlight = false
     }
   }
 
@@ -375,16 +388,22 @@ struct Index {
     entry.level = level
     entry.source = source
     entry.message = msg
-    const list: LogEntry[] = []
-    for (const e of this.logEntries) {
-      list.push(e)
+    // Reassign to ensure @State re-render triggers; keep last 300 entries
+    if (this.logEntries.length >= 300) {
+      const trimmed: LogEntry[] = []
+      for (let i = this.logEntries.length - 299; i < this.logEntries.length; i++) {
+        trimmed.push(this.logEntries[i])
+      }
+      trimmed.push(entry)
+      this.logEntries = trimmed
+    } else {
+      const list: LogEntry[] = []
+      for (let i = 0; i < this.logEntries.length; i++) {
+        list.push(this.logEntries[i])
+      }
+      list.push(entry)
+      this.logEntries = list
     }
-    list.push(entry)
-    // Keep last 300 entries
-    while (list.length > 300) {
-      list.shift()
-    }
-    this.logEntries = list
   }
 
   clearLogs(): void {
