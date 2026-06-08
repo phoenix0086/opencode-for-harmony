@@ -18,6 +18,7 @@ import { SessionContextMenu } from './SessionContextMenu'
 import { ToastContainer, ToastData, ToastManager } from './ToastNotification'
 import { StatusPopover } from './StatusPopover'
 import { DirectoryPicker, ProjectEntry } from './DirectoryPicker'
+import { OpenCodeHomeLaunch } from './home/OpenCodeHomeLaunch'
 
 /**
  * AppShell - OpenCode IDE 三栏布局
@@ -151,38 +152,91 @@ export struct AppShell {
         Column() {
           // Center content area
           if (this.activeActivity === 'chat') {
-            // Session tabs
-            if (this.sessions.length > 0) {
-              SessionTabs({
-                tabs: this.computeTabs(),
-                activeTabId: this.activeSessionId,
-                onSelectTab: (id: string) => {
-                  this.onSelectSession(id)
+            if (this.activeSessionId.length === 0 && this.transcriptBlocks.length === 0) {
+              OpenCodeHomeLaunch({
+                inputText: $inputText,
+                isSending: $isSending,
+                activeRunner: this.activeRunner,
+                sessions: this.sessions,
+                projectName: this.projectName.length > 0 ? this.projectName : '构建任何东西',
+                projectPath: this.projectName.length > 0 ? this.projectName : '',
+                branchName: this.branchName,
+                modelName: this.modelName,
+                isConnected: this.isConnected,
+                serverVersion: this.serverVersion,
+                projects: this.projects,
+                onInputChange: (value: string) => {
+                  this.inputText = value
                 },
-                onCloseTab: (id: string) => {
-                  this.onCloseTab(id)
+                onSend: () => {
+                  this.onSend()
                 },
-                onNewTab: () => {
-                  this.onNewTab()
+                onAbort: () => {
+                  this.onAbort()
+                },
+                onNewSession: () => {
+                  this.onNewSession()
+                },
+                onOpenChat: () => {
+                  this.activeActivity = 'chat'
+                },
+                onOpenSettings: () => {
+                  this.activeActivity = 'settings'
+                },
+                onOpenHelp: () => {
+                  this.rightPanelTab = 'logs'
+                  this.showRightPanel = true
+                },
+                onOpenDirectoryPicker: () => {
+                  this.showDirectoryPicker = true
+                },
+                onOpenServerStatus: () => {
+                  this.showStatusPopover = true
+                },
+                onOpenRightPanel: () => {
+                  this.showRightPanel = !this.showRightPanel
+                },
+                onOpenFiles: () => {
+                  this.activeActivity = 'files'
+                },
+                onOpenModels: () => {
+                  this.activeActivity = 'models'
+                }
+              })
+            } else {
+              // Session tabs
+              if (this.sessions.length > 0) {
+                SessionTabs({
+                  tabs: this.computeTabs(),
+                  activeTabId: this.activeSessionId,
+                  onSelectTab: (id: string) => {
+                    this.onSelectSession(id)
+                  },
+                  onCloseTab: (id: string) => {
+                    this.onCloseTab(id)
+                  },
+                  onNewTab: () => {
+                    this.onNewTab()
+                  }
+                })
+              }
+              // Session header
+              this.SessionHeader()
+              // Transcript
+              AgentTranscript({
+                blocks: this.transcriptBlocks,
+                isStreaming: this.isStreaming,
+                onApprovePermission: (id: string) => {
+                  this.onApprovePermission(id)
+                },
+                onRejectPermission: (id: string) => {
+                  this.onRejectPermission(id)
+                },
+                onAlwaysApprovePermission: (id: string) => {
+                  this.onAlwaysApprovePermission(id)
                 }
               })
             }
-            // Session header
-            this.SessionHeader()
-            // Transcript
-            AgentTranscript({
-              blocks: this.transcriptBlocks,
-              isStreaming: this.isStreaming,
-              onApprovePermission: (id: string) => {
-                this.onApprovePermission(id)
-              },
-              onRejectPermission: (id: string) => {
-                this.onRejectPermission(id)
-              },
-              onAlwaysApprovePermission: (id: string) => {
-                this.onAlwaysApprovePermission(id)
-              }
-            })
           } else if (this.activeActivity === 'diff') {
             DiffPanel({
               diffs: this.diffs,
@@ -197,7 +251,8 @@ export struct AppShell {
             })
           } else if (this.activeActivity === 'models') {
             ModelSettingsPage({
-              activeRunner: this.activeRunner
+              activeRunner: this.activeRunner,
+              isConnected: this.isConnected
             })
           } else if (this.activeActivity === 'files') {
             FilePanel({

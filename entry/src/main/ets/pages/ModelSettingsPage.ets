@@ -1,11 +1,12 @@
 import { Theme } from '../components/Theme'
 import { Runner } from '../models/Runner'
 import { ModelCard } from '../components/model/ModelCard'
-import { modelSelectionService, ModelOption } from '../services/ModelSelectionService'
+import { modelSelectionService, ModelOption, ModelSelectionResult } from '../services/ModelSelectionService'
 
 @Component
 export struct ModelSettingsPage {
   @Prop activeRunner: Runner | null = null
+  @Prop isConnected: boolean = false
 
   @State models: ModelOption[] = []
   @State defaultModel: string = ''
@@ -31,6 +32,7 @@ export struct ModelSettingsPage {
           .fontColor(Theme.TEXT_PRIMARY)
           .margin({ bottom: 28 })
 
+        this.ServerNotice()
         this.CurrentSelection()
 
         Text('可用模型')
@@ -65,7 +67,7 @@ export struct ModelSettingsPage {
         if (this.statusMsg.length > 0) {
           Text(this.statusMsg)
             .fontSize(Theme.fs.sm)
-            .fontColor(this.statusMsg.includes('failed') || this.statusMsg.includes('失败') ? Theme.DANGER : Theme.SUCCESS)
+            .fontColor(this.statusMsg.includes('失败') || this.statusMsg.includes('无法') ? Theme.DANGER : Theme.SUCCESS)
             .margin({ top: 20 })
         }
       }
@@ -76,6 +78,20 @@ export struct ModelSettingsPage {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.BG)
+  }
+
+  @Builder
+  ServerNotice() {
+    if (!this.isConnected) {
+      Text('OpenCode Server 未连接：可以本地选择默认模型，但不能测试模型，也不能同步到 opencode serve。')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.WARNING)
+        .padding(14)
+        .borderRadius(10)
+        .backgroundColor(Theme.WARNING_DIM)
+        .width('100%')
+        .margin({ bottom: 16 })
+    }
   }
 
   @Builder
@@ -108,18 +124,18 @@ export struct ModelSettingsPage {
   }
 
   private async setDefault(modelRef: string): Promise<void> {
-    await modelSelectionService.setDefaultModel(modelRef, this.activeRunner)
-    this.statusMsg = `默认模型已设置：${modelRef}`
+    const result: ModelSelectionResult = await modelSelectionService.setDefaultModel(modelRef, this.isConnected ? this.activeRunner : null)
+    this.statusMsg = result.message
     await this.reload()
   }
 
   private async setSmall(modelRef: string): Promise<void> {
-    await modelSelectionService.setSmallModel(modelRef, this.activeRunner)
-    this.statusMsg = `Small Model 已设置：${modelRef}`
+    const result: ModelSelectionResult = await modelSelectionService.setSmallModel(modelRef, this.isConnected ? this.activeRunner : null)
+    this.statusMsg = result.message
     await this.reload()
   }
 
   private async testModel(modelRef: string): Promise<void> {
-    this.statusMsg = await modelSelectionService.testModel(modelRef, this.activeRunner)
+    this.statusMsg = await modelSelectionService.testModel(modelRef, this.isConnected ? this.activeRunner : null)
   }
 }

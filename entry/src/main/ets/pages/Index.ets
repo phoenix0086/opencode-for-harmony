@@ -511,9 +511,23 @@ struct Index {
 
   async sendMessage(): Promise<void> {
     const text = this.inputText.trim()
-    if (text.length === 0 || this.activeSessionId.length === 0) return
+    if (text.length === 0) return
+
     const client = this.getClient()
-    if (client === null) return
+    if (client === null) {
+      ToastManager.show('OpenCode Server 未连接，无法发送消息', 'error')
+      this.addLog('message.blocked: server not connected', 'warn', 'message')
+      return
+    }
+
+    if (this.activeSessionId.length === 0) {
+      await this.createNewSession()
+      if (this.activeSessionId.length === 0) {
+        ToastManager.show('创建 session 失败，无法发送消息', 'error')
+        this.addLog('message.blocked: no active session after create', 'error', 'message')
+        return
+      }
+    }
 
     this.inputText = ''
     this.isSending = true
