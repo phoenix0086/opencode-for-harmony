@@ -15,6 +15,7 @@ export struct ProviderSettingsPage {
   @State showDialog: boolean = false
   @State statusMsg: string = ''
   @State connecting: boolean = false
+  @State mimoSynced: boolean = false  // 防止重复推送
 
   async aboutToAppear(): Promise<void> {
     await providerRegistry.init()
@@ -54,10 +55,13 @@ export struct ProviderSettingsPage {
 
   /** 将小米 MiMo 配置推送到 OpenCode Server */
   private async syncXiaomiMimoToServer(): Promise<void> {
+    if (this.mimoSynced) return
     if (this.activeRunner === null) return
 
     const p = providerRegistry.getById('xiaomi-mimo')
     if (!p) return
+
+    this.mimoSynced = true
 
     const input = new ProviderConnectInput()
     input.providerId = p.id
@@ -173,15 +177,17 @@ export struct ProviderSettingsPage {
       .height('100%')
       .backgroundColor(Theme.BG)
 
-      ProviderConnectDialog({
-        visible: this.showDialog,
-        onCancel: () => {
-          this.showDialog = false
-        },
-        onSubmit: (input: ProviderConnectInput) => {
-          this.submitProvider(input)
-        }
-      })
+      if (this.showDialog) {
+        ProviderConnectDialog({
+          visible: this.showDialog,
+          onCancel: () => {
+            this.showDialog = false
+          },
+          onSubmit: (input: ProviderConnectInput) => {
+            this.submitProvider(input)
+          }
+        })
+      }
     }
     .width('100%')
     .height('100%')

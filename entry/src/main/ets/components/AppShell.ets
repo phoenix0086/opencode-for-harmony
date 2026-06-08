@@ -135,6 +135,8 @@ export struct AppShell {
             this.activeActivity = 'settings'
           },
           onOpenHelp: () => {
+            // 首页模式下没有右面板，先创建 session 进入工作区再打开日志
+            this.onNewSession()
             this.rightPanelTab = 'logs'
             this.showRightPanel = true
           },

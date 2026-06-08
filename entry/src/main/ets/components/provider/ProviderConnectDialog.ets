@@ -12,7 +12,7 @@ const API_MODE_OPTIONS: SelectOption[] = [
 
 @Component
 export struct ProviderConnectDialog {
-  @Prop visible: boolean = false
+  @Prop @Watch('onVisibleChanged') visible: boolean = false
   onCancel: () => void = () => {}
   onSubmit: (input: ProviderConnectInput) => void = () => {}
 
@@ -37,6 +37,12 @@ export struct ProviderConnectDialog {
 
   aboutToAppear(): void {
     this.resetForm()
+  }
+
+  onVisibleChanged(): void {
+    if (this.visible) {
+      this.resetForm()
+    }
   }
 
   private resetForm(): void {
@@ -288,6 +294,7 @@ export struct ProviderConnectDialog {
             this.apiModeIndex = index
             this.errorText = ''
             this.testResult = null
+            this.apiEndpoint = ''
           }
         })
 
@@ -595,10 +602,10 @@ export struct ProviderConnectDialog {
       let headers: Record<string, string> = {}
 
       if (apiType === 'anthropic') {
-        url = base.endsWith('/') ? `${base}v1/models` : `${base}/v1/models`
-        headers['Content-Type'] = 'application/json'
-        headers['x-api-key'] = this.apiKey
-        headers['anthropic-version'] = '2023-06-01'
+        // Anthropic 官方没有 /v1/models 接口，提示手动输入
+        this.errorText = 'Anthropic 不支持自动获取模型列表，请手动输入模型 ID（如 claude-sonnet-4-20250514）'
+        this.fetchingModels = false
+        return
       } else if (apiType === 'openai_responses') {
         url = base.endsWith('/') ? `${base}v1/models` : `${base}/v1/models`
         headers['Content-Type'] = 'application/json'
@@ -803,13 +810,6 @@ export struct ProviderConnectDialog {
       return 'AWS Bedrock 需要填写 AccessKeyID|SecretAccessKey 格式'
     }
     if (this.models.length === 0) return '至少需要添加一个模型'
-
-    const pid = this.buildProviderId()
-    for (let i = 0; i < pid.length; i++) {
-      const c = pid.charAt(i)
-      const ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '-' || c === '_'
-      if (!ok) return '供应商名称只能生成包含小写字母、数字、连字符的 ID'
-    }
     return ''
   }
 
