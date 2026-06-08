@@ -281,8 +281,6 @@ export struct OpenCodeHomeLaunch {
       .justifyContent(FlexAlign.Center)
 
       this.Composer()
-        .position({ x: 15, y: 0 })
-        .align(Alignment.BottomStart)
     }
     .layoutWeight(1)
     .height('100%')
