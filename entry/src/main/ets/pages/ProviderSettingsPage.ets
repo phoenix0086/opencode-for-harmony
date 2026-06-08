@@ -2,33 +2,89 @@ import { Theme } from '../components/Theme'
 import { Runner } from '../models/Runner'
 import { CNProvider } from '../models/Provider'
 import { providerRegistry } from '../services/ProviderRegistry'
-import { providerTemplateRegistry, ProviderTemplate } from '../services/ProviderTemplateRegistry'
-import { providerConnectionService, ProviderConnectInput, ProviderConnectResult } from '../services/ProviderConnectionService'
+import { providerConnectionService, ProviderConnectInput, ProviderModelInput, ProviderConnectResult } from '../services/ProviderConnectionService'
 import { ProviderCard } from '../components/provider/ProviderCard'
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog'
 
 @Component
 export struct ProviderSettingsPage {
-  @Prop activeRunner: Runner | null = null
+  @Prop @Watch('onRunnerChanged') activeRunner: Runner | null = null
   onOpenModels: () => void = () => {}
 
   @State providers: CNProvider[] = []
-  @State templates: ProviderTemplate[] = []
   @State showDialog: boolean = false
-  @State selectedTemplate: ProviderTemplate | null = null
   @State statusMsg: string = ''
   @State connecting: boolean = false
 
   async aboutToAppear(): Promise<void> {
     await providerRegistry.init()
+    // 自动预置小米 MiMo 供应商（不存在时才创建）
+    await this.ensureXiaomiMimo()
     this.providers = providerRegistry.getAll()
-    this.templates = providerTemplateRegistry.listTemplates()
+  }
+
+  private async ensureXiaomiMimo(): Promise<void> {
+    // 已存在则跳过（避免重复创建）
+    if (providerRegistry.getById('xiaomi-mimo')) {
+      // 存在但可能未同步到 Server，尝试推送
+      await this.syncXiaomiMimoToServer()
+      return
+    }
+
+    // 1. 先在本地创建供应商
+    const created = await providerRegistry.createCustomProvider(
+      'xiaomi-mimo',
+      'Xiaomi MiMo',
+      'https://token-plan-cn.xiaomimimo.com/anthropic',
+      'tp-ctgx27ynv0rkbt1jod87kkt779afid0eqrcmu68kst5zr13o',
+      ''
+    )
+    if (!created) return
+
+    // 2. 设置 Anthropic npm 包 + 模型
+    await providerRegistry.setProviderConfig('xiaomi-mimo', 'Xiaomi MiMo',
+      'https://token-plan-cn.xiaomimimo.com/anthropic',
+      '@ai-sdk/anthropic', 'XIAOMI_MIMO_API_KEY')
+    await providerRegistry.addOrUpdateModel('xiaomi-mimo', 'mimo-v2.5-pro', 'MiMo v2.5 Pro', true)
+    await providerRegistry.addOrUpdateModel('xiaomi-mimo', 'mimo-v2.5', 'MiMo v2.5', true)
+
+    // 3. 推送到 OpenCode Server（如果有活跃 Runner）
+    await this.syncXiaomiMimoToServer()
+  }
+
+  /** 将小米 MiMo 配置推送到 OpenCode Server */
+  private async syncXiaomiMimoToServer(): Promise<void> {
+    if (this.activeRunner === null) return
+
+    const p = providerRegistry.getById('xiaomi-mimo')
+    if (!p) return
+
+    const input = new ProviderConnectInput()
+    input.providerId = p.id
+    input.displayName = p.name
+    input.apiType = 'anthropic'
+    input.baseURL = p.baseURL
+    input.apiKey = p.apiKey || 'tp-ctgx27ynv0rkbt1jod87kkt779afid0eqrcmu68kst5zr13o'
+    input.models = []
+    for (const m of p.models) {
+      const mi = new ProviderModelInput()
+      mi.id = m.id
+      mi.name = m.name
+      input.models.push(mi)
+    }
+    input.headers = []
+
+    const result: ProviderConnectResult = await providerConnectionService.connectProvider(input, this.activeRunner)
+    if (result.ok) {
+      this.statusMsg = `MiMo: ${result.message}`
+    } else {
+      this.statusMsg = `MiMo 同步失败: ${result.error}`
+    }
   }
 
   private async reload(): Promise<void> {
     await providerRegistry.init()
     this.providers = providerRegistry.getAll()
-    this.templates = providerTemplateRegistry.listTemplates()
   }
 
   build() {
@@ -41,6 +97,7 @@ export struct ProviderSettingsPage {
             .fontColor(Theme.TEXT_PRIMARY)
             .margin({ bottom: 34 })
 
+          // ── 已连接的提供商 ──
           Text('已连接的提供商')
             .fontSize(Theme.fs.lg)
             .fontWeight(FontWeight.Bold)
@@ -60,7 +117,7 @@ export struct ProviderSettingsPage {
             .backgroundColor(Theme.SIDEBAR)
             .borderWidth(1)
             .borderColor(Theme.BORDER)
-            .margin({ bottom: 48 })
+            .margin({ bottom: 40 })
           } else {
             ForEach(this.connectedProviders(), (p: CNProvider) => {
               ProviderCard({
@@ -76,22 +133,30 @@ export struct ProviderSettingsPage {
             }, (p: CNProvider) => p.id)
           }
 
-          Text('添加提供商')
+          // ── 热门提供商（只有一张自定义卡片）──
+          Text('热门提供商')
             .fontSize(Theme.fs.lg)
             .fontWeight(FontWeight.Bold)
             .fontColor(Theme.TEXT_PRIMARY)
-            .margin({ top: 14, bottom: 14 })
+            .margin({ top: 24, bottom: 14 })
 
-          ForEach(this.templates, (t: ProviderTemplate) => {
-            ProviderCard({
-              title: t.name,
-              subtitle: t.description.length > 0 ? t.description : '通过基础 URL 添加与 OpenAI 兼容的提供商。',
-              badge: t.id === 'custom-openai-compatible' ? '自定义' : '',
-              buttonText: '连接',
-              connected: false,
-              onAction: () => this.openTemplate(t)
+          ProviderCard({
+            title: '自定义提供商',
+            subtitle: '通过基础 URL 添加与 OpenAI 兼容的提供商。',
+            badge: '自定义',
+            buttonText: '连接',
+            connected: false,
+            onAction: () => this.openCustomDialog()
+          })
+
+          // 查看更多提供商
+          Text('查看更多提供商')
+            .fontSize(Theme.fs.md)
+            .fontColor(Theme.ACCENT)
+            .margin({ top: 16, bottom: 8 })
+            .onClick(() => {
+              // 预留扩展：未来可展示更多预设供应商模板
             })
-          }, (t: ProviderTemplate) => t.id)
 
           if (this.statusMsg.length > 0) {
             Text(this.statusMsg)
@@ -110,7 +175,6 @@ export struct ProviderSettingsPage {
 
       ProviderConnectDialog({
         visible: this.showDialog,
-        template: this.selectedTemplate,
         onCancel: () => {
           this.showDialog = false
         },
@@ -131,9 +195,16 @@ export struct ProviderSettingsPage {
     return list
   }
 
-  private openTemplate(t: ProviderTemplate): void {
-    this.selectedTemplate = t
+  private openCustomDialog(): void {
     this.showDialog = true
+  }
+
+  /** Runner 变更时自动同步 MiMo 到 Server */
+  onRunnerChanged(): void {
+    if (this.activeRunner !== null) {
+      // 异步同步，不阻塞 UI
+      this.syncXiaomiMimoToServer()
+    }
   }
 
   private async submitProvider(input: ProviderConnectInput): Promise<void> {

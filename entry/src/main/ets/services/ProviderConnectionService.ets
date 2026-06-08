@@ -110,15 +110,21 @@ export class ProviderConnectionService {
 
     const body = `{"model":"${this.esc(modelId)}","messages":[{"role":"user","content":"Say ok only."}],"max_tokens":10,"stream":false}`
 
-    const resp = await this.httpPost(url, headers, body, 15000)
-    result.latencyMs = Date.now() - startTime
+    try {
+      const resp = await this.httpPost(url, headers, body, 15000)
+      result.latencyMs = Date.now() - startTime
 
-    if (resp.responseCode >= 200 && resp.responseCode < 300) {
-      result.ok = true
-      result.responsePreview = this.extractOpenAIResponse(resp.result as string)
-    } else {
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        result.ok = true
+        result.responsePreview = this.extractOpenAIResponse(resp.result as string)
+      } else {
+        result.ok = false
+        result.error = this.extractError(resp.result as string, resp.responseCode)
+      }
+    } catch (e) {
       result.ok = false
-      result.error = this.extractError(resp.result as string, resp.responseCode)
+      result.latencyMs = Date.now() - startTime
+      result.error = `请求 ${url} 失败: ${String(e)}`
     }
 
     return result
@@ -128,7 +134,13 @@ export class ProviderConnectionService {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    const url = this.buildUrl(input.baseURL, 'v1/messages', 'messages')
+    // Anthropic SDK 行为：baseURL + /v1/messages
+    // 但很多代理（如小米 MiMo）的 baseURL 已经包含路径前缀，
+    // SDK 会在 baseURL 后直接追加 /v1/messages
+    let url = input.baseURL
+    if (url.length === 0) url = 'https://api.anthropic.com'
+    if (!url.endsWith('/')) url += '/'
+    url += 'v1/messages'
 
     const headers: Record<string, string> = {}
     headers['Content-Type'] = 'application/json'
@@ -138,15 +150,21 @@ export class ProviderConnectionService {
 
     const body = `{"model":"${this.esc(modelId)}","max_tokens":10,"messages":[{"role":"user","content":"Say ok only."}]}`
 
-    const resp = await this.httpPost(url, headers, body, 15000)
-    result.latencyMs = Date.now() - startTime
+    try {
+      const resp = await this.httpPost(url, headers, body, 15000)
+      result.latencyMs = Date.now() - startTime
 
-    if (resp.responseCode >= 200 && resp.responseCode < 300) {
-      result.ok = true
-      result.responsePreview = this.extractAnthropicResponse(resp.result as string)
-    } else {
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        result.ok = true
+        result.responsePreview = this.extractAnthropicResponse(resp.result as string)
+      } else {
+        result.ok = false
+        result.error = this.extractError(resp.result as string, resp.responseCode)
+      }
+    } catch (e) {
       result.ok = false
-      result.error = this.extractError(resp.result as string, resp.responseCode)
+      result.latencyMs = Date.now() - startTime
+      result.error = `请求 ${url} 失败: ${String(e)}`
     }
 
     return result
@@ -165,15 +183,21 @@ export class ProviderConnectionService {
 
     const body = `{"model":"${this.esc(modelId)}","input":"Say ok only.","max_output_tokens":10}`
 
-    const resp = await this.httpPost(url, headers, body, 15000)
-    result.latencyMs = Date.now() - startTime
+    try {
+      const resp = await this.httpPost(url, headers, body, 15000)
+      result.latencyMs = Date.now() - startTime
 
-    if (resp.responseCode >= 200 && resp.responseCode < 300) {
-      result.ok = true
-      result.responsePreview = this.extractResponsesApiResponse(resp.result as string)
-    } else {
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        result.ok = true
+        result.responsePreview = this.extractResponsesApiResponse(resp.result as string)
+      } else {
+        result.ok = false
+        result.error = this.extractError(resp.result as string, resp.responseCode)
+      }
+    } catch (e) {
       result.ok = false
-      result.error = this.extractError(resp.result as string, resp.responseCode)
+      result.latencyMs = Date.now() - startTime
+      result.error = `请求 ${url} 失败: ${String(e)}`
     }
 
     return result
@@ -211,15 +235,21 @@ export class ProviderConnectionService {
       headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}`
     }
 
-    const resp = await this.httpPost(url, headers, body, 15000)
-    result.latencyMs = Date.now() - startTime
+    try {
+      const resp = await this.httpPost(url, headers, body, 15000)
+      result.latencyMs = Date.now() - startTime
 
-    if (resp.responseCode >= 200 && resp.responseCode < 300) {
-      result.ok = true
-      result.responsePreview = this.extractBedrockResponse(resp.result as string)
-    } else {
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        result.ok = true
+        result.responsePreview = this.extractBedrockResponse(resp.result as string)
+      } else {
+        result.ok = false
+        result.error = this.extractError(resp.result as string, resp.responseCode)
+      }
+    } catch (e) {
       result.ok = false
-      result.error = this.extractError(resp.result as string, resp.responseCode)
+      result.latencyMs = Date.now() - startTime
+      result.error = `请求 ${url} 失败: ${String(e)}`
     }
 
     return result
