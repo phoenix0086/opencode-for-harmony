@@ -86,17 +86,18 @@ export class MessageTime {
 
 /**
  * Raw Part from API — shape varies by type.
- * text: { type:"text", text:"..." }
- * tool-invocation: { type:"tool-invocation", toolInvocationId:"...", toolName:"...", state:"...", args:{...}, result:"..." }
+ * text: { type:"text", text:"...", id:"prt_..." }
+ * tool: { type:"tool", callID:"call_...", tool:"write", state:{status, input, output, title, ...} }
+ * reasoning: { type:"reasoning", text:"...", time:{start, end} }
+ * step-start / step-finish: { type:"step-start"|"step-finish", ... }
  */
 export class RawPart {
   type: string = ''
   text: string = ''
-  toolInvocationId: string = ''
-  toolName: string = ''
-  state: string = ''
-  args: Record<string, Object> = {}
-  result: string = ''
+  id: string = ''
+  callID: string = ''
+  tool: string = ''
+  state: Record<string, Object> = {}
   step: number = 0
 }
 

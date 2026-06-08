@@ -144,7 +144,13 @@ export class StorageService {
 
   async clearAll(): Promise<void> {
     if (this.store === null) return
-    await this.store.clear()
+    await this.store.delete(RUNNERS_KEY)
+    await this.store.delete(ACTIVE_RUNNER_KEY)
+    await this.store.delete(PROVIDERS_KEY)
+    await this.store.delete(SERVER_URL_KEY)
+    await this.store.delete(WORKSPACE_KEY)
+    await this.store.delete(RECENT_WORKSPACES_KEY)
+    await this.store.delete(SETTINGS_KEY)
     await this.store.flush()
   }
 }

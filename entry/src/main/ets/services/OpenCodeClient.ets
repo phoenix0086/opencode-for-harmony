@@ -496,16 +496,20 @@ export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
       if (part.type === 'text') {
         np.type = 'text'
         np.content = part.text
-      } else if (part.type === 'tool-invocation') {
+      } else if (part.type === 'tool') {
         np.type = 'tool-invocation'
-        np.id = part.toolInvocationId
-        np.toolName = part.toolName
-        np.toolState = part.state
-        np.toolResult = part.result
-        np.step = part.step
-        // Serialize args to string for display
+        np.id = part.callID
+        np.toolName = part.tool
+        np.toolState = (part.state['status'] as string) || ''
+        np.toolResult = (part.state['output'] as string) || ''
+        // Serialize input args to string for display
         try {
-          np.toolArgs = JSON.stringify(part.args)
+          const inputObj = part.state['input']
+          if (inputObj !== undefined && inputObj !== null) {
+            np.toolArgs = JSON.stringify(inputObj)
+          } else {
+            np.toolArgs = ''
+          }
         } catch (e) {
           np.toolArgs = ''
         }
