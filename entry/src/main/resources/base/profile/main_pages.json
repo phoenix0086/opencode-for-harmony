@@ -7,10 +7,6 @@
     "pages/WebViewPage",
     "pages/SettingsPage",
     "pages/ProviderPage",
-    "pages/ProviderSettingsPage",
-    "pages/ModelPage",
-    "pages/ModelSettingsPage",
-    "pages/RuntimePage",
-    "pages/ServerSettingsPage"
+    "pages/ModelPage"
   ]
 }

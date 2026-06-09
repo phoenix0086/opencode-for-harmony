@@ -65,7 +65,7 @@ struct Session {
 
       // Messages
       List({ scroller: this.scroller }) {
-        ForEach(this.viewModel.messages, (msg) => {
+        ForEach(this.viewModel.messages, (msg: ChatMessage) => {
           ListItem() {
             this.MessageBubble(msg)
           }

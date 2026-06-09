@@ -63,7 +63,7 @@ struct ServerConfig {
             Row() {
               Text('🖥️').fontSize(32)
                 .fontSize(32)
-                .fontColor(['#007DFF'])
+                .fontColor('#007DFF')
               Column() {
                 Text(this.displayName || 'OpenCode Server')
                   .fontSize(18)

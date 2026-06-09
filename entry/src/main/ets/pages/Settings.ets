@@ -196,7 +196,7 @@ struct Settings {
         .fontColor('#AAAAAA')
         .margin({ bottom: 6 })
       Row() {
-        ForEach(options, (option) => {
+        ForEach(options, (option: string) => {
           Button(option)
             .height(36)
             .backgroundColor(selected === option ? '#007DFF' : '#1E1E1E')

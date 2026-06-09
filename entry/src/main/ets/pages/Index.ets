@@ -68,11 +68,11 @@ struct Index {
 
           // Nav items
           Column() {
-            this.NavItem(AppView.Home, $r('sys.media.home'), 'Home')
-            this.NavItem(AppView.Chat, $r('sys.media.chat'), 'Chat')
-            this.NavItem(AppView.Files, $r('sys.media.folder'), 'Files')
-            this.NavItem(AppView.Terminal, $r('sys.media.terminal'), 'Terminal')
-            this.NavItem(AppView.WebView, $r('sys.media.globe'), 'Web UI')
+            this.NavItem(AppView.Home, $r('app.media.home'), 'Home')
+            this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
+            this.NavItem(AppView.Files, $r('app.media.globe'), 'Files')
+            this.NavItem(AppView.Terminal, $r('app.media.terminal'), 'Terminal')
+            this.NavItem(AppView.WebView, $r('app.media.globe'), 'Web UI')
           }
           .width('100%')
           .layoutWeight(1)
@@ -103,7 +103,7 @@ struct Index {
             Row() {
               Text('⚙️').fontSize(18)
                 .fontSize(16)
-                .fontColor(['#FFFFFF'])
+                .fontColor('#FFFFFF')
               Text('Settings')
                 .fontSize(14)
                 .fontColor('#FFFFFF')
