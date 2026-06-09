@@ -16,23 +16,31 @@ export struct ServerSettingsPage {
   @State statusMsg: string = ''
   @State logs: string[] = []
   @State mode: string = 'local'
+  @State processPid: number = -1
+  @State busy: boolean = false
 
   aboutToAppear(): void {
     this.config = localOpenCodeServerManager.createDefaultConfig()
-    this.status = new LocalServerStatus()
+    this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
     this.logs = [
-      '[info] V1 supports local/remote health check and runner activation.',
-      '[info] One-click process start is reserved for native bridge / packaged binary integration.'
+      '[info] 本页用于管理本地 OpenCode Runtime。',
+      '[info] 点击“启动本地 Runtime”会通过 Native Bridge 启动 opencode serve。',
+      '[info] 启动成功后会自动检测 /global/health 并激活 Runner。'
     ]
   }
 
   build() {
     Scroll() {
       Column() {
-        Text('服务器')
+        Text('本地 Runtime')
           .fontSize(28)
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.TEXT_PRIMARY)
+          .margin({ bottom: Theme.sp.sm })
+
+        Text('默认使用本机 OpenCode Runtime。远程连接只是高级模式。')
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_MUTED)
           .margin({ bottom: Theme.sp.xl })
 
         this.ModeSwitcher()
@@ -41,7 +49,11 @@ export struct ServerSettingsPage {
         LocalServerCard({
           status: this.status,
           isActive: this.isConnected,
+          isBusy: this.busy,
           onPrepareStart: () => this.prepareStart(),
+          onStart: () => this.startRuntime(),
+          onStop: () => this.stopRuntime(),
+          onRestart: () => this.restartRuntime(),
           onCheck: () => this.checkHealth(),
           onConnect: () => this.connectLocal()
         })
@@ -64,7 +76,7 @@ export struct ServerSettingsPage {
     Row() {
       this.ModePill('local', '本机模式')
       this.ModePill('dev-pc', '开发电脑 / 局域网')
-      this.ModePill('remote', '远程服务')
+      this.ModePill('remote', '远程 Runtime')
     }
     .margin({ bottom: Theme.sp.xl })
   }
@@ -88,8 +100,7 @@ export struct ServerSettingsPage {
         } else if (id === 'dev-pc') {
           this.config.host = '192.168.1.xxx'
         }
-        this.status.startCommand = localOpenCodeServerManager.getCommandForConfig(this.config)
-        this.status.baseUrl = `${this.config.protocol}://${this.config.host}:${this.config.port}`
+        this.refreshStatusPreview()
       })
   }
 
@@ -164,17 +175,17 @@ export struct ServerSettingsPage {
         .fontColor(Theme.TEXT_PRIMARY)
         .margin({ bottom: Theme.sp.lg })
 
-      Text('本机模式：App 和 opencode serve 在同一台鸿蒙 PC 上运行，Host 用 127.0.0.1。')
+      Text('本机模式：正式产品默认路径。App 通过 Native Bridge 启动本机 opencode serve，并连接 127.0.0.1。')
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.TEXT_SECONDARY)
         .margin({ bottom: Theme.sp.md })
 
-      Text('开发电脑 / 局域网：App 在模拟器或真机上跑，opencode serve 在开发电脑上跑，Host 填开发电脑局域网 IP，命令使用 --hostname 0.0.0.0。')
+      Text('开发电脑 / 局域网：用于 DevEco、模拟器或真机调试。Runtime 在开发电脑上跑，Host 填开发电脑局域网 IP。')
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.TEXT_SECONDARY)
         .margin({ bottom: Theme.sp.md })
 
-      Text('V1 先完成检测和连接。真正一键启动外部进程，需要后续接 Native Bridge 或随包内置 opencode 二进制。')
+      Text('远程 Runtime：高级模式，不会启动本地进程，只检测并连接远程地址。')
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.WARNING)
     }
@@ -189,26 +200,109 @@ export struct ServerSettingsPage {
   }
 
   private refreshStatusPreview(): void {
-    this.status.host = this.config.host
-    this.status.port = this.config.port
-    this.status.protocol = this.config.protocol
-    this.status.baseUrl = `${this.config.protocol}://${this.config.host}:${this.config.port}`
-    this.status.startCommand = localOpenCodeServerManager.getCommandForConfig(this.config)
+    const preview = localOpenCodeServerManager.createPreviewStatus(this.config)
+    preview.processPid = this.processPid
+    preview.logs = this.logs
+    this.status = preview
+  }
+
+  private appendLog(line: string): void {
+    const next: string[] = []
+    for (const item of this.logs) next.push(item)
+    next.push(line)
+    this.logs = next
+  }
+
+  private appendLogs(lines: string[]): void {
+    if (lines.length === 0) return
+    const next: string[] = []
+    for (const item of this.logs) next.push(item)
+    for (const line of lines) next.push(line)
+    this.logs = next
+  }
+
+  private collectProcessLogs(): void {
+    if (this.processPid <= 0) return
+    this.appendLogs(localOpenCodeServerManager.collectProcessLogs(this.processPid))
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), ms)
+    })
   }
 
   private async prepareStart(): Promise<void> {
     this.status = await localOpenCodeServerManager.prepareStart(this.config)
+    this.status.processPid = this.processPid
     this.logs = this.status.logs
+  }
+
+  private async startRuntime(): Promise<void> {
+    if (this.busy) return
+    this.busy = true
+
+    this.status = localOpenCodeServerManager.startServerProcess(this.config)
+    this.processPid = this.status.processPid
+    this.logs = this.status.logs
+
+    if (this.status.status === 'starting') {
+      await this.autoConnectAfterStart()
+    }
+
+    this.busy = false
+  }
+
+  private async stopRuntime(): Promise<void> {
+    if (this.busy) return
+    this.busy = true
+
+    this.collectProcessLogs()
+    const stopped = localOpenCodeServerManager.stopServerProcess(this.processPid)
+    this.processPid = -1
+    stopped.baseUrl = this.status.baseUrl
+    stopped.startCommand = this.status.startCommand
+    this.status = stopped
+    this.appendLogs(stopped.logs)
+
+    this.busy = false
+  }
+
+  private async restartRuntime(): Promise<void> {
+    if (this.busy) return
+    this.busy = true
+
+    if (this.processPid > 0) {
+      this.collectProcessLogs()
+      const stopped = localOpenCodeServerManager.stopServerProcess(this.processPid)
+      this.appendLogs(stopped.logs)
+      this.processPid = -1
+      await this.delay(800)
+    }
+
+    this.status = localOpenCodeServerManager.startServerProcess(this.config)
+    this.processPid = this.status.processPid
+    this.appendLogs(this.status.logs)
+
+    if (this.status.status === 'starting') {
+      await this.autoConnectAfterStart()
+    }
+
+    this.busy = false
   }
 
   private async checkHealth(): Promise<void> {
+    this.collectProcessLogs()
     this.status = await localOpenCodeServerManager.checkHealth(this.config)
-    this.logs = this.status.logs
+    this.status.processPid = this.processPid
+    this.appendLogs(this.status.logs)
   }
 
   private async connectLocal(): Promise<void> {
+    this.collectProcessLogs()
     this.status = await localOpenCodeServerManager.checkAndActivate(this.config)
-    this.logs = this.status.logs
+    this.status.processPid = this.processPid
+    this.appendLogs(this.status.logs)
     if (this.status.status === 'running') {
       const runner = localOpenCodeServerManager.createRunnerFromConfig(this.config)
       runner.status = 'connected'
@@ -216,5 +310,44 @@ export struct ServerSettingsPage {
       this.onRunnerActivated(runner)
       this.onReconnect()
     }
+  }
+
+  private async autoConnectAfterStart(): Promise<void> {
+    this.appendLog('[info] waiting for Runtime health...')
+    for (let i = 0; i < 20; i++) {
+      await this.delay(700)
+      this.collectProcessLogs()
+
+      const running = localOpenCodeServerManager.isProcessRunning(this.processPid)
+      if (!running && i > 1) {
+        this.status.status = 'error'
+        this.status.message = 'Runtime 进程已退出，请查看日志。'
+        this.appendLog('[error] process exited before health became ready')
+        return
+      }
+
+      const health = await localOpenCodeServerManager.checkHealth(this.config)
+      if (health.status === 'running') {
+        this.status = health
+        this.status.processPid = this.processPid
+        this.appendLogs(health.logs)
+
+        await localOpenCodeServerManager.saveAndActivate(this.config)
+        this.appendLog('[ok] Runtime started and runner activated')
+
+        const runner = localOpenCodeServerManager.createRunnerFromConfig(this.config)
+        runner.status = 'connected'
+        runner.version = health.version
+        this.onRunnerActivated(runner)
+        this.onReconnect()
+        return
+      }
+
+      this.appendLog(`[wait] health not ready yet (${i + 1}/20)`)
+    }
+
+    this.status.status = 'not_running'
+    this.status.message = 'Runtime 已启动进程，但 /global/health 超时未就绪。'
+    this.appendLog('[warn] health check timeout')
   }
 }

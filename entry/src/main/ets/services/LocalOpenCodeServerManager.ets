@@ -4,7 +4,7 @@ import { OpenCodeClient } from './OpenCodeClient'
 import { ProcessBridge } from './ProcessBridge'
 
 export class LocalServerStatus {
-  status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting
+  status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
   message: string = ''
   baseUrl: string = 'http://127.0.0.1:4096'
   version: string = ''
@@ -31,7 +31,7 @@ export class LocalOpenCodeServerManager {
 
   createRunnerFromConfig(config: LocalServerConfig): Runner {
     const rc = new RunnerConfig()
-    rc.name = config.mode === 'remote' ? 'Remote OpenCode Server' : 'Local OpenCode Server'
+    rc.name = config.mode === 'remote' ? 'Remote OpenCode Runtime' : 'Local OpenCode Runtime'
     rc.host = config.host
     rc.port = config.port
     rc.protocol = config.protocol
@@ -40,19 +40,25 @@ export class LocalOpenCodeServerManager {
   }
 
   getCommandForConfig(config: LocalServerConfig): string {
-    if (config.mode === 'dev-pc' || config.mode === 'remote') {
-      return `opencode serve --port ${config.port} --hostname 0.0.0.0`
+    if (config.mode === 'remote') {
+      return `connect ${config.protocol}://${config.host}:${config.port}`
     }
-    return `opencode serve --port ${config.port} --hostname ${config.host}`
+    const hostname = config.mode === 'local' ? config.host : '0.0.0.0'
+    return `opencode serve --port ${config.port} --hostname ${hostname}`
   }
 
-  async checkHealth(config: LocalServerConfig): Promise<LocalServerStatus> {
+  createPreviewStatus(config: LocalServerConfig): LocalServerStatus {
     const status = new LocalServerStatus()
     status.host = config.host
     status.port = config.port
     status.protocol = config.protocol
+    status.baseUrl = `${config.protocol}://${config.host}:${config.port}`
     status.startCommand = this.getCommandForConfig(config)
+    return status
+  }
 
+  async checkHealth(config: LocalServerConfig): Promise<LocalServerStatus> {
+    const status = this.createPreviewStatus(config)
     const runner = this.createRunnerFromConfig(config)
     status.baseUrl = runnerBaseUrl(runner)
 
@@ -62,16 +68,16 @@ export class LocalOpenCodeServerManager {
       if (health.ok) {
         status.status = 'running'
         status.version = health.version
-        status.message = `OpenCode Server is running: ${status.baseUrl}`
+        status.message = `本地 OpenCode Runtime 运行中：${status.baseUrl}`
         status.logs.push(`[ok] /global/health healthy=true version=${health.version}`)
       } else {
         status.status = 'not_running'
-        status.message = `OpenCode Server is not reachable: ${health.error}`
+        status.message = `本地 OpenCode Runtime 未启动或不可达：${health.error}`
         status.logs.push(`[fail] /global/health ${health.error}`)
       }
     } catch (e) {
       status.status = 'error'
-      status.message = `Health check failed: ${String(e)}`
+      status.message = `Runtime 检测失败：${String(e)}`
       status.logs.push(`[error] ${String(e)}`)
     }
 
@@ -97,9 +103,7 @@ export class LocalOpenCodeServerManager {
       }
     }
 
-    if (!replaced) {
-      next.push(runner)
-    }
+    if (!replaced) next.push(runner)
 
     await storageService.saveRunners(next)
     await storageService.setActiveRunnerId(runner.id)
@@ -118,62 +122,73 @@ export class LocalOpenCodeServerManager {
   }
 
   async prepareStart(config: LocalServerConfig): Promise<LocalServerStatus> {
-    const status = new LocalServerStatus()
-    status.host = config.host
-    status.port = config.port
-    status.protocol = config.protocol
-    status.baseUrl = `${config.protocol}://${config.host}:${config.port}`
-    status.startCommand = this.getCommandForConfig(config)
+    const status = this.createPreviewStatus(config)
+    if (config.mode === 'remote') {
+      status.status = 'manual_required'
+      status.message = '远程模式不启动本地进程，只检测并连接远程 Runtime。'
+      status.logs.push(`[remote] ${status.baseUrl}`)
+      return status
+    }
+
     status.status = 'manual_required'
-    status.message = '纯 ArkTS V1 不启动外部进程。请在终端运行命令，然后点击"检测并连接"。'
-    status.logs.push(`[manual] ${status.startCommand}`)
+    status.message = '可以点击“启动本地 Runtime”自动启动；如果失败，再复制命令到终端排查。'
+    status.logs.push(`[cmd] ${status.startCommand}`)
     return status
   }
 
-  // ══════════ V2: Native Bridge Process Management ══════════
+  startServerProcess(config: LocalServerConfig): LocalServerStatus {
+    const status = this.createPreviewStatus(config)
 
-  startServerProcess(config: LocalServerConfig, onLog: (line: string) => void): LocalServerStatus {
-    const status = new LocalServerStatus()
-    status.host = config.host
-    status.port = config.port
-    status.protocol = config.protocol
-    status.baseUrl = `${config.protocol}://${config.host}:${config.port}`
-    status.startCommand = this.getCommandForConfig(config)
+    if (config.mode === 'remote') {
+      status.status = 'error'
+      status.message = '远程模式不能启动本地 Runtime，请使用“检测”或“保存并连接”。'
+      status.logs.push('[error] remote mode cannot start local process')
+      return status
+    }
 
     const command = this.findOpencodeBinary()
     if (command.length === 0) {
       status.status = 'error'
-      status.message = '找不到 opencode 可执行文件。请确认已安装 opencode 并在 PATH 中。'
+      status.message = '找不到 opencode 可执行文件。请确认已安装 opencode，或后续使用随包内置 Runtime。'
       status.logs.push('[error] opencode binary not found')
       return status
     }
 
-    const args = ['serve', '--port', `${config.port}`, '--hostname', config.host]
-
-    ProcessBridge.setLogCallback((line: string) => {
-      status.logs.push(line)
-      onLog(line)
-    })
-
+    const hostname = config.mode === 'local' ? config.host : '0.0.0.0'
+    const args = ['serve', '--port', `${config.port}`, '--hostname', hostname]
     const pid = ProcessBridge.startProcess(command, args)
+
     if (pid <= 0) {
       status.status = 'error'
-      status.message = '进程启动失败。可能是权限不足或 opencode 未安装。'
+      status.message = 'Runtime 进程启动失败。可能是权限不足、opencode 未安装，或 Native Bridge 不可用。'
       status.logs.push(`[error] startProcess returned pid=${pid}`)
       return status
     }
 
     status.processPid = pid
     status.status = 'starting'
-    status.message = `OpenCode Server 启动中 (pid=${pid})...`
-    status.logs.push(`[ok] process started pid=${pid} cmd=${command} ${args.join(' ')}`)
-
+    status.message = `本地 OpenCode Runtime 启动中 (pid=${pid})...`
+    status.logs.push(`[ok] process started pid=${pid}`)
+    status.logs.push(`[cmd] ${command} ${args.join(' ')}`)
     return status
   }
 
-  stopServerProcess(pid: number): boolean {
-    if (pid <= 0) return false
-    return ProcessBridge.stopProcess(pid)
+  stopServerProcess(pid: number): LocalServerStatus {
+    const status = new LocalServerStatus()
+    status.processPid = pid
+
+    if (pid <= 0) {
+      status.status = 'stopped'
+      status.message = '没有正在管理的 Runtime 进程。'
+      status.logs.push('[info] no managed pid')
+      return status
+    }
+
+    const ok = ProcessBridge.stopProcess(pid)
+    status.status = ok ? 'stopped' : 'error'
+    status.message = ok ? `Runtime 已停止 (pid=${pid})` : `Runtime 停止失败 (pid=${pid})`
+    status.logs.push(ok ? `[ok] stopped pid=${pid}` : `[error] stop failed pid=${pid}`)
+    return status
   }
 
   isProcessRunning(pid: number): boolean {
@@ -181,16 +196,17 @@ export class LocalOpenCodeServerManager {
     return ProcessBridge.isRunning(pid)
   }
 
+  collectProcessLogs(pid: number): string[] {
+    if (pid <= 0) return []
+    try {
+      return ProcessBridge.drainLogs(pid)
+    } catch (e) {
+      return [`[error] drainLogs failed: ${String(e)}`]
+    }
+  }
+
   private findOpencodeBinary(): string {
-    // Try common locations
-    const candidates = [
-      'opencode',
-      '/usr/local/bin/opencode',
-      '/usr/bin/opencode',
-      '/opt/homebrew/bin/opencode'
-    ]
-    // In HarmonyOS sandbox, we rely on PATH or bundled binary
-    // For now return 'opencode' and let execvp search PATH
+    // V2 still relies on PATH. V3 should resolve bundled runtime path first.
     return 'opencode'
   }
 }

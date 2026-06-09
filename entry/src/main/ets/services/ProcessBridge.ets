@@ -17,6 +17,18 @@ export class ProcessBridge {
     return nativeModule.processExitCode(pid) as number
   }
 
+  /**
+   * Safe log collection.
+   * Native side stores process output in a queue. ArkTS drains logs from UI/service.
+   */
+  static drainLogs(pid: number): string[] {
+    return nativeModule.processDrainLogs(pid) as string[]
+  }
+
+  /**
+   * Backward compatibility only.
+   * V2 no longer calls this callback from native worker threads.
+   */
   static setLogCallback(callback: (line: string) => void): void {
     nativeModule.processSetLogCallback(callback)
   }

@@ -25,12 +25,18 @@ ProcessManager::~ProcessManager() {
 int ProcessManager::startProcess(const std::string& command,
                                   const std::vector<std::string>& args,
                                   std::function<void(const std::string& line)> logCallback) {
-    // Create pipes for stdout and stderr
     int stdoutPipe[2];
     int stderrPipe[2];
 
-    if (pipe(stdoutPipe) != 0 || pipe(stderrPipe) != 0) {
-        OH_LOG_ERROR(LOG_APP, "pipe() failed: %{public}s", strerror(errno));
+    if (pipe(stdoutPipe) != 0) {
+        OH_LOG_ERROR(LOG_APP, "stdout pipe() failed: %{public}s", strerror(errno));
+        return -1;
+    }
+
+    if (pipe(stderrPipe) != 0) {
+        OH_LOG_ERROR(LOG_APP, "stderr pipe() failed: %{public}s", strerror(errno));
+        close(stdoutPipe[0]);
+        close(stdoutPipe[1]);
         return -1;
     }
 
@@ -44,7 +50,6 @@ int ProcessManager::startProcess(const std::string& command,
     }
 
     if (pid == 0) {
-        // ── Child process ──
         close(stdoutPipe[0]);
         close(stderrPipe[0]);
 
@@ -54,7 +59,6 @@ int ProcessManager::startProcess(const std::string& command,
         close(stdoutPipe[1]);
         close(stderrPipe[1]);
 
-        // Build argv
         std::vector<char*> argv;
         argv.push_back(const_cast<char*>(command.c_str()));
         for (const auto& a : args) {
@@ -64,34 +68,35 @@ int ProcessManager::startProcess(const std::string& command,
 
         execvp(command.c_str(), argv.data());
 
-        // If execvp returns, it failed
         fprintf(stderr, "execvp failed: %s\n", strerror(errno));
         _exit(127);
     }
 
-    // ── Parent process ──
     close(stdoutPipe[1]);
     close(stderrPipe[1]);
+
+    int capturedPid = static_cast<int>(pid);
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
         ProcessInfo info;
-        info.pid = static_cast<int>(pid);
+        info.pid = capturedPid;
         info.running = true;
         info.exitCode = -1;
         info.command = command;
-        processes_[static_cast<int>(pid)] = info;
-        logCallbacks_[static_cast<int>(pid)] = logCallback;
+        processes_[capturedPid] = info;
+        logCallbacks_[capturedPid] = logCallback;
+        logLines_[capturedPid] = std::vector<std::string>();
     }
 
-    // Start reader thread for stdout+stderr
-    int capturedPid = static_cast<int>(pid);
     readerThreads_[capturedPid] = std::thread(
         &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
+    readerThreads_[capturedPid].detach();
 
-    // Start wait thread to reap child
     waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
+    waitThreads_[capturedPid].detach();
 
+    appendLog(capturedPid, "[native] process started");
     OH_LOG_INFO(LOG_APP, "Started process pid=%{public}d cmd=%{public}s", capturedPid, command.c_str());
     return capturedPid;
 }
@@ -103,16 +108,18 @@ bool ProcessManager::stopProcess(int pid) {
         if (it == processes_.end() || !it->second.running) return false;
     }
 
-    // Send SIGTERM
+    appendLog(pid, "[native] sending SIGTERM");
     kill(static_cast<pid_t>(pid), SIGTERM);
 
-    // Wait up to 3 seconds
     for (int i = 0; i < 30; i++) {
-        if (!isRunning(pid)) return true;
-        usleep(100000); // 100ms
+        if (!isRunning(pid)) {
+            appendLog(pid, "[native] process stopped");
+            return true;
+        }
+        usleep(100000);
     }
 
-    // Force kill
+    appendLog(pid, "[native] sending SIGKILL");
     kill(static_cast<pid_t>(pid), SIGKILL);
     return true;
 }
@@ -147,6 +154,20 @@ std::vector<int> ProcessManager::getManagedPids() {
     return pids;
 }
 
+std::vector<std::string> ProcessManager::drainLogs(int pid) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    auto it = logLines_.find(pid);
+    if (it == logLines_.end()) return out;
+    out.swap(it->second);
+    return out;
+}
+
+void ProcessManager::appendLog(int pid, const std::string& line) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    logLines_[pid].push_back(line);
+}
+
 void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
                                    std::function<void(const std::string& line)> logCallback) {
     fd_set readFds;
@@ -172,7 +193,6 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
         }
 
         if (ret == 0) {
-            // Timeout — check if process is still running
             std::lock_guard<std::mutex> lock(mutex_);
             auto it = processes_.find(pid);
             if (it != processes_.end() && !it->second.running) break;
@@ -183,12 +203,18 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
             if (fd < 0 || !FD_ISSET(fd, &readFds)) return true;
             ssize_t n = read(fd, buffer, sizeof(buffer) - 1);
             if (n <= 0) return false;
-            buffer[n] = '\0';
-            // Split into lines
+
+            buffer[n] = '\\0';
+
             for (ssize_t i = 0; i < n; i++) {
-                if (buffer[i] == '\n') {
-                    if (logCallback && lineBuffer.size() > 0) {
-                        logCallback(lineBuffer);
+                if (buffer[i] == '\\n') {
+                    if (!lineBuffer.empty()) {
+                        appendLog(pid, lineBuffer);
+                        // Do not call JS directly from native reader threads.
+                        // logCallback is reserved for future native-side hooks.
+                        if (logCallback) {
+                            logCallback(lineBuffer);
+                        }
                     }
                     lineBuffer.clear();
                 } else {
@@ -204,30 +230,35 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
         if (!ok1 && !ok2) break;
     }
 
-    // Flush remaining
-    if (!lineBuffer.empty() && logCallback) {
-        logCallback(lineBuffer);
+    if (!lineBuffer.empty()) {
+        appendLog(pid, lineBuffer);
+        if (logCallback) logCallback(lineBuffer);
     }
 
     close(stdoutFd);
     close(stderrFd);
+    appendLog(pid, "[native] log reader stopped");
 }
 
 void ProcessManager::waitThread(int pid) {
     int status = 0;
-    pid_t result = waitpid(static_cast<pid_t>(pid), &status, 0);
+    waitpid(static_cast<pid_t>(pid), &status, 0);
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = processes_.find(pid);
-    if (it != processes_.end()) {
-        it->second.running = false;
-        if (WIFEXITED(status)) {
-            it->second.exitCode = WEXITSTATUS(status);
-        } else if (WIFSIGNALED(status)) {
-            it->second.exitCode = 128 + WTERMSIG(status);
+    int exitCode = -1;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = processes_.find(pid);
+        if (it != processes_.end()) {
+            it->second.running = false;
+            if (WIFEXITED(status)) {
+                it->second.exitCode = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                it->second.exitCode = 128 + WTERMSIG(status);
+            }
+            exitCode = it->second.exitCode;
         }
     }
 
-    OH_LOG_INFO(LOG_APP, "Process pid=%{public}d exited code=%{public}d", pid,
-                (it != processes_.end()) ? it->second.exitCode : -1);
+    appendLog(pid, "[native] process exited code=" + std::to_string(exitCode));
+    OH_LOG_INFO(LOG_APP, "Process pid=%{public}d exited code=%{public}d", pid, exitCode);
 }
