@@ -6,6 +6,8 @@ import {
 import { OpenCodeClient, normalizeFileDiffs } from '../services/OpenCodeClient'
 import { EventStreamClient, EventCallback } from '../services/EventStreamClient'
 import { storageService } from '../services/StorageService'
+import { modelSelectionService } from '../services/ModelSelectionService'
+import { agentResponsePoller } from '../services/AgentResponsePoller'
 import { providerRegistry } from '../services/ProviderRegistry'
 import { AppShell } from '../components/AppShell'
 import { TranscriptBlock } from '../components/AgentTranscript'
@@ -590,18 +592,51 @@ struct Index {
     try {
       this.addLog(`message.sending length=${text.length}`, 'info', 'message')
 
+      // Resolve model ref before sending
+      const settings = await storageService.loadSettings()
+      let modelRef = settings.defaultModel
+      if (modelRef.length === 0 && this.modelName.length > 0) {
+        modelRef = this.modelName
+      }
+
+      if (modelRef.length > 0) {
+        const resolvedModel = await modelSelectionService.resolveServerModelRef(modelRef, this.activeRunner)
+        const patch: Record<string, Object> = {}
+        patch['model'] = resolvedModel
+        await client.updateConfig(patch)
+        this.modelName = resolvedModel
+        this.addLog(`model.active ${resolvedModel}`, 'info', 'model')
+      }
+
       // Ensure event stream is connected before marking active run
       if (!this.eventClient) {
         this.connectEventStream()
       }
 
-      // Mark event stream as active run to catch new messages
+      const before = await client.getMessagesRaw(this.activeSessionId)
+      const beforeCount = before.length
+
+      const sent = await client.sendMessageAsync(this.activeSessionId, text)
+      this.addLog(`prompt_async.sent=${sent} beforeCount=${beforeCount}`, 'info', 'message')
+
       if (this.eventClient) {
         this.eventClient.markActiveRun()
       }
 
-      await client.sendMessageAsync(this.activeSessionId, text)
-      this.addLog('message.sent', 'info', 'message')
+      await this.loadMessages()
+
+      const poll = await agentResponsePoller.waitForAssistant(client, this.activeSessionId, beforeCount, 90, 1000)
+      await this.loadMessages()
+      await this.loadDiffs()
+
+      if (poll.ok) {
+        this.isSending = false
+        this.isStreaming = false
+      } else {
+        const level = poll.timedOut ? 'warn' : 'error'
+        this.addLog(`${poll.message} messageCount=${poll.messageCount}`, level, 'message')
+        ToastManager.show(poll.message, poll.timedOut ? 'warning' : 'error')
+      }
     } catch (e) {
       this.isSending = false
       this.addLog(`message.failed: ${String(e)}`, 'error', 'message')

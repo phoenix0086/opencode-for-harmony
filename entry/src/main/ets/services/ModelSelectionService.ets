@@ -50,33 +50,35 @@ export class ModelSelectionService {
   }
 
   /**
-   * Resolve a local modelRef like "xiaomi-mimo/mimo-v2.5-pro" to the server-side
-   * namespace "anthropic/mimo-v2.5-pro". The App's local provider.id is the
-   * user-chosen label; the opencode server has its own provider id space and
-   * will reject unknown prefixes. We look up by the model id portion and
-   * return the first server provider that has a matching model. Prefers
-   * "anthropic" prefix when multiple match (MiMo is served via Anthropic API).
+   * Resolve a local modelRef like "xiaomi-mimo/mimo-v2.5-pro" to the server-side.
+   * Match by both provider id and model id — exact match only.
+   * 不要自动 fallback 到 anthropic。如果 provider 没同步，保留 localRef。
    */
   async resolveServerModelRef(localRef: string, runner: Runner | null): Promise<string> {
     if (runner === null) return localRef
     const slash = localRef.indexOf('/')
     if (slash < 0) return localRef
+
+    const providerId = localRef.substring(0, slash)
     const modelId = localRef.substring(slash + 1)
-    if (modelId.length === 0) return localRef
+    if (providerId.length === 0 || modelId.length === 0) return localRef
+
     try {
       const client = new OpenCodeClient(runner)
       const list = await client.listProviders()
-      const candidates: string[] = []
+
       for (const p of list.all) {
+        if (p.id !== providerId) continue
         for (const m of p.models) {
           if (m.id === modelId) {
-            candidates.push(`${p.id}/${modelId}`)
+            return `${p.id}/${m.id}`
           }
         }
       }
-      if (candidates.length === 0) return localRef
-      const anthropicHit = candidates.find((r) => r.startsWith('anthropic/'))
-      return anthropicHit || candidates[0]
+
+      // 不要自动 fallback 到 anthropic。
+      // 如果 provider 没同步，保留 localRef，让 updateConfig/prompt 暴露真实错误。
+      return localRef
     } catch {
       return localRef
     }
