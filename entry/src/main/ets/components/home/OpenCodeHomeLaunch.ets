@@ -130,109 +130,61 @@ export struct OpenCodeHomeLaunch {
 
   @Builder
   TitleBar() {
+    // 顶部细条:左上一个 "打开历史项目" 按钮 (双竖线 split view 图标),
+    // 用户要求 — 不再有 macOS 三个红黄绿圆点,也不再有 search/右栏图标
     Row() {
-      Row() {
-        Circle().width(14).height(14).fill('#ff5f57')
-        Circle().width(14).height(14).fill('#ffbd2e').margin({ left: 10 })
-        Circle().width(14).height(14).fill('#28c840').margin({ left: 10 })
-      }
-      .width(120)
-      .padding({ left: 14 })
-
-      Row() {
-        Text('▥')
-          .fontSize(20)
-          .fontColor('#8a8a8a')
-          .width(36)
-          .textAlign(TextAlign.Center)
-
-        Text('✎')
-          .fontSize(18)
-          .fontColor('#d0d0d0')
-          .width(36)
-          .height(30)
-          .textAlign(TextAlign.Center)
-          .backgroundColor('#2b2b2b')
-          .borderRadius(7)
-          .onClick(() => this.onOpenChat())
-
-        Text('‹')
-          .fontSize(28)
-          .fontColor('#777')
-          .width(28)
-          .textAlign(TextAlign.Center)
-
-        Text('›')
-          .fontSize(28)
-          .fontColor('#444')
-          .width(28)
-          .textAlign(TextAlign.Center)
-      }
-      .width(150)
-
-      Row() {
-        Text(`搜索 ${this.projectName.length > 0 ? this.projectName : 'workspace'}`)
-          .fontSize(14)
-          .fontColor('#666')
-          .layoutWeight(1)
-
-        Text('⌘K')
-          .fontSize(12)
-          .fontColor('#555')
-      }
-      .width(310)
-      .height(31)
-      .padding({ left: 12, right: 12 })
-      .borderRadius(8)
-      .borderWidth(1)
-      .borderColor('#292929')
-      .backgroundColor('#0c0c0c')
-      .onClick(() => this.onOpenDirectoryPicker())
-
+      // ── 打开历史项目 按钮 (双竖线图标) ──
+      this.OpenHistoryButton()
       Blank()
-
-      Row() {
-        Stack() {
-          Text('▤')
-            .fontSize(20)
-            .fontColor('#8a8a8a')
-            .width(36)
-            .textAlign(TextAlign.Center)
-
-          if (this.isConnected) {
-            Circle()
-              .width(8)
-              .height(8)
-              .fill('#3dd24a')
-              .position({ x: 26, y: 2 })
-          }
-        }
-        .width(36)
-        .height(30)
-        .onClick(() => this.onOpenServerStatus())
-
-        Text('▥')
-          .fontSize(20)
-          .fontColor('#d0d0d0')
-          .width(36)
-          .height(30)
-          .textAlign(TextAlign.Center)
-          .backgroundColor('#2b2b2b')
-          .borderRadius(7)
-          .margin({ left: 10 })
-          .onClick(() => this.onOpenRightPanel())
-      }
-      .padding({ right: 14 })
     }
     .width('100%')
-    .height(52)
+    .height(44)
+    .padding({ left: 14, right: 14 })
+    .backgroundColor('#101010')
     .borderWidth({ bottom: 1 })
     .borderColor('#292929')
-    .backgroundColor('#101010')
+  }
+
+  @Builder
+  OpenHistoryButton() {
+    // 双竖线 split view 图标 (用户在图中给的样式:两个矩形描边 + 间隙)
+    Row() {
+      Row() {
+        Rect()
+          .width(7)
+          .height(14)
+          .fill('transparent')
+          .stroke('#8a8a8a')
+          .strokeWidth(1)
+
+        Blank().width(3)
+
+        Rect()
+          .width(7)
+          .height(14)
+          .fill('transparent')
+          .stroke('#8a8a8a')
+          .strokeWidth(1)
+      }
+      .width(20)
+      .height(14)
+
+      Text('打开历史项目')
+        .fontSize(13)
+        .fontColor('#c8c8c8')
+        .margin({ left: 10 })
+    }
+    .height(32)
+    .padding({ left: 10, right: 10 })
+    .borderRadius(6)
+    .backgroundColor('#1a1a1a')
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => this.onOpenDirectoryPicker())
   }
 
   @Builder
   ActivityRail() {
+    // 用户要求:移除 ? 按钮;只剩 + (新建会话) + ⚙ (设置)
     Column() {
       Text(this.sessionCount())
         .fontSize(24)
@@ -264,16 +216,8 @@ export struct OpenCodeHomeLaunch {
         .width(52)
         .height(42)
         .textAlign(TextAlign.Center)
-        .onClick(() => this.onOpenSettings())
-
-      Text('?')
-        .fontSize(22)
-        .fontColor('#8d8d8d')
-        .width(52)
-        .height(42)
-        .textAlign(TextAlign.Center)
         .margin({ bottom: 20 })
-        .onClick(() => this.onOpenHelp())
+        .onClick(() => this.onOpenSettings())
     }
     .width(82)
     .height('100%')
