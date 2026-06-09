@@ -143,6 +143,23 @@ export class StorageService {
     }
   }
 
+  async getLocalServerConfig(): Promise<Record<string, Object> | null> {
+    if (this.store === null) return null
+    const raw = (await this.store.get(LOCAL_SERVER_CONFIG_KEY, '')) as string
+    if (!raw || raw.length === 0) return null
+    try {
+      return JSON.parse(raw) as Record<string, Object>
+    } catch {
+      return null
+    }
+  }
+
+  async setLocalServerConfig(config: Record<string, Object>): Promise<void> {
+    if (this.store === null) return
+    await this.store.put(LOCAL_SERVER_CONFIG_KEY, JSON.stringify(config))
+    await this.store.flush()
+  }
+
   async clearAll(): Promise<void> {
     if (this.store === null) return
     await this.store.delete(RUNNERS_KEY)
@@ -152,6 +169,7 @@ export class StorageService {
     await this.store.delete(WORKSPACE_KEY)
     await this.store.delete(RECENT_WORKSPACES_KEY)
     await this.store.delete(SETTINGS_KEY)
+    await this.store.delete(LOCAL_SERVER_CONFIG_KEY)
     await this.store.flush()
   }
 }
