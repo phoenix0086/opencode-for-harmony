@@ -1,8 +1,10 @@
 import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
+import { http } from '@kit.NetworkKit'
 import { providerRegistry } from '../services/ProviderRegistry'
 import { OpenCodeClient } from '../services/OpenCodeClient'
 import { Runner } from '../models/Runner'
 import { Theme } from '../components/Theme'
+import { TestConnectionResult } from '../services/ProviderConnectionService'
 
 /**
  * OpenCode-style Provider / Model settings page.
@@ -39,6 +41,9 @@ export struct ProviderPage {
   @State defaultModel: string = ''
   @State smallModel: string = ''
   @State searchText: string = ''
+  @State testing: boolean = false
+  @State testResult: TestConnectionResult | null = null
+  @State fetchingModels: boolean = false
 
   async aboutToAppear(): Promise<void> {
     await providerRegistry.init()
@@ -303,6 +308,17 @@ export struct ProviderPage {
             .backgroundColor(Theme.ACCENT)
             .onClick(() => this.saveProvider())
 
+          Text(this.testing ? '测试中...' : '测试')
+            .fontSize(Theme.fs.sm)
+            .fontColor(this.testing ? Theme.TEXT_MUTED : Theme.TEXT_PRIMARY)
+            .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(this.testing ? Theme.PANEL : Theme.SIDEBAR)
+            .borderWidth(1)
+            .borderColor(Theme.BORDER)
+            .margin({ left: 10 })
+            .onClick(() => this.testProvider())
+
           Text('Save Key Locally')
             .fontSize(Theme.fs.sm)
             .fontColor(Theme.ACCENT)
@@ -322,6 +338,10 @@ export struct ProviderPage {
             .onClick(() => this.saveApiKeyToServer())
         }
         .margin({ top: 18, bottom: 20 })
+
+        if (this.testResult !== null) {
+          this.TestResultBlock()
+        }
 
         this.FormLabel('请求头（可选）')
         Row() {
@@ -358,6 +378,17 @@ export struct ProviderPage {
           .fontWeight(FontWeight.Bold)
           .fontColor(Theme.TEXT_PRIMARY)
           .margin({ bottom: 18 })
+
+        Row() {
+          Text(this.fetchingModels ? '获取中...' : '获取模型列表')
+            .fontSize(Theme.fs.xs)
+            .fontColor(this.fetchingModels ? Theme.TEXT_MUTED : Theme.ACCENT)
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .borderRadius(6)
+            .backgroundColor(Theme.ACTIVE_BG)
+            .onClick(() => this.fetchModels())
+        }
+        .margin({ bottom: 14 })
 
         Row() {
           TextInput({ text: this.searchText, placeholder: '搜索模型' })
@@ -625,6 +656,198 @@ export struct ProviderPage {
   private async removeModel(providerId: string, modelId: string): Promise<void> {
     await providerRegistry.removeModel(providerId, modelId)
     this.refreshProviders()
+  }
+
+  @Builder
+  TestResultBlock() {
+    Column() {
+      Row() {
+        Text(this.testResult!.ok ? '✓ 测试通过' : '✗ 测试失败')
+          .fontSize(Theme.fs.sm)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.testResult!.ok ? Theme.SUCCESS : Theme.DANGER)
+
+        Blank()
+
+        Text(`${this.testResult!.latencyMs}ms`)
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.TEXT_SECONDARY)
+      }
+      .width('100%')
+
+      if (this.testResult!.ok && this.testResult!.responsePreview.length > 0) {
+        Text(`获取到 ${this.testResult!.responsePreview} 个模型`)
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.SUCCESS)
+          .margin({ top: 4 })
+      }
+
+      if (!this.testResult!.ok && this.testResult!.error.length > 0) {
+        Text(this.testResult!.error)
+          .fontSize(Theme.fs.xs)
+          .fontColor(Theme.DANGER)
+          .margin({ top: 4 })
+      }
+    }
+    .width('100%')
+    .padding(12)
+    .borderRadius(8)
+    .backgroundColor(this.testResult!.ok ? Theme.SUCCESS_DIM : Theme.DANGER_DIM)
+    .borderWidth(1)
+    .borderColor(this.testResult!.ok ? Theme.SUCCESS : Theme.DANGER)
+    .margin({ bottom: 12 })
+  }
+
+  private async testProvider(): Promise<void> {
+    if (this.testing) return
+    if (this.editBaseURL.length === 0) {
+      this.statusMsg = '请先填写基础 URL'
+      return
+    }
+    if (this.editApiKey.length === 0) {
+      this.statusMsg = '请先填写 API 密钥'
+      return
+    }
+
+    this.testing = true
+    this.testResult = null
+    this.statusMsg = ''
+
+    let url = this.editBaseURL
+    if (url.endsWith('/v1')) {
+      url = url + '/models'
+    } else if (url.endsWith('/v1/')) {
+      url = url + 'models'
+    } else {
+      if (!url.endsWith('/')) url += '/'
+      url = url + 'v1/models'
+    }
+
+    const headers: Record<string, string> = {}
+    headers['Authorization'] = `Bearer ${this.editApiKey}`
+    headers['Content-Type'] = 'application/json'
+
+    const startTime = Date.now()
+
+    try {
+      const req = http.createHttp()
+      const resp = await req.request(url, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        connectTimeout: 8000,
+        readTimeout: 15000
+      })
+      req.destroy()
+
+      const result = new TestConnectionResult()
+      result.latencyMs = Date.now() - startTime
+
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        result.ok = true
+        const raw = resp.result as string
+        let modelCount = 0
+        try {
+          const data = JSON.parse(raw) as Record<string, Object>
+          const arr = data['data'] as Array<Record<string, Object>>
+          if (arr !== undefined) {
+            modelCount = arr.length
+            for (const item of arr) {
+              const modelId = item['id'] as string
+              if (modelId !== undefined && modelId.length > 0) {
+                await providerRegistry.addOrUpdateModel(this.selectedProviderId, modelId, modelId, true)
+              }
+            }
+            this.refreshProviders()
+          }
+        } catch (e) {
+          // parse error, still connected
+        }
+        result.responsePreview = `${modelCount}`
+        this.statusMsg = `测试通过，已获取 ${modelCount} 个模型`
+      } else {
+        result.ok = false
+        result.error = `HTTP ${resp.responseCode}`
+        this.statusMsg = `测试失败: HTTP ${resp.responseCode}`
+      }
+      this.testResult = result
+    } catch (e) {
+      const result = new TestConnectionResult()
+      result.ok = false
+      result.latencyMs = Date.now() - startTime
+      result.error = String(e)
+      this.testResult = result
+      this.statusMsg = `测试失败: ${String(e)}`
+    }
+
+    this.testing = false
+  }
+
+  private async fetchModels(): Promise<void> {
+    if (this.fetchingModels) return
+    if (this.editBaseURL.length === 0) {
+      this.statusMsg = '请先填写基础 URL'
+      return
+    }
+    if (this.editApiKey.length === 0) {
+      this.statusMsg = '请先填写 API 密钥'
+      return
+    }
+
+    this.fetchingModels = true
+    this.statusMsg = ''
+
+    let url = this.editBaseURL
+    if (url.endsWith('/v1')) {
+      url = url + '/models'
+    } else if (url.endsWith('/v1/')) {
+      url = url + 'models'
+    } else {
+      if (!url.endsWith('/')) url += '/'
+      url = url + 'v1/models'
+    }
+
+    const headers: Record<string, string> = {}
+    headers['Authorization'] = `Bearer ${this.editApiKey}`
+    headers['Content-Type'] = 'application/json'
+
+    try {
+      const req = http.createHttp()
+      const resp = await req.request(url, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        connectTimeout: 8000,
+        readTimeout: 15000
+      })
+      req.destroy()
+
+      if (resp.responseCode >= 200 && resp.responseCode < 300) {
+        const raw = resp.result as string
+        let count = 0
+        try {
+          const data = JSON.parse(raw) as Record<string, Object>
+          const arr = data['data'] as Array<Record<string, Object>>
+          if (arr !== undefined) {
+            for (const item of arr) {
+              const modelId = item['id'] as string
+              if (modelId !== undefined && modelId.length > 0) {
+                await providerRegistry.addOrUpdateModel(this.selectedProviderId, modelId, modelId, true)
+                count++
+              }
+            }
+            this.refreshProviders()
+          }
+        } catch (e) {
+          this.statusMsg = '解析模型列表失败'
+        }
+        this.statusMsg = `已获取 ${count} 个模型`
+      } else {
+        this.statusMsg = `获取模型失败: HTTP ${resp.responseCode}`
+      }
+    } catch (e) {
+      this.statusMsg = `获取模型失败: ${String(e)}`
+    }
+
+    this.fetchingModels = false
   }
 
   private generateConfig(): void {
