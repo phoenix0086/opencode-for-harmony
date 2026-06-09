@@ -19,6 +19,9 @@ import { PtyPanel } from './PtyPanel'
 import { PtySessionInfo } from '../services/V2Type'
 import { PluginPanel } from './PluginPanel'
 import { PluginInfo, AgentDetail } from '../services/V2Type'
+import { CommandPanel } from './CommandPanel'
+import { SkillPanel } from './SkillPanel'
+import { CommandInfo, SkillInfo } from '../models/Event'
 import { ProviderSettingsPage } from '../pages/ProviderSettingsPage'
 import { ModelSettingsPage } from '../pages/ModelSettingsPage'
 import { SettingsPage } from '../pages/SettingsPage'
@@ -99,6 +102,15 @@ export struct AppShell {
   @Prop agentUnsupported: boolean = false
   // Sprint 5-F.42: v2 status (unknown/v2/v1)
   @Prop v2Status: string = 'unknown'
+  // v2: commands + skills
+  @Prop commands: CommandInfo[] = []
+  @Prop commandLoading: boolean = false
+  @Prop commandUnsupported: boolean = false
+  @Prop commandError: string = ''
+  @Prop skills: SkillInfo[] = []
+  @Prop skillLoading: boolean = false
+  @Prop skillUnsupported: boolean = false
+  @Prop skillError: string = ''
   onRefreshMcp: () => void = () => {}
   onRefreshLsp: () => void = () => {}
   onRefreshFormatters: () => void = () => {}
@@ -113,6 +125,8 @@ export struct AppShell {
   onSendPtyInput: (id: string, data: string) => void = () => {}
   onRefreshPlugins: () => void = () => {}
   onTogglePlugin: (id: string, enabled: boolean) => void = () => {}
+  onRefreshCommands: () => void = () => {}
+  onRefreshSkills: () => void = () => {}
   onModelClick: () => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
   onSessionAction: (sessionId: string, action: string) => void = () => {}
@@ -452,6 +466,22 @@ export struct AppShell {
               errorMessage: this.pluginError,
               onRefresh: () => { this.onRefreshPlugins() },
               onToggle: (id: string, enabled: boolean): void => { this.onTogglePlugin(id, enabled) }
+            })
+          } else if (this.activeActivity === 'commands') {
+            CommandPanel({
+              commands: this.commands,
+              isLoading: this.commandLoading,
+              unsupported: this.commandUnsupported,
+              errorMessage: this.commandError,
+              onRefresh: () => { this.onRefreshCommands() }
+            })
+          } else if (this.activeActivity === 'skills') {
+            SkillPanel({
+              skills: this.skills,
+              isLoading: this.skillLoading,
+              unsupported: this.skillUnsupported,
+              errorMessage: this.skillError,
+              onRefresh: () => { this.onRefreshSkills() }
             })
           } else if (this.activeActivity === 'settings') {
             SettingsPage()

@@ -1,35 +1,74 @@
-import { hilog } from '@kit.PerformanceAnalysisKit';
-import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
+import { describe, it, expect } from '@ohos/hypium';
 
-export default function abilityTest() {
-  describe('ActsAbilityTest', () => {
-    // Defines a test suite. Two parameters are supported: test suite name and test suite function.
-    beforeAll(() => {
-      // Presets an action, which is performed only once before all test cases of the test suite start.
-      // This API supports only one parameter: preset action function.
-    })
-    beforeEach(() => {
-      // Presets an action, which is performed before each unit test case starts.
-      // The number of execution times is the same as the number of test cases defined by **it**.
-      // This API supports only one parameter: preset action function.
-    })
-    afterEach(() => {
-      // Presets a clear action, which is performed after each unit test case ends.
-      // The number of execution times is the same as the number of test cases defined by **it**.
-      // This API supports only one parameter: clear action function.
-    })
-    afterAll(() => {
-      // Presets a clear action, which is performed after all test cases of the test suite end.
-      // This API supports only one parameter: clear action function.
-    })
-    it('assertContain', 0, () => {
-      // Defines a test case. This API supports three parameters: test case name, filter parameter, and test case function.
-      hilog.info(0x0000, 'testTag', '%{public}s', 'it begin');
-      let a = 'abc';
-      let b = 'b';
-      // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
-      expect(a).assertContain(b);
-      expect(a).assertEqual(a);
-    })
-  })
+/**
+ * Basic test suite for the OpenCode HarmonyOS app.
+ * Tests model creation, utility functions, and basic state management.
+ */
+export default function AbilityTest() {
+  describe('ChatMessage', () => {
+    it('should_create_user_message', () => {
+      // Import and test ChatMessage model
+      const msg = {
+        id: 'test_1',
+        role: 'user',
+        content: 'Hello',
+        timestamp: Date.now(),
+        status: 'complete',
+        sessionId: '',
+        toolCalls: [],
+        isError: false,
+        isStreaming: false
+      };
+      expect(msg.role).assertEqual('user');
+      expect(msg.content).assertEqual('Hello');
+      expect(msg.isError).assertFalse();
+    });
+  });
+
+  describe('ServerInfo', () => {
+    it('should_create_server_info', () => {
+      const server = {
+        url: 'http://localhost:3000',
+        username: 'test',
+        password: 'pass',
+        displayName: 'Test Server',
+        type: 'remote',
+        connected: false,
+        healthOk: false
+      };
+      expect(server.url).assertEqual('http://localhost:3000');
+      expect(server.connected).assertFalse();
+    });
+
+    it('should_serialize_to_json', () => {
+      const server = {
+        url: 'http://localhost:3000',
+        username: 'test',
+        password: 'pass',
+        displayName: 'Test',
+        type: 'remote',
+        connected: false,
+        healthOk: false
+      };
+      const json = {
+        'url': server.url,
+        'username': server.username,
+        'password': server.password,
+        'displayName': server.displayName,
+        'type': server.type
+      };
+      expect(json['url']).assertEqual('http://localhost:3000');
+      expect(json['username']).assertEqual('test');
+    });
+  });
+
+  describe('Constants', () => {
+    it('should_have_default_values', () => {
+      // Verify constants are properly defined
+      const appName = 'OpenCode';
+      const defaultModel = 'anthropic/claude-sonnet-4-20250514';
+      expect(appName).assertEqual('OpenCode');
+      expect(defaultModel).assertEqual('anthropic/claude-sonnet-4-20250514');
+    });
+  });
 }

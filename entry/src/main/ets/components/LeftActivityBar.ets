@@ -95,6 +95,17 @@ export struct LeftActivityBar {
     plugins.label = 'Plugin'
     plugins.symbol = 'X'
 
+    // v2: commands + skills
+    const commands = new ActivityItem()
+    commands.id = 'commands'
+    commands.label = 'Cmd'
+    commands.symbol = '/'
+
+    const skills = new ActivityItem()
+    skills.id = 'skills'
+    skills.label = 'Skill'
+    skills.symbol = 'S'
+
     const arr: ActivityItem[] = []
     arr.push(chat)
     arr.push(files)
@@ -109,6 +120,8 @@ export struct LeftActivityBar {
     arr.push(mcp)
     arr.push(formatters)
     arr.push(plugins)
+    arr.push(commands)
+    arr.push(skills)
     arr.push(settings)
     this.items = arr
   }

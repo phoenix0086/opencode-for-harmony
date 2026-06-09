@@ -1,10 +1,9 @@
 {
   "name": "entry",
   "version": "1.0.0",
-  "description": "Please describe the basic information.",
+  "description": "OpenCode HarmonyOS entry module",
   "main": "",
   "author": "",
-  "license": "",
+  "license": "MIT",
   "dependencies": {}
 }
-

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenCode</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #111111;
+      color: #E0E0E0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #2D2D2D;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #FFFFFF;
+    }
+    .header .badge {
+      background: #007DFF;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 32px;
+    }
+    .main h2 {
+      font-size: 24px;
+      color: #FFFFFF;
+    }
+    .main p {
+      color: #888;
+      font-size: 14px;
+    }
+    .server-info {
+      background: #1A1A1A;
+      border: 1px solid #2D2D2D;
+      border-radius: 8px;
+      padding: 16px 24px;
+      margin-top: 16px;
+    }
+    .server-info pre {
+      font-family: 'Fira Code', monospace;
+      font-size: 13px;
+      color: #AAAAAA;
+    }
+    .footer {
+      padding: 12px 24px;
+      border-top: 1px solid #2D2D2D;
+      text-align: center;
+      font-size: 12px;
+      color: #555;
+    }
+    .status-connected { color: #00C853; }
+    .status-disconnected { color: #FF5252; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>OpenCode</h1>
+    <span class="badge">HarmonyOS</span>
+  </div>
+  <div class="main">
+    <h2>Welcome to OpenCode</h2>
+    <p>Your AI-powered coding assistant</p>
+    <div class="server-info">
+      <pre id="status">Connecting to server...</pre>
+    </div>
+  </div>
+  <div class="footer">
+    OpenCode v1.0.0 for HarmonyOS | <a href="https://opencode.ai" style="color:#007DFF">opencode.ai</a>
+  </div>
+  <script>
+    // WebView bridge for native communication
+    window.__OPENCODE__ = {
+      platform: 'harmony',
+      version: '1.0.0',
+      postMessage: function(data) {
+        if (window.webViewBridge) {
+          window.webViewBridge.postMessage(JSON.stringify(data));
+        }
+      }
+    };
+
+    // Simple health check
+    async function checkHealth() {
+      const el = document.getElementById('status');
+      try {
+        const resp = await fetch('/global/health');
+        if (resp.ok) {
+          el.textContent = 'Server: Connected';
+          el.className = 'status-connected';
+        } else {
+          el.textContent = 'Server: Error (' + resp.status + ')';
+          el.className = 'status-disconnected';
+        }
+      } catch (e) {
+        el.textContent = 'Server: Disconnected - ' + e.message;
+        el.className = 'status-disconnected';
+      }
+    }
+    checkHealth();
+    setInterval(checkHealth, 10000);
+  </script>
+</body>
+</html>

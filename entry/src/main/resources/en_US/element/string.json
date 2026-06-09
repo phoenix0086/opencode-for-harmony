@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "OpenCode AI Agent for HarmonyOS"
+    },
+    {
+      "name": "ability_desc",
+      "value": "OpenCode AI coding agent"
+    },
+    {
+      "name": "entry_label",
+      "value": "OpenCode"
+    }
+  ]
+}

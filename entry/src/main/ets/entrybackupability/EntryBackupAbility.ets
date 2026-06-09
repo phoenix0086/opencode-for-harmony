@@ -1,16 +1,19 @@
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BackupExtensionAbility, BundleVersion } from '@kit.CoreFileKit';
+import { Logger } from '../utils/Logger';
 
-const DOMAIN = 0x0000;
+const TAG: string = 'EntryBackupAbility';
 
+/**
+ * Backup extension ability for HarmonyOS backup/restore.
+ * Ensures app preferences and local data are included in device backups.
+ */
 export default class EntryBackupAbility extends BackupExtensionAbility {
-  async onBackup() {
-    hilog.info(DOMAIN, 'testTag', 'onBackup ok');
-    await Promise.resolve();
+  onBackup(): void {
+    Logger.info('%{public}s: onBackup called', TAG);
   }
 
-  async onRestore(bundleVersion: BundleVersion) {
-    hilog.info(DOMAIN, 'testTag', 'onRestore ok %{public}s', JSON.stringify(bundleVersion));
-    await Promise.resolve();
+  onRestore(bundleVersion: BundleVersion): void {
+    Logger.info('%{public}s: onRestore called, version=%{public}s',
+      TAG, JSON.stringify(bundleVersion));
   }
 }

@@ -9,6 +9,7 @@ import {
   UnsupportedV2Endpoint,
   V2Response
 } from './V2Type'
+import { ModelV2Info, NormalizedMessage, NormalizedPart } from '../models/Event'
 
 /**
  * V2 API wrapper.
@@ -350,6 +351,70 @@ export class V2Client {
     return new Record<string, Object>()
   }
 
+  // ══════════ Models (v2) ══════════
+
+  /**
+   * GET /model
+   * v2 返回完整模型列表。
+   * v1 server 不实现。
+   */
+  async listModelsV2(): Promise<ModelV2Info[]> {
+    const resp = await this.get('/model')
+    if (resp.status === 404 || resp.status === 405) {
+      throw new UnsupportedV2Endpoint('/model', resp.status)
+    }
+    const out: ModelV2Info[] = []
+    if (Array.isArray(resp.data)) {
+      for (const raw of resp.data) {
+        if (raw === null || raw === undefined) continue
+        out.push(this.parseModelV2(raw))
+      }
+    }
+    return out
+  }
+
+  // ══════════ Session Context (v2) ══════════
+
+  /**
+   * GET /session/:id/context
+   * v2 返回活跃上下文消息（上次 compaction 后的消息）。
+   * v1 server 不实现。
+   */
+  async getSessionContext(sessionID: string): Promise<NormalizedMessage[]> {
+    const path = `/session/${encodeURIComponent(sessionID)}/context`
+    const resp = await this.get(path)
+    if (resp.status === 404 || resp.status === 405) {
+      throw new UnsupportedV2Endpoint(path, resp.status)
+    }
+    const out: NormalizedMessage[] = []
+    if (typeof resp.data === 'object' && resp.data !== null) {
+      const obj = resp.data as Record<string, Object>
+      const data = obj['data']
+      if (Array.isArray(data)) {
+        for (const raw of data) {
+          if (raw === null || raw === undefined) continue
+          out.push(this.parseNormalizedMessage(raw))
+        }
+      }
+    }
+    return out
+  }
+
+  // ══════════ Session Wait (v2) ══════════
+
+  /**
+   * POST /session/:id/wait
+   * v2 等待 session agent loop 变为空闲。
+   * v1 server 不实现。
+   */
+  async waitForSession(sessionID: string): Promise<boolean> {
+    const resp = await this.post(`/session/${encodeURIComponent(sessionID)}/wait`, {})
+    if (resp.status === 404 || resp.status === 405) {
+      throw new UnsupportedV2Endpoint(`/session/${sessionID}/wait`, resp.status)
+    }
+    return resp.ok
+  }
+
   // ══════════ Parsers ══════════
 
   private parseSnapshot(raw: Object): SnapshotInfo {
@@ -431,6 +496,46 @@ export class V2Client {
       }
     }
     return a
+  }
+
+  private parseModelV2(raw: Object): ModelV2Info {
+    const obj: Record<string, Object> = raw as Record<string, Object>
+    const m = new ModelV2Info()
+    m.id = (obj['id'] as string) || ''
+    m.name = (obj['name'] as string) || ''
+    m.providerID = (obj['providerID'] as string) || (obj['provider_id'] as string) || ''
+    m.family = (obj['family'] as string) || ''
+    const cost = obj['cost'] as Record<string, Object> | undefined
+    if (cost) {
+      m.cost.input = (cost['input'] as number) || 0
+      m.cost.output = (cost['output'] as number) || 0
+      m.cost.cacheRead = (cost['cacheRead'] as number) || 0
+      m.cost.cacheWrite = (cost['cacheWrite'] as number) || 0
+    }
+    const limit = obj['limit'] as Record<string, Object> | undefined
+    if (limit) {
+      m.limit.context = (limit['context'] as number) || 0
+      m.limit.output = (limit['output'] as number) || 0
+    }
+    return m
+  }
+
+  private parseNormalizedMessage(raw: Object): NormalizedMessage {
+    const obj: Record<string, Object> = raw as Record<string, Object>
+    const msg = new NormalizedMessage()
+    msg.id = (obj['id'] as string) || ''
+    msg.role = (obj['role'] as string) || ''
+    msg.sessionID = (obj['sessionID'] as string) || (obj['session_id'] as string) || ''
+    // v2 context messages may have a different structure than WithParts
+    // but we normalize to the same NormalizedMessage shape
+    const content = (obj['content'] as string) || (obj['text'] as string) || ''
+    if (content.length > 0) {
+      const part = new NormalizedPart()
+      part.type = 'text'
+      part.content = content
+      msg.parts.push(part)
+    }
+    return msg
   }
 
   // ══════════ HTTP helpers (reuse OpenCodeClient primitives) ══════════

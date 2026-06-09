@@ -1,10 +1,23 @@
 {
   "app": {
-    "bundleName": "com.example.ohopencode",
-    "vendor": "example",
+    "bundleName": "ai.opencode.harmony",
+    "vendor": "OpenCode",
     "versionCode": 1000000,
     "versionName": "1.0.0",
-    "icon": "$media:layered_image",
-    "label": "$string:app_name"
+    "icon": "$media:background",
+    "label": "$string:app_name",
+    "minAPIVersion": 12,
+    "distributedNotificationEnabled": true,
+    "keepAlive": false,
+    "targetAPIVersion": 18,
+    "car": {
+      "minAPIVersion": 12
+    },
+    "tv": {
+      "minAPIVersion": 12
+    },
+    "2in1": {
+      "minAPIVersion": 12
+    }
   }
 }

@@ -6,7 +6,8 @@ import {
   WithParts, RawPart, NormalizedMessage, NormalizedPart,
   PermissionRequest, QuestionRequest, FileDiff, VcsInfo, VcsFileStatus,
   ProjectInfo, AgentInfo, PathInfo,
-  ProviderListResult, ProviderPublicInfo, TodoItem
+  ProviderListResult, ProviderPublicInfo, TodoItem,
+  CommandInfo, SkillInfo
 } from '../models/Event'
 
 /**
@@ -586,6 +587,36 @@ export class OpenCodeClient {
     const resp = await this.doGet('/agent')
     this.checkResponse(resp)
     return this.parseJson<AgentInfo[]>(resp)
+  }
+
+  // ══════════ Commands (v2) ══════════
+  // GET /command → CommandInfo[]
+
+  async listCommands(): Promise<CommandInfo[]> {
+    try {
+      const resp = await this.doGet('/command')
+      if (resp.responseCode !== 200) {
+        return []
+      }
+      return this.parseJson<CommandInfo[]>(resp)
+    } catch (e) {
+      return []
+    }
+  }
+
+  // ══════════ Skills (v2) ══════════
+  // GET /skill → SkillInfo[]
+
+  async listSkills(): Promise<SkillInfo[]> {
+    try {
+      const resp = await this.doGet('/skill')
+      if (resp.responseCode !== 200) {
+        return []
+      }
+      return this.parseJson<SkillInfo[]>(resp)
+    } catch (e) {
+      return []
+    }
   }
 
   // ══════════ MCP / LSP / Formatter ══════════

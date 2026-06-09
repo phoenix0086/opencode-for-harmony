@@ -2,11 +2,11 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "OpenCode AI Agent for HarmonyOS"
+      "value": "鸿蒙版 OpenCode AI 编程助手"
     },
     {
       "name": "ability_desc",
-      "value": "OpenCode AI coding agent"
+      "value": "OpenCode AI 编程助手"
     },
     {
       "name": "entry_label",
@@ -14,131 +14,131 @@
     },
     {
       "name": "settings_title",
-      "value": "Settings"
+      "value": "设置"
     },
     {
       "name": "server_config_title",
-      "value": "Server Configuration"
+      "value": "服务器配置"
     },
     {
       "name": "btn_connect",
-      "value": "Connect"
+      "value": "连接"
     },
     {
       "name": "btn_disconnect",
-      "value": "Disconnect"
+      "value": "断开连接"
     },
     {
       "name": "btn_send",
-      "value": "Send"
+      "value": "发送"
     },
     {
       "name": "btn_cancel",
-      "value": "Cancel"
+      "value": "取消"
     },
     {
       "name": "btn_save",
-      "value": "Save"
+      "value": "保存"
     },
     {
       "name": "hint_input_message",
-      "value": "Type a message..."
+      "value": "输入消息..."
     },
     {
       "name": "hint_server_url",
-      "value": "Server URL (e.g., http://localhost:3000)"
+      "value": "服务器地址 (例如 http://localhost:3000)"
     },
     {
       "name": "label_server_url",
-      "value": "Server URL"
+      "value": "服务器地址"
     },
     {
       "name": "label_api_key",
-      "value": "API Key"
+      "value": "API 密钥"
     },
     {
       "name": "label_model",
-      "value": "Model"
+      "value": "模型"
     },
     {
       "name": "label_theme",
-      "value": "Theme"
+      "value": "主题"
     },
     {
       "name": "label_language",
-      "value": "Language"
+      "value": "语言"
     },
     {
       "name": "status_connected",
-      "value": "Connected"
+      "value": "已连接"
     },
     {
       "name": "status_disconnected",
-      "value": "Disconnected"
+      "value": "未连接"
     },
     {
       "name": "status_connecting",
-      "value": "Connecting..."
+      "value": "连接中..."
     },
     {
       "name": "status_error",
-      "value": "Error"
+      "value": "错误"
     },
     {
       "name": "nav_home",
-      "value": "Home"
+      "value": "首页"
     },
     {
       "name": "nav_chat",
-      "value": "Chat"
+      "value": "聊天"
     },
     {
       "name": "nav_files",
-      "value": "Files"
+      "value": "文件"
     },
     {
       "name": "nav_terminal",
-      "value": "Terminal"
+      "value": "终端"
     },
     {
       "name": "nav_settings",
-      "value": "Settings"
+      "value": "设置"
     },
     {
       "name": "toast_connected",
-      "value": "Connected to server"
+      "value": "已连接到服务器"
     },
     {
       "name": "toast_disconnected",
-      "value": "Disconnected from server"
+      "value": "已断开连接"
     },
     {
       "name": "toast_connection_failed",
-      "value": "Failed to connect to server"
+      "value": "连接服务器失败"
     },
     {
       "name": "dialog_confirm",
-      "value": "Confirm"
+      "value": "确认"
     },
     {
       "name": "dialog_cancel",
-      "value": "Cancel"
+      "value": "取消"
     },
     {
       "name": "dialog_ok",
-      "value": "OK"
+      "value": "确定"
     },
     {
       "name": "error_network",
-      "value": "Network error. Please check your connection."
+      "value": "网络错误，请检查网络连接。"
     },
     {
       "name": "error_server",
-      "value": "Server error. Please try again later."
+      "value": "服务器错误，请稍后重试。"
     },
     {
       "name": "error_auth",
-      "value": "Authentication failed. Please check your credentials."
+      "value": "认证失败，请检查凭据。"
     }
   ]
 }

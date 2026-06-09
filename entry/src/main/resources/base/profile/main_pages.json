@@ -1,5 +1,16 @@
 {
   "src": [
-    "pages/Index"
+    "pages/Index",
+    "pages/Settings",
+    "pages/ServerConfig",
+    "pages/Session",
+    "pages/WebViewPage",
+    "pages/SettingsPage",
+    "pages/ProviderPage",
+    "pages/ProviderSettingsPage",
+    "pages/ModelPage",
+    "pages/ModelSettingsPage",
+    "pages/RuntimePage",
+    "pages/ServerSettingsPage"
   ]
 }

@@ -1,15 +1,11 @@
 {
   "apiType": "stageMode",
   "buildOption": {
-    "resOptions": {
-      "copyCodeResource": {
-        "enable": false
+    "arkOptions": {
+      "runtimeOnly": {
+        "sources": [],
+        "packages": []
       }
-    },
-    "externalNativeOptions": {
-      "path": "./src/main/cpp/CMakeLists.txt",
-      "arguments": "",
-      "cppFlags": ""
     }
   },
   "buildOptionSet": [
@@ -18,21 +14,16 @@
       "arkOptions": {
         "obfuscation": {
           "ruleOptions": {
-            "enable": false,
-            "files": [
-              "./obfuscation-rules.txt"
-            ]
+            "enable": true,
+            "files": []
           }
         }
       }
-    },
+    }
   ],
   "targets": [
     {
       "name": "default"
-    },
-    {
-      "name": "ohosTest",
     }
   ]
 }

@@ -268,6 +268,38 @@ export class AgentInfo {
   description: string = ''
 }
 
+// ══════════ Command (v2) ══════════
+
+export class CommandInfo {
+  id: string = ''
+  name: string = ''
+  description: string = ''
+  agent: string = ''
+  args: string = ''
+  enabled: boolean = true
+}
+
+// ══════════ Skill (v2) ══════════
+
+export class SkillInfo {
+  id: string = ''
+  name: string = ''
+  description: string = ''
+  path: string = ''
+  enabled: boolean = true
+}
+
+// ══════════ Model V2 Info ══════════
+
+export class ModelV2Info {
+  id: string = ''
+  name: string = ''
+  providerID: string = ''
+  family: string = ''
+  cost: ModelCost = new ModelCost()
+  limit: ModelLimit = new ModelLimit()
+}
+
 // ══════════ File Node ══════════
 
 export class FileNode {
