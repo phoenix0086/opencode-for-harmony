@@ -106,7 +106,7 @@ export struct SidePanel {
       // Settings
       Button() {
         Row() {
-          SymbolGlyph($r('sys.symbol.gear'))
+          SymbolGlyph($r('sys.symbol.settings'))
             .fontSize(16)
             .fontColor(['#AAAAAA'])
           if (!this.collapsed) {
