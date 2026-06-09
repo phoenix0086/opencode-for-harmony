@@ -63,3 +63,5 @@ export class Constants {
   static readonly THEME_LIGHT: string = 'light';
   static readonly THEME_DARK: string = 'dark';
 }
+  static readonly WS_RECONNECT_INTERVAL_MS: number = 3000;
+  static readonly WS_MAX_RECONNECT_ATTEMPTS: number = 10;

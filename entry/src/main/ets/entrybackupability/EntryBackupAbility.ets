@@ -9,7 +9,7 @@ const TAG: string = 'EntryBackupAbility';
  */
 export default class EntryBackupAbility extends BackupExtensionAbility {
   onBackup(): void {
-    Logger.info('%{public}s: onBackup called', TAG);
+    Logger.info(': onBackup called' + String(TAG));
   }
 
   onRestore(bundleVersion: BundleVersion): void {

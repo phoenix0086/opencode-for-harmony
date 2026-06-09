@@ -6,6 +6,7 @@ import { RuntimeStatusCard } from '../components/runtime/RuntimeStatusCard'
 import { RuntimeLogPanel } from '../components/runtime/RuntimeLogPanel'
 
 @Component
+@Entry
 export struct RuntimePage {
   @Prop activeRunner: Runner | null = null
   @Prop isConnected: boolean = false

@@ -18,7 +18,7 @@ struct Index {
   @State showSettings: boolean = false;
   @State initialized: boolean = false;
 
-  private context = getContext(this);
+  private context = getContext(this) as import("@kit.AbilityKit").UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
@@ -66,11 +66,11 @@ struct Index {
 
           // Nav items
           Column() {
-            this.NavItem(AppView.Home, 'sys.symbol.house', 'Home')
-            this.NavItem(AppView.Chat, 'sys.symbol.bubble_left', 'Chat')
-            this.NavItem(AppView.Files, 'sys.symbol.folder', 'Files')
-            this.NavItem(AppView.Terminal, 'sys.symbol.terminal', 'Terminal')
-            this.NavItem(AppView.WebView, 'sys.symbol.globe', 'Web UI')
+            this.NavItem(AppView.Home, $r('sys.symbol.home'), 'Home')
+            this.NavItem(AppView.Chat, $r('sys.symbol.chat'), 'Chat')
+            this.NavItem(AppView.Files, $r('sys.symbol.folder'), 'Files')
+            this.NavItem(AppView.Terminal, $r('sys.symbol.terminal'), 'Terminal')
+            this.NavItem(AppView.WebView, $r('sys.symbol.globe'), 'Web UI')
           }
           .width('100%')
           .layoutWeight(1)
@@ -99,7 +99,7 @@ struct Index {
           // Settings button
           Button() {
             Row() {
-              SymbolGlyph($r('sys.symbol.gear'))
+              SymbolGlyph($r('sys.symbol.settings'))
                 .fontSize(16)
                 .fontColor(['#FFFFFF'])
               Text('Settings')

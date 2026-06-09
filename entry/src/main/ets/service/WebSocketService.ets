@@ -45,7 +45,7 @@ export class WebSocketService {
     if (!this.server) return;
 
     const wsUrl = this.server.url.replace(/^http/, 'ws') + '/ws';
-    Logger.info('WebSocketService connecting to %{public}s', wsUrl);
+    Logger.info('WebSocketService connecting to ' + String(wsUrl));
 
     this.ws = webSocket.createWebSocket();
 
@@ -58,7 +58,7 @@ export class WebSocketService {
 
     this.ws.on('message', (err: Error, data: string | ArrayBuffer) => {
       if (err) {
-        Logger.error('WebSocketService message error: %{public}s', err.message);
+        Logger.error('WebSocketService message error: ' + String(err.message));
         return;
       }
       if (typeof data === 'string') {
@@ -74,7 +74,7 @@ export class WebSocketService {
     });
 
     this.ws.on('error', (err: Error) => {
-      Logger.error('WebSocketService error: %{public}s', err.message);
+      Logger.error('WebSocketService error: ' + String(err.message));
       this.connected = false;
       this.onStatus?.(false);
     });
@@ -88,7 +88,7 @@ export class WebSocketService {
 
     this.ws.connect(wsUrl, { header: headers }, (err: Error) => {
       if (err) {
-        Logger.error('WebSocketService connect failed: %{public}s', err.message);
+        Logger.error('WebSocketService connect failed: ' + String(err.message));
         this.tryReconnect();
       }
     });
@@ -106,7 +106,7 @@ export class WebSocketService {
 
     this.reconnectTimer = setTimeout(() => {
       this.doConnect();
-    }, Constants.WS_RECONNECT_INTERVAL_MS) as unknown as number;
+    }, Constants.WS_RECONNECT_INTERVAL_MS) as number;
   }
 
   send(data: string): void {
@@ -116,7 +116,7 @@ export class WebSocketService {
     }
     this.ws.send(data, (err: Error) => {
       if (err) {
-        Logger.error('WebSocketService send error: %{public}s', err.message);
+        Logger.error('WebSocketService send error: ' + String(err.message));
       }
     });
   }
@@ -134,7 +134,7 @@ export class WebSocketService {
     if (this.ws) {
       this.ws.close((err: Error) => {
         if (err) {
-          Logger.error('WebSocketService close error: %{public}s', err.message);
+          Logger.error('WebSocketService close error: ' + String(err.message));
         }
       });
       this.ws = null;

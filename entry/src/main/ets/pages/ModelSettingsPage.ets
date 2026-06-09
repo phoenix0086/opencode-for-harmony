@@ -4,6 +4,7 @@ import { ModelCard } from '../components/model/ModelCard'
 import { modelSelectionService, ModelOption, ModelSelectionResult } from '../services/ModelSelectionService'
 
 @Component
+@Entry
 export struct ModelSettingsPage {
   @Prop activeRunner: Runner | null = null
   @Prop isConnected: boolean = false

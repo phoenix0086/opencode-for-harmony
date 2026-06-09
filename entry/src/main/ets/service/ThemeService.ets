@@ -14,7 +14,7 @@ export class ThemeService {
   setTheme(theme: string): void {
     this.currentTheme = theme;
     this.notifyListeners();
-    Logger.info('ThemeService: theme set to %{public}s', theme);
+    Logger.info('ThemeService: theme set to ' + String(theme));
   }
 
   getTheme(): string {

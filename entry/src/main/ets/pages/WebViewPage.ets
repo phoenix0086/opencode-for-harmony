@@ -1,4 +1,4 @@
-import { web_webview } from '@kit.ArkWeb';
+import web_webview from '@ohos.web.webview';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
@@ -125,21 +125,21 @@ struct WebViewPage {
           .javaScriptAccess(true)
           .domStorageAccess(true)
           .mixedMode(MixedMode.All)
-          .mediaPlaybackRequiresUserGesture(false)
+          
           .allowWindowOpenMethod(true)
           .cacheMode(web_webview.CacheMode.DEFAULT)
           .onPageBegin((event) => {
             this.isLoading = true;
-            Logger.info('WebView loading: %{public}s', event.url);
+            Logger.info('WebView loading: ' + String(event.url));
           })
           .onPageEnd((event) => {
             this.isLoading = false;
-            Logger.info('WebView loaded: %{public}s', event.url);
+            Logger.info('WebView loaded: ' + String(event.url));
           })
           .onErrorReceive((event) => {
             this.isLoading = false;
             this.loadError = event.error?.getErrorInfo?.() ?? 'Unknown error';
-            Logger.error('WebView error: %{public}s', this.loadError);
+            Logger.error('WebView error: ' + String(this.loadError));
           })
           .onHttpErrorReceive((event) => {
             Logger.warn('WebView HTTP error: %{public}d', event.response?.statusCode ?? 0);

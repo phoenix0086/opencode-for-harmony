@@ -61,7 +61,7 @@ struct ServerConfig {
           // Server info card
           Column() {
             Row() {
-              SymbolGlyph($r('sys.symbol.server_rack'))
+              SymbolGlyph($r('sys.symbol.server'))
                 .fontSize(32)
                 .fontColor(['#007DFF'])
               Column() {

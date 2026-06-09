@@ -18,8 +18,8 @@ export class ResourceManager {
       const decoder = new util.TextDecoder('utf-8');
       return decoder.decode(rawFile);
     } catch (err) {
-      Logger.error('ResourceManager readRawFile error: %{public}s', String(err));
-      throw err;
+      Logger.error('ResourceManager readRawFile error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -27,8 +27,8 @@ export class ResourceManager {
     try {
       return 'resource://rawfile/' + fileName;
     } catch (err) {
-      Logger.error('ResourceManager getRawFileUri error: %{public}s', String(err));
-      throw err;
+      Logger.error('ResourceManager getRawFileUri error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -46,7 +46,7 @@ export class ResourceManager {
     try {
       return this.context.resourceManager.getStringSync(resId);
     } catch (err) {
-      Logger.error('ResourceManager getString error: %{public}s', String(err));
+      Logger.error('ResourceManager getString error: ' + String(String(err)));
       return '';
     }
   }

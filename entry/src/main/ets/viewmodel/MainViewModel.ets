@@ -1,4 +1,4 @@
-import { HttpService } from '../service/HttpService';
+interface MessagePart { type: string; text: string; }import { HttpService } from '../service/HttpService';
 import { WebSocketService } from '../service/WebSocketService';
 import { StorageService } from '../service/StorageService';
 import { ServerInfo } from '../model/ServerInfo';
@@ -42,9 +42,9 @@ export class MainViewModel {
 
     this.httpService.setServer(this.serverInfo);
     this.wsService.setServer(this.serverInfo);
-    this.wsService.setMessageHandler(this.onWsMessage.bind(this));
-    this.wsService.setStatusHandler(this.onWsStatus.bind(this));
-    Logger.info('MainViewModel initialized with Runtime: %{public}s', this.serverInfo.url);
+    this.wsService.setMessageHandler((data: string) => { this.onWsMessage(data); });
+    this.wsService.setStatusHandler((connected: boolean) => { this.onWsStatus(connected); });
+    Logger.info('MainViewModel initialized with Runtime: ' + String(this.serverInfo.url));
   }
 
   async connect(): Promise<void> {
@@ -65,17 +65,17 @@ export class MainViewModel {
         this.wsService.setServer(this.serverInfo);
         this.wsService.connect();
       } catch (e) {
-        Logger.warn('Optional WebSocket connect skipped/failed: %{public}s', String(e));
+        Logger.warn('Optional WebSocket connect skipped/failed: ' + String(String(e)));
       }
       await this.loadSessions();
       await this.loadProviders();
       if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
       this.startHealthCheck();
-      Logger.info('Connected to Runtime: %{public}s', this.serverInfo.url);
+      Logger.info('Connected to Runtime: ' + String(this.serverInfo.url));
     } catch (err) {
       this.connectionStatus = ConnectionStatus.Error;
       this.errorMessage = String(err);
-      Logger.error('Connection failed: %{public}s', String(err));
+      Logger.error('Connection failed: ' + String(String(err)));
     }
   }
 
@@ -95,7 +95,7 @@ export class MainViewModel {
       for (const item of rawSessions) next.push(SessionInfo.fromJson(item as Record<string, Object>));
       this.sessions = next;
     } catch (err) {
-      Logger.error('loadSessions failed: %{public}s', String(err));
+      Logger.error('loadSessions failed: ' + String(String(err)));
     }
   }
 
@@ -108,7 +108,7 @@ export class MainViewModel {
       for (const item of all) next.push(ProviderInfo.fromJson(item as Record<string, Object>, connected));
       this.providers = next;
     } catch (err) {
-      Logger.error('loadProviders failed: %{public}s', String(err));
+      Logger.error('loadProviders failed: ' + String(String(err)));
     }
   }
 
@@ -123,7 +123,7 @@ export class MainViewModel {
       }
       return id;
     } catch (err) {
-      Logger.error('createSession failed: %{public}s', String(err));
+      Logger.error('createSession failed: ' + String(String(err)));
       this.errorMessage = String(err);
       return '';
     }
@@ -142,7 +142,7 @@ export class MainViewModel {
       const arr = this.extractArray(raw, ['messages', 'data']);
       this.messages = this.normalizeOpenCodeMessages(arr, sessionId);
     } catch (err) {
-      Logger.error('loadMessages failed: %{public}s', String(err));
+      Logger.error('loadMessages failed: ' + String(String(err)));
     }
   }
 
@@ -173,12 +173,12 @@ export class MainViewModel {
       await this.syncModelToRuntime();
       const beforeRaw = await this.getRawMessages(sessionId);
       const beforeCount = beforeRaw.length;
-      Logger.info('prompt_async beforeCount=%{public}d model=%{public}s', beforeCount, this.selectedModel);
+      Logger.info('prompt_async beforeCount=%{public}d model=', beforeCount + String(this.selectedModel));
       const body: Record<string, Object> = {};
       body['agent'] = 'build';
-      body['parts'] = [{ 'type': 'text', 'text': text }];
+      body['parts'] = [{ 'type': 'text', 'text': text } as MessagePart];
       await this.httpService.post<Object>(Constants.sessionPromptAsync(sessionId), body);
-      Logger.info('prompt_async sent session=%{public}s', sessionId);
+      Logger.info('prompt_async sent session=' + String(sessionId));
       await this.loadMessages(sessionId);
       const poll = await this.waitForExecution(sessionId, beforeCount);
       await this.loadMessages(sessionId);
@@ -194,7 +194,7 @@ export class MainViewModel {
       assistantMsg.setError(msg);
       this.errorMessage = msg;
       this.messages = [...this.messages];
-      Logger.error('sendMessage failed: %{public}s', msg);
+      Logger.error('sendMessage failed: ' + String(msg));
     } finally {
       this.isGenerating = false;
       const last = this.messages.length > 0 ? this.messages[this.messages.length - 1] : null;
@@ -208,7 +208,7 @@ export class MainViewModel {
   async stopGeneration(): Promise<void> {
     if (!this.isGenerating || this.currentSessionId.length === 0) return;
     try { await this.httpService.post<Object>(Constants.sessionAbort(this.currentSessionId), {}); }
-    catch (err) { Logger.error('stopGeneration failed: %{public}s', String(err)); }
+    catch (err) { Logger.error('stopGeneration failed: ' + String(String(err))); }
     finally { this.isGenerating = false; }
   }
 
@@ -230,7 +230,7 @@ export class MainViewModel {
       const before = await this.getRawMessages(sessionId);
       const body: Record<string, Object> = {};
       body['agent'] = 'build';
-      body['parts'] = [{ 'type': 'text', 'text': 'Say OK.' }];
+      body['parts'] = [{ 'type': 'text', 'text': 'Say OK.' } as MessagePart];
       await this.httpService.post<Object>(Constants.sessionPromptAsync(sessionId), body);
       const poll = await this.waitForExecution(sessionId, before.length, 30, 1000);
       await this.loadMessages(sessionId);
@@ -252,7 +252,7 @@ export class MainViewModel {
     patch['model'] = this.selectedModel;
     await this.httpService.patch<Object>(Constants.API_CONFIG, patch);
     await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel);
-    Logger.info('Runtime model synced: %{public}s', this.selectedModel);
+    Logger.info('Runtime model synced: ' + String(this.selectedModel));
   }
 
   private async getRawMessages(sessionId: string): Promise<Object[]> {
@@ -370,9 +370,18 @@ export class MainViewModel {
   }
   private looksLikeError(text: string): boolean { if (text.length === 0) return false; const t = text.toLowerCase(); return t.includes('error') || t.includes('exception') || t.includes('api key') || t.includes('auth') || t.includes('unauthorized') || t.includes('provider') || t.includes('model not found') || t.includes('invalid model'); }
   private async delay(ms: number): Promise<void> { return new Promise<void>((resolve) => { setTimeout(() => resolve(), ms); }); }
-  private onWsMessage(data: string): void { try { const parsed = JSON.parse(data) as Record<string, Object>; Logger.info('Runtime ws event: %{public}s', (parsed['type'] as string) ?? 'unknown'); } catch (err) { Logger.error('onWsMessage parse error: %{public}s', String(err)); } }
-  private onWsStatus(connected: boolean): void { Logger.info('WebSocket status: %{public}s', connected ? 'connected' : 'disconnected'); }
-  private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer = setInterval(() => { this.httpService.checkHealth().then((ok) => { this.serverInfo.healthOk = ok; if (!ok && this.connectionStatus === ConnectionStatus.Connected) Logger.warn('Health check failed, Runtime may be down'); }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as unknown as number; }
+  private onWsMessage(data: string): void {
+    try {
+      const parsed = JSON.parse(data) as Record<string, Object>;
+      Logger.info('Runtime ws event: ' + String((parsed['type'] as string) ?? 'unknown'));
+    } catch (err) {
+      Logger.error('onWsMessage parse error: ' + String(err));
+    }
+  }
+  private onWsStatus(connected: boolean): void {
+    Logger.info('WebSocket status: ' + (connected ? 'connected' : 'disconnected'));
+  }
+  private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer = setInterval(() => { this.httpService.checkHealth().then((ok) => { this.serverInfo.healthOk = ok; if (!ok && this.connectionStatus === ConnectionStatus.Connected) Logger.warn('Health check failed, Runtime may be down'); }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as number; }
   private stopHealthCheck(): void { if (this.healthTimer >= 0) { clearInterval(this.healthTimer); this.healthTimer = -1; } }
 }
 class ExecutionPollResult { ok: boolean = false; timedOut: boolean = false; hasAssistant: boolean = false; hasTool: boolean = false; hasError: boolean = false; hasPermission: boolean = false; message: string = ''; errorText: string = ''; messageCount: number = 0; }

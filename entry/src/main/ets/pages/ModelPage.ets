@@ -8,6 +8,7 @@ import { Theme } from '../components/Theme'
  * the same model management flow.
  */
 @Component
+@Entry
 export struct ModelPage {
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @State providers: CNProvider[] = []

@@ -5,6 +5,7 @@ import { LocalServerCard } from '../components/server/LocalServerCard'
 import { ServerLogPanel } from '../components/server/ServerLogPanel'
 
 @Component
+@Entry
 export struct ServerSettingsPage {
   @Prop activeRunner: Runner | null = null
   @Prop isConnected: boolean = false

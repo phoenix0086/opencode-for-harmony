@@ -63,7 +63,7 @@ export class HttpService {
       if (response.responseCode >= 200 && response.responseCode < 300) return this.parseResult<T>(response.result);
       throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
     } catch (err) {
-      Logger.error('HTTP %{public}s %{public}s failed: %{public}s', String(method), path, String(err));
+      Logger.error('HTTP %{public}s %{public}s failed: ', String(method), path + String(String(err)));
       throw new Error(String(err));
     } finally {
       httpRequest.destroy();

@@ -17,8 +17,8 @@ export class FileService {
       const decoder = new util.TextDecoder('utf-8');
       return decoder.decode(new Uint8Array(buffer, 0, bytesRead));
     } catch (err) {
-      Logger.error('FileService readFile error: %{public}s', String(err));
-      throw err;
+      Logger.error('FileService readFile error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -30,8 +30,8 @@ export class FileService {
       fileIo.writeSync(file.fd, buffer);
       fileIo.closeSync(file);
     } catch (err) {
-      Logger.error('FileService writeFile error: %{public}s', String(err));
-      throw err;
+      Logger.error('FileService writeFile error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -39,8 +39,8 @@ export class FileService {
     try {
       return fileIo.listFileSync(path);
     } catch (err) {
-      Logger.error('FileService listDirectory error: %{public}s', String(err));
-      throw err;
+      Logger.error('FileService listDirectory error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -57,8 +57,8 @@ export class FileService {
     try {
       fileIo.mkdirSync(path);
     } catch (err) {
-      Logger.error('FileService mkdir error: %{public}s', String(err));
-      throw err;
+      Logger.error('FileService mkdir error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 
@@ -71,8 +71,8 @@ export class FileService {
         fileIo.unlinkSync(path);
       }
     } catch (err) {
-      Logger.error('FileService remove error: %{public}s', String(err));
-      throw err;
+      Logger.error('FileService remove error: ' + String(String(err)));
+      throw new Error(String(err));
     }
   }
 

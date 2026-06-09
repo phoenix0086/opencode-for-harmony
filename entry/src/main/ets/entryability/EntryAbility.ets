@@ -28,7 +28,7 @@ export default class EntryAbility extends UIAbility {
     // Configure the main window
     windowStage.getMainWindow((err, win) => {
       if (err.code) {
-        Logger.error('Failed to get main window: %{public}s', JSON.stringify(err));
+        Logger.error('Failed to get main window: ' + String(JSON.stringify(err)));
         return;
       }
 
@@ -50,7 +50,7 @@ export default class EntryAbility extends UIAbility {
     // Load the main page
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
-        Logger.error('Failed to load content: %{public}s', JSON.stringify(err));
+        Logger.error('Failed to load content: ' + String(JSON.stringify(err)));
         return;
       }
       hilog.info(DOMAIN, 'OpenCode', 'Content loaded successfully');

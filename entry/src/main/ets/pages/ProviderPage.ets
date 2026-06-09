@@ -13,6 +13,7 @@ import { Theme } from '../components/Theme'
  * - Generate usable opencode.json config, not just a preview with missing values.
  */
 @Component
+@Entry
 export struct ProviderPage {
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop activeRunner: Runner | null = null
