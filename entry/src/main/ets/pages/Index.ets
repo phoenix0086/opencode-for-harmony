@@ -5,7 +5,8 @@ import { StorageService } from '../service/StorageService';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
-import { Logger } from '../utils/Logger';
+import { Logger } from '../utils/Logger'
+import { ProviderPage } from './ProviderPage';
 
 /**
  * Main page of the OpenCode app.
@@ -163,7 +164,7 @@ struct Index {
         } else if (this.currentView === AppView.Chat) {
           this.ChatContent()
         } else if (this.currentView === AppView.Provider) {
-          this.ProviderContent()
+          ProviderPage({ activeRunner: null })
         } else if (this.currentView === AppView.Models) {
           this.ModelsContent()
         } else if (this.currentView === AppView.WebView) {
