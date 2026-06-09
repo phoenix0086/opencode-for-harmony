@@ -8,6 +8,7 @@ import { EventStreamClient, EventCallback } from '../services/EventStreamClient'
 import { storageService } from '../services/StorageService'
 import { modelSelectionService } from '../services/ModelSelectionService'
 import { agentResponsePoller } from '../services/AgentResponsePoller'
+import { parseSlashCommand, buildHelpText, SlashCommand } from '../services/SlashCommandService'
 import { providerRegistry } from '../services/ProviderRegistry'
 import { AppShell } from '../components/AppShell'
 import { TranscriptBlock } from '../components/AgentTranscript'
@@ -48,6 +49,7 @@ struct Index {
 
   // ══════════ Composer State ══════════
   @State inputText: string = ''
+  @State agentMode: string = 'build'
   @State isSending: boolean = false
 
   // ══════════ Project State ══════════
@@ -539,6 +541,43 @@ struct Index {
       }
     })
 
+    // Listen for question requests
+    this.eventClient.on('question.asked', (event: ServerEvent) => {
+      if (event.properties['sessionID'] === this.activeSessionId) {
+        const requestID = (event.properties['requestID'] as string) || event.id
+        const optionsRaw = (event.properties['options'] as Array<Record<string, string>>) || []
+        const optIDs: string[] = []
+        for (const o of optionsRaw) {
+          if (o['id'] && o['id'].length > 0) {
+            optIDs.push(o['id'])
+          }
+        }
+        this.addLog(`question.asked ${requestID}`, 'info', 'question')
+
+        const block = new TranscriptBlock()
+        block.id = `q_${requestID}`
+        block.type = 'question'
+        block.permStatus = 'pending'
+        block.permTitle = (event.properties['header'] as string) || 'Question'
+        block.permDescription = (event.properties['question'] as string) || ''
+        block.permType = 'question'
+        block.permRiskLevel = (event.properties['multiSelect'] === true || event.properties['multiSelect'] === 'true') ? 'high' : 'low'
+        // Stash requestID + options in toolInput (reuses stringly-typed field for portability)
+        block.toolInput = JSON.stringify({
+          requestID: requestID,
+          multiSelect: event.properties['multiSelect'] === true,
+          options: optionsRaw
+        })
+
+        const blocks: TranscriptBlock[] = []
+        for (const b of this.transcriptBlocks) {
+          blocks.push(b)
+        }
+        blocks.push(block)
+        this.transcriptBlocks = blocks
+      }
+    })
+
     // Listen for session run ended
     this.eventClient.on(EventTypes.SESSION_RUN_ENDED, (event: ServerEvent) => {
       if (event.properties['sessionID'] === this.activeSessionId) {
@@ -741,6 +780,34 @@ struct Index {
     }
   }
 
+  async answerQuestion(blockId: string, optionIds: string[]): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    let requestID = ''
+    for (const b of this.transcriptBlocks) {
+      if (b.id === blockId && b.type === 'question') {
+        try {
+          const payload = JSON.parse(b.toolInput) as Record<string, Object>
+          requestID = (payload['requestID'] as string) || blockId
+        } catch (e) {
+          requestID = blockId
+        }
+        break
+      }
+    }
+    if (requestID.length === 0) {
+      this.addLog(`question.answer.failed: requestID not found for ${blockId}`, 'error', 'question')
+      return
+    }
+    try {
+      await client.replyQuestion(requestID, optionIds)
+      this.addLog(`question.answered ${requestID} options=${optionIds.length}`, 'info', 'question')
+      this.updatePermissionStatus(blockId, 'answered')
+    } catch (e) {
+      this.addLog(`question.answer.failed: ${String(e)}`, 'error', 'question')
+    }
+  }
+
   async rejectPermission(permId: string): Promise<void> {
     const client = this.getClient()
     if (client === null) return
@@ -756,7 +823,7 @@ struct Index {
   updatePermissionStatus(permId: string, status: string): void {
     const blocks: TranscriptBlock[] = []
     for (const b of this.transcriptBlocks) {
-      if (b.id === permId && b.type === 'permission') {
+      if (b.id === permId && (b.type === 'permission' || b.type === 'question')) {
         const updated = new TranscriptBlock()
         updated.id = b.id
         updated.type = b.type
@@ -765,6 +832,7 @@ struct Index {
         updated.permDescription = b.permDescription
         updated.permRiskLevel = b.permRiskLevel
         updated.permStatus = status
+        updated.toolInput = b.toolInput
         blocks.push(updated)
       } else {
         blocks.push(b)
@@ -788,6 +856,100 @@ struct Index {
 
   // ══════════ Session Actions (M15) ══════════
 
+  /**
+   * Switch agent build/plan mode.
+   * Calls PATCH /config { agent: <mode> } on the opencode server so the next
+   * prompt will be routed through the chosen agent.
+   */
+  async setAgentMode(mode: string): Promise<void> {
+    const normalized = mode.toLowerCase()
+    if (normalized !== 'build' && normalized !== 'plan') {
+      this.addLog(`agent.mode.invalid: ${mode}`, 'warn', 'agent')
+      ToastManager.show(`agent mode: use build or plan (got ${mode})`, 'warning')
+      return
+    }
+    const client = this.getClient()
+    if (client !== null) {
+      try {
+        const patch: Record<string, Object> = {}
+        patch['agent'] = normalized
+        await client.updateConfig(patch)
+      } catch (e) {
+        this.addLog(`agent.mode.update.failed: ${String(e)}`, 'warn', 'agent')
+      }
+    }
+    this.agentMode = normalized
+    this.addLog(`agent.mode = ${normalized}`, 'info', 'agent')
+    ToastManager.show(`agent: ${normalized}`, 'info')
+  }
+
+  /**
+   * Create a fresh session with a specific title, switch into it.
+   */
+  async createNewSessionWithTitle(title: string): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      const session = await client.createSession(title)
+      this.activeSessionId = session.id
+      this.sessionTitle = formatServerTitle(session.title)
+      this.transcriptBlocks = []
+      await this.loadSessions()
+      if (this.eventClient) {
+        this.eventClient.setSessionId(session.id)
+      } else {
+        this.connectEventStream()
+      }
+      this.addLog(`session.created ${session.id} (${title.length > 0 ? title : 'untitled'})`, 'info', 'session')
+    } catch (e) {
+      this.addLog(`session.create.failed: ${String(e)}`, 'error', 'session')
+    }
+  }
+
+  /**
+   * Abort the currently running agent run.
+   * Sprint 1 / B.11 alias used by /abort slash command.
+   */
+  async abortRun(): Promise<void> {
+    await this.abortSession()
+    this.addLog('agent.aborted', 'info', 'agent')
+    ToastManager.show('aborted', 'info')
+  }
+
+  /**
+   * Request context compaction. v1 server does not expose /compact; we
+   * optimistically POST and surface the error if it fails.
+   */
+  async requestCompact(): Promise<void> {
+    if (this.activeSessionId.length === 0) {
+      ToastManager.show('no active session to compact', 'warning')
+      return
+    }
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      // v1/v2 path may differ; try both
+      let tried = 0
+      try {
+        const r = await client.doPost(`/session/${this.activeSessionId}/compact`, '{}')
+        if (r.responseCode === 200 || r.responseCode === 204) {
+          tried = 1
+        }
+      } catch (e) {
+        // ignore
+      }
+      if (tried === 0) {
+        this.addLog('compact: server does not implement /compact (v1)', 'warn', 'session')
+        ToastManager.show('compact: 不支持当前 server 版本', 'warning')
+        return
+      }
+      this.addLog('session.compact.requested', 'info', 'session')
+      ToastManager.show('compact requested', 'success')
+    } catch (e) {
+      this.addLog(`session.compact.failed: ${String(e)}`, 'error', 'session')
+    }
+  }
+
   async handleSessionAction(sessionId: string, action: string): Promise<void> {
     this.addLog(`session.action.${action} ${sessionId}`, 'info', 'session')
     if (action === 'fork') {
@@ -795,8 +957,29 @@ struct Index {
     } else if (action === 'share') {
       await this.shareSession(sessionId)
     } else if (action === 'rename') {
-      // Rename handled via session update API
-      this.addLog('rename: not yet implemented via UI', 'info', 'session')
+      // Quick inline rename — in a richer UI, prompt for a title.
+      // Sprint 1-B.12 wires the real API: see renameCurrentSession().
+      const client = this.getClient()
+      if (client === null) return
+      let current = ''
+      for (const s of this.sessions) {
+        if (s.id === sessionId) {
+          current = s.title
+          break
+        }
+      }
+      const next = `renamed-${sessionId.substring(0, 4)}-${Date.now() % 1000}`
+      try {
+        const updated = await client.renameSession(sessionId, next)
+        this.addLog(`session.renamed ${sessionId} → ${updated.title}`, 'info', 'session')
+        ToastManager.show(`renamed → ${updated.title}`, 'success')
+        await this.loadSessions()
+        if (this.activeSessionId === sessionId) {
+          this.sessionTitle = formatServerTitle(updated.title)
+        }
+      } catch (e) {
+        this.addLog(`session.rename.failed: ${String(e)}`, 'error', 'session')
+      }
     } else if (action === 'delete') {
       await this.deleteSession(sessionId)
     }
@@ -806,8 +989,9 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      // Fork = create new session, copy context hint
-      const session = await client.createSession(`fork-of-${sessionId.substring(0, 8)}`)
+      // v1 server may not implement /fork — OpenCodeClient falls back to a
+      // plain createSession with a "(copy)" title.
+      const session = await client.forkSession(sessionId)
       this.addLog(`session.forked ${session.id} from ${sessionId}`, 'info', 'session')
       ToastManager.show('session forked', 'success')
       await this.loadSessions()
@@ -815,6 +999,38 @@ struct Index {
     } catch (e) {
       this.addLog(`session.fork.failed: ${String(e)}`, 'error', 'session')
     }
+  }
+
+  /**
+   * Rename the currently active session (used by /rename slash command).
+   */
+  async renameCurrentSession(newTitle: string): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    if (this.activeSessionId.length === 0) {
+      ToastManager.show('no active session to rename', 'warning')
+      return
+    }
+    try {
+      const updated = await client.renameSession(this.activeSessionId, newTitle)
+      this.addLog(`session.renamed ${this.activeSessionId} → ${updated.title}`, 'info', 'session')
+      ToastManager.show(`renamed → ${updated.title}`, 'success')
+      this.sessionTitle = formatServerTitle(updated.title)
+      await this.loadSessions()
+    } catch (e) {
+      this.addLog(`session.rename.failed: ${String(e)}`, 'error', 'session')
+    }
+  }
+
+  /**
+   * Fork the currently active session and switch to the new one.
+   */
+  async forkCurrentSession(): Promise<void> {
+    if (this.activeSessionId.length === 0) {
+      ToastManager.show('no active session to fork', 'warning')
+      return
+    }
+    await this.forkSession(this.activeSessionId)
   }
 
   async shareSession(sessionId: string): Promise<void> {
@@ -969,6 +1185,9 @@ struct Index {
         },
         onRejectPermission: (id: string) => {
           this.rejectPermission(id)
+        },
+        onAnswerQuestion: (blockId: string, optionIds: string[]) => {
+          this.answerQuestion(blockId, optionIds)
         },
         onAlwaysApprovePermission: (id: string) => {
           this.alwaysApprovePermission(id)

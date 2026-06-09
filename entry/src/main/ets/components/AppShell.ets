@@ -297,6 +297,11 @@ export struct AppShell {
               },
               onAlwaysApprovePermission: (id: string) => {
                 this.onAlwaysApprovePermission(id)
+              },
+              onAnswerQuestion: (id: string, optionIds: string[]) => {
+                if (this.onAnswerQuestion) {
+                  this.onAnswerQuestion(id, optionIds)
+                }
               }
             })
           } else if (this.activeActivity === 'diff') {

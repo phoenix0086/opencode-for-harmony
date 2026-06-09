@@ -1,4 +1,4 @@
-import { ServerEvent, EventTypes, NormalizedMessage, NormalizedPart } from '../models/Event'
+import { ServerEvent, EventTypes, NormalizedMessage, NormalizedPart, QuestionRequest } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
 
 /**
@@ -115,6 +115,7 @@ export class EventStreamClient {
     try {
       await this.pollMessages()
       await this.pollPermissions()
+      await this.pollQuestions()
 
       this.consecutiveErrors = 0
 
@@ -331,6 +332,33 @@ export class EventStreamClient {
         permEvent.properties['description'] = perm.description
         permEvent.properties['riskLevel'] = perm.riskLevel
         this.emit(EventTypes.PERMISSION_ASKED, permEvent)
+      }
+    }
+  }
+
+  private async pollQuestions(): Promise<void> {
+    if (this.sessionId.length === 0) return
+    let questions: QuestionRequest[] = []
+    try {
+      questions = await this.client.listQuestions(this.sessionId)
+    } catch (e) {
+      return
+    }
+
+    for (const q of questions) {
+      if (!this.seenQuestionIds.has(q.id) && q.status !== 'answered') {
+        this.seenQuestionIds.add(q.id)
+
+        const qEvent = new ServerEvent()
+        qEvent.id = q.id
+        qEvent.type = 'question.asked'
+        qEvent.properties['sessionID'] = q.sessionID
+        qEvent.properties['requestID'] = q.id
+        qEvent.properties['header'] = q.header
+        qEvent.properties['question'] = q.question
+        qEvent.properties['options'] = q.options as Object
+        qEvent.properties['multiSelect'] = q.multiSelect
+        this.emit('question.asked', qEvent)
       }
     }
   }

@@ -1,5 +1,6 @@
 import { Theme } from './Theme'
 import { SessionTurn, TurnData, TranscriptBlock } from './SessionTurn'
+import { QuestionBlock } from './QuestionBlock'
 
 export { TranscriptBlock }
 
@@ -296,6 +297,51 @@ export struct AgentTranscript {
     .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
   }
 
+  // ══════════ Question Block ══════════
+  @Builder
+  QuestionBlock(block: TranscriptBlock) {
+    Column() {
+      QuestionCard({
+        data: this.toQuestionData(block),
+        onSelect: (blockId: string, optionIds: string[]) => {
+          this.onAnswerQuestion(blockId, optionIds)
+        }
+      })
+    }
+  }
+
+  private toQuestionData(block: TranscriptBlock): QuestionBlockData {
+    const data = new QuestionBlockData()
+    data.id = block.id
+    data.requestID = block.id.startsWith('q_') ? block.id.substring(2) : block.id
+    data.header = block.permTitle
+    data.question = block.permDescription
+    data.status = block.permStatus
+    let multi = false
+    const opts: QuestionOption[] = []
+    if (block.toolInput.length > 0) {
+      try {
+        const parsed = JSON.parse(block.toolInput) as Record<string, Object>
+        multi = parsed['multiSelect'] === true
+        const rawOpts = parsed['options'] as Array<Record<string, string>>
+        if (Array.isArray(rawOpts)) {
+          for (const o of rawOpts) {
+            const qo = new QuestionOption()
+            qo.id = (o['id'] as string) || ''
+            qo.label = (o['label'] as string) || ''
+            qo.description = (o['description'] as string) || ''
+            opts.push(qo)
+          }
+        }
+      } catch (e) {
+        // ignore malformed JSON
+      }
+    }
+    data.multiSelect = multi
+    data.options = opts
+    return data
+  }
+
   // ══════════ Permission Helpers ══════════
 
   private getRiskColor(level: string): string {
@@ -319,7 +365,7 @@ export struct AgentTranscript {
  */
 class RenderItem {
   id: string = ''
-  kind: string = '' // 'turn' | 'permission' | 'error'
+  kind: string = '' // 'turn' | 'permission' | 'error' | 'question'
   turn: TurnData = new TurnData()
   block: TranscriptBlock = new TranscriptBlock()
 }

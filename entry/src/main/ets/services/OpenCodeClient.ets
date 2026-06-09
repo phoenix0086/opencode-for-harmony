@@ -4,7 +4,7 @@ import { Runner, runnerBaseUrl } from '../models/Runner'
 import {
   HealthInfo, ConfigInfo, SessionInfo,
   WithParts, RawPart, NormalizedMessage, NormalizedPart,
-  PermissionRequest, FileDiff, VcsInfo, VcsFileStatus,
+  PermissionRequest, QuestionRequest, FileDiff, VcsInfo, VcsFileStatus,
   ProjectInfo, AgentInfo, PathInfo,
   ProviderListResult, ProviderPublicInfo
 } from '../models/Event'
@@ -360,6 +360,42 @@ export class OpenCodeClient {
     return resp.responseCode === 200
   }
 
+  /**
+   * Rename a session by title.
+   */
+  async renameSession(sessionID: string, title: string): Promise<SessionInfo> {
+    const body: Record<string, Object> = {}
+    body['title'] = title
+    return this.updateSession(sessionID, body)
+  }
+
+  /**
+   * Fork a session.
+   * v1 server does not implement /session/:id/fork; call will fail with 404.
+   * Fall back to a copy of the title.
+   */
+  async forkSession(sessionID: string): Promise<SessionInfo> {
+    let parentTitle = ''
+    try {
+      const parent = await this.getSession(sessionID)
+      parentTitle = parent.title
+    } catch (e) {
+      // ignore
+    }
+    const body: Record<string, string> = {}
+    body['parentID'] = sessionID
+    if (parentTitle.length > 0) {
+      body['title'] = `${parentTitle} (fork)`
+    }
+    const resp = await this.doPost(`/session/${sessionID}/fork`, JSON.stringify(body))
+    if (resp.responseCode === 404 || resp.responseCode === 405) {
+      // Server does not support fork — fall back to plain createSession
+      return this.createSession(parentTitle.length > 0 ? `${parentTitle} (copy)` : '')
+    }
+    this.checkResponse(resp)
+    return normalizeSession(this.parseJson<Record<string, Object>>(resp))
+  }
+
   async updateSession(sessionID: string, updates: Record<string, Object>): Promise<SessionInfo> {
     const resp = await this.doPatch(`/session/${sessionID}`, JSON.stringify(updates))
     this.checkResponse(resp)
@@ -447,6 +483,32 @@ export class OpenCodeClient {
     const body: Record<string, string> = {}
     body['reply'] = reply
     const resp = await this.doPost(`/permission/${requestID}/reply`, JSON.stringify(body))
+    return resp.responseCode === 200
+  }
+
+  // ══════════ Question (Sprint 1-A.2) ══════════
+  // Server may not implement /question in v1.x; calls fail soft.
+  // v2 server: GET /question?sessionID=... ; POST /question/:id/reply
+
+  async listQuestions(sessionID: string): Promise<QuestionRequest[]> {
+    const url = `/question?sessionID=${encodeURIComponent(sessionID)}`
+    const resp = await this.doGet(url)
+    if (resp.responseCode !== 200) {
+      const empty: QuestionRequest[] = []
+      return empty
+    }
+    try {
+      return this.parseJson<QuestionRequest[]>(resp)
+    } catch (e) {
+      const empty: QuestionRequest[] = []
+      return empty
+    }
+  }
+
+  async replyQuestion(requestID: string, optionIDs: string[]): Promise<boolean> {
+    const body: Record<string, Object> = {}
+    body['optionIDs'] = optionIDs
+    const resp = await this.doPost(`/question/${requestID}/reply`, JSON.stringify(body))
     return resp.responseCode === 200
   }
 

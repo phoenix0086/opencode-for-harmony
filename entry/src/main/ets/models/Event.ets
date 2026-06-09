@@ -143,6 +143,25 @@ export class PermissionRequest {
   properties: Record<string, Object> = {}
 }
 
+// ══════════ Question (Sprint 1-A.2) ══════════
+
+export class QuestionOptionModel {
+  id: string = ''
+  label: string = ''
+  description: string = ''
+}
+
+export class QuestionRequest {
+  id: string = ''
+  sessionID: string = ''
+  header: string = ''
+  question: string = ''
+  options: QuestionOptionModel[] = []
+  multiSelect: boolean = false
+  status: string = ''
+  properties: Record<string, Object> = {}
+}
+
 // ══════════ File Diff ══════════
 
 export class FileDiff {
