@@ -348,7 +348,7 @@ export class OpenCodeClient {
   async updateSession(sessionID: string, updates: Record<string, Object>): Promise<SessionInfo> {
     const resp = await this.doPatch(`/session/${sessionID}`, JSON.stringify(updates))
     this.checkResponse(resp)
-    return this.parseJson<SessionInfo>(resp)
+    return normalizeSession(this.parseJson<Record<string, Object>>(resp))
   }
 
   async abortSession(sessionID: string): Promise<boolean> {
