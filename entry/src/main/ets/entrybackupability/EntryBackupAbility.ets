@@ -13,7 +13,6 @@ export default class EntryBackupAbility extends BackupExtensionAbility {
   }
 
   onRestore(bundleVersion: BundleVersion): void {
-    Logger.info('%{public}s: onRestore called, version=%{public}s',
-      TAG, JSON.stringify(bundleVersion));
+    Logger.info('EntryBackupAbility: onRestore called')
   }
 }

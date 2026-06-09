@@ -61,7 +61,7 @@ struct ServerConfig {
           // Server info card
           Column() {
             Row() {
-              SymbolGlyph($r('sys.symbol.server'))
+              Text('🖥️').fontSize(32)
                 .fontSize(32)
                 .fontColor(['#007DFF'])
               Column() {

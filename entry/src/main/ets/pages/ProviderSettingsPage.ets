@@ -7,7 +7,6 @@ import { ProviderCard } from '../components/provider/ProviderCard'
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog'
 
 @Component
-@Entry
 export struct ProviderSettingsPage {
   @Prop @Watch('onRunnerChanged') activeRunner: Runner | null = null
   onOpenModels: () => void = () => {}

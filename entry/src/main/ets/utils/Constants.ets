@@ -1,5 +1,6 @@
 /**
  * Application-wide constants.
+ * Keep this file as readonly fields only. Avoid static methods in .ets here.
  */
 export class Constants {
   static readonly APP_NAME: string = 'OpenCode';
@@ -15,7 +16,6 @@ export class Constants {
   static readonly KEY_AUTH_USERNAME: string = 'auth_username';
   static readonly KEY_AUTH_PASSWORD: string = 'auth_password';
 
-  // OpenCode Runtime default is 4096.
   static readonly DEFAULT_SERVER_URL: string = 'http://127.0.0.1:4096';
   static readonly DEFAULT_MODEL: string = '';
   static readonly DEFAULT_THEME: string = 'system';
@@ -25,6 +25,9 @@ export class Constants {
   static readonly POLL_INTERVAL_MS: number = 1000;
   static readonly POLL_MAX_ATTEMPTS: number = 120;
   static readonly HEALTH_CHECK_INTERVAL_MS: number = 10000;
+
+  static readonly WS_MAX_RECONNECT_ATTEMPTS: number = 5;
+  static readonly WS_RECONNECT_INTERVAL_MS: number = 3000;
 
   static readonly SIDEBAR_WIDTH: number = 240;
   static readonly TITLE_BAR_HEIGHT: number = 48;
@@ -39,29 +42,7 @@ export class Constants {
   static readonly API_WORKTREE: string = '/worktree';
   static readonly API_VCS: string = '/vcs';
 
-  static sessionMessages(sessionId: string): string {
-    return `/session/${sessionId}/message`;
-  }
-
-  static sessionPromptAsync(sessionId: string): string {
-    return `/session/${sessionId}/prompt_async`;
-  }
-
-  static sessionAbort(sessionId: string): string {
-    return `/session/${sessionId}/abort`;
-  }
-
-  static fileContent(path: string): string {
-    return `/file/content?path=${encodeURIComponent(path)}`;
-  }
-
-  static vcsDiff(mode: string = 'git'): string {
-    return `/vcs/diff?mode=${mode}`;
-  }
-
   static readonly THEME_SYSTEM: string = 'system';
   static readonly THEME_LIGHT: string = 'light';
   static readonly THEME_DARK: string = 'dark';
 }
-  static readonly WS_RECONNECT_INTERVAL_MS: number = 3000;
-  static readonly WS_MAX_RECONNECT_ATTEMPTS: number = 10;

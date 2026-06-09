@@ -101,8 +101,8 @@ export class WebSocketService {
       return;
     }
     this.reconnectAttempts++;
-    Logger.info('WebSocketService: reconnecting in %{public}dms (attempt %{public}d)',
-      Constants.WS_RECONNECT_INTERVAL_MS, this.reconnectAttempts);
+    Logger.info('WebSocketService: reconnecting in ' + Constants.WS_RECONNECT_INTERVAL_MS.toString() + 'ms (attempt ' +
+      this.reconnectAttempts.toString() + ')');
 
     this.reconnectTimer = setTimeout(() => {
       this.doConnect();

@@ -1,7 +1,9 @@
 import { router } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
-import { ConnectionStatus, AppView } from '../model/AppState';
+import { ConnectionStatus, AppView, SessionInfo } from '../model/AppState';
+import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 
@@ -18,7 +20,7 @@ struct Index {
   @State showSettings: boolean = false;
   @State initialized: boolean = false;
 
-  private context = getContext(this) as import("@kit.AbilityKit").UIAbilityContext;
+  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
@@ -66,11 +68,11 @@ struct Index {
 
           // Nav items
           Column() {
-            this.NavItem(AppView.Home, $r('sys.symbol.home'), 'Home')
-            this.NavItem(AppView.Chat, $r('sys.symbol.chat'), 'Chat')
-            this.NavItem(AppView.Files, $r('sys.symbol.folder'), 'Files')
-            this.NavItem(AppView.Terminal, $r('sys.symbol.terminal'), 'Terminal')
-            this.NavItem(AppView.WebView, $r('sys.symbol.globe'), 'Web UI')
+            this.NavItem(AppView.Home, $r('sys.media.home'), 'Home')
+            this.NavItem(AppView.Chat, $r('sys.media.chat'), 'Chat')
+            this.NavItem(AppView.Files, $r('sys.media.folder'), 'Files')
+            this.NavItem(AppView.Terminal, $r('sys.media.terminal'), 'Terminal')
+            this.NavItem(AppView.WebView, $r('sys.media.globe'), 'Web UI')
           }
           .width('100%')
           .layoutWeight(1)
@@ -99,7 +101,7 @@ struct Index {
           // Settings button
           Button() {
             Row() {
-              SymbolGlyph($r('sys.symbol.settings'))
+              Text('⚙️').fontSize(18)
                 .fontSize(16)
                 .fontColor(['#FFFFFF'])
               Text('Settings')
@@ -218,7 +220,7 @@ struct Index {
             .fontSize(14)
             .fontColor('#666666')
         } else {
-          ForEach(this.viewModel.sessions.slice(0, 5), (session) => {
+          ForEach(this.viewModel.sessions.slice(0, 5), (session: SessionInfo) => {
             Row() {
               Column() {
                 Text(session.title || 'Untitled Session')
@@ -295,7 +297,7 @@ struct Index {
 
       // Message list
       List() {
-        ForEach(this.viewModel.messages, (msg) => {
+        ForEach(this.viewModel.messages, (msg: ChatMessage) => {
           ListItem() {
             Row() {
               if (msg.role === 'assistant') {

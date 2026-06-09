@@ -124,25 +124,18 @@ struct WebViewPage {
           .width('100%')
           .javaScriptAccess(true)
           .domStorageAccess(true)
-          .mixedMode(MixedMode.All)
-          
-          .allowWindowOpenMethod(true)
-          .cacheMode(web_webview.CacheMode.DEFAULT)
-          .onPageBegin((event) => {
+          .onPageBegin(() => {
             this.isLoading = true;
-            Logger.info('WebView loading: ' + String(event.url));
+            Logger.info('WebView loading');
           })
-          .onPageEnd((event) => {
+          .onPageEnd(() => {
             this.isLoading = false;
-            Logger.info('WebView loaded: ' + String(event.url));
+            Logger.info('WebView loaded');
           })
-          .onErrorReceive((event) => {
+          .onErrorReceive(() => {
             this.isLoading = false;
-            this.loadError = event.error?.getErrorInfo?.() ?? 'Unknown error';
-            Logger.error('WebView error: ' + String(this.loadError));
-          })
-          .onHttpErrorReceive((event) => {
-            Logger.warn('WebView HTTP error: %{public}d', event.response?.statusCode ?? 0);
+            this.loadError = 'WebView error';
+            Logger.error('WebView error');
           })
       }
     }
