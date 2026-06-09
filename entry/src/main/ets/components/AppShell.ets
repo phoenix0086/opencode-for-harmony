@@ -21,6 +21,7 @@ import { DirectoryPicker, ProjectEntry } from './DirectoryPicker'
 import { OpenCodeHomeLaunch } from './home/OpenCodeHomeLaunch'
 import { ServerSettingsPage } from '../pages/ServerSettingsPage'
 import { RuntimePage } from '../pages/RuntimePage'
+import { formatServerTitle } from '../utils/DateTimeUtil'
 
 /**
  * AppShell - OpenCode IDE 三栏布局

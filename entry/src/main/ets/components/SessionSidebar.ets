@@ -1,5 +1,6 @@
 import { Theme } from './Theme'
 import { SessionInfo } from '../models/Event'
+import { formatServerTitle } from '../utils/DateTimeUtil'
 
 /**
  * 会话侧边栏
@@ -88,7 +89,7 @@ export struct SessionSidebar {
                 .margin({ right: Theme.sp.md })
 
               Column() {
-                Text(session.title.length > 0 ? session.title : 'untitled')
+                Text(session.title.length > 0 ? formatServerTitle(session.title) : 'untitled')
                   .fontSize(Theme.fs.md)
                   .fontColor(this.activeSessionId === session.id ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY)
                   .fontWeight(this.activeSessionId === session.id ? FontWeight.Medium : FontWeight.Normal)

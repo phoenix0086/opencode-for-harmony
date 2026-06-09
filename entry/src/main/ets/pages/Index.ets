@@ -12,6 +12,7 @@ import { TranscriptBlock } from '../components/AgentTranscript'
 import { ToolTimelineEntry } from '../components/ToolTimelinePanel'
 import { ToastManager } from '../components/ToastNotification'
 import { DirectoryPicker, ProjectEntry } from '../components/DirectoryPicker'
+import { formatLocalSessionTitle, formatServerTitle } from '../utils/DateTimeUtil'
 
 /**
  * Index - OpenCode Harmony Native 主入口
@@ -217,7 +218,7 @@ struct Index {
     let title = 'untitled'
     for (const s of this.sessions) {
       if (s.id === sessionId) {
-        title = s.title.length > 0 ? s.title : 'untitled'
+        title = s.title.length > 0 ? formatServerTitle(s.title) : 'untitled'
         if (s.model.id.length > 0) {
           this.modelName = `${s.model.providerID}/${s.model.id}`
         }
@@ -625,7 +626,11 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      const session = await client.createSession()
+      // Pass a local-time title so the sidebar shows Beijing time instead of
+      // the server's auto-generated "New session - 2026-06-09T02:30:58.985Z"
+      // (which is UTC and confused the user).
+      const localTitle = formatLocalSessionTitle('新会话')
+      const session = await client.createSession(localTitle)
       this.addLog(`session.created ${session.id}`, 'info', 'session')
       ToastManager.show('session created', 'success')
       await this.loadSessions()

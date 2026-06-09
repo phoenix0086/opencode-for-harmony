@@ -1,5 +1,6 @@
 import { Theme } from './Theme'
 import { SessionInfo } from '../models/Event'
+import { formatServerTitle } from '../utils/DateTimeUtil'
 
 /**
  * Data model for a single session tab in the tab bar.
