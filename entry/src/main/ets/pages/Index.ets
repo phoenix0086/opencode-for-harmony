@@ -80,6 +80,11 @@ struct Index {
   @State pluginError: string = ''
   @State agents: AgentDetail[] = []
   @State agentUnsupported: boolean = false
+  // Sprint 5-F.42: tri-state v2 detection
+  // 'unknown'   — never probed yet (e.g. before first connection)
+  // 'v2'        — at least one v2 endpoint responded 2xx
+  // 'v1'        — at least one v2 endpoint returned 404/405 (unsupported)
+  @State v2Status: string = 'unknown'
   private v2Client: V2Client | null = null
   private activePtyPoller: object = new Object()
   @State isSending: boolean = false
@@ -172,6 +177,8 @@ struct Index {
     this.activeRunner = runner
     this.serverUrl = `${runner.protocol}://${runner.host}:${runner.port}`
     this.addLog(`runner.activated ${this.serverUrl}`, 'info', 'server')
+    // Different runner = different server = reset v2 detection
+    this.resetV2Status()
     await this.testConnection()
   }
 
@@ -280,6 +287,16 @@ struct Index {
     this.sessionTitle = title
 
     this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
+    // v2 init: pre-warm session metadata (git/config/providers). If v1 server,
+    // initSession throws UnsupportedV2Endpoint — we swallow it and continue.
+    const v2 = this.getV2()
+    if (v2 !== null) {
+      v2.initSession(sessionId).catch((e: Object): void => {
+        if (!(e instanceof UnsupportedV2Endpoint)) {
+          this.addLog(`session.init.failed: ${String(e)}`, 'warn', 'session')
+        }
+      })
+    }
     const p1 = this.loadMessages()
     const p2 = this.loadDiffs()
     const p3 = this.loadSnapshots()
@@ -451,10 +468,41 @@ struct Index {
     return this.v2Client
   }
 
+  /**
+   * Mark v2 as confirmed by a successful 2xx response.
+   */
+  private markV2Available(): void {
+    if (this.v2Status !== 'v2') {
+      this.v2Status = 'v2'
+      this.addLog('server: v2 features available', 'info', 'server')
+    }
+  }
+
+  /**
+   * Mark v2 as confirmed unsupported by a 404/405 response.
+   */
+  private markV1Only(): void {
+    if (this.v2Status !== 'v1') {
+      this.v2Status = 'v1'
+      this.addLog('server: v1 only — v2 endpoints return 404/405', 'info', 'server')
+    }
+  }
+
+  /**
+   * Reset v2 status when switching to a different server.
+   */
+  private resetV2Status(): void {
+    this.v2Status = 'unknown'
+    this.v2Client = null
+  }
+
   async loadSnapshots(): Promise<void> {
     const v2 = this.getV2()
     if (v2 === null) {
-      this.snapshotUnsupported = true
+      // No client yet — could be: no active runner, or init still in flight.
+      // Don't mark `unsupported` in this case; the UI should just show the
+      // empty state until the user connects to a server.
+      this.snapshots = []
       return
     }
     if (this.activeSessionId.length === 0) {
@@ -467,9 +515,11 @@ struct Index {
     try {
       const list = await v2.listSnapshots(this.activeSessionId)
       this.snapshots = list
+      this.markV2Available()
     } catch (e) {
       if (e instanceof UnsupportedV2Endpoint) {
         this.snapshotUnsupported = true
+        this.markV1Only()
       } else {
         this.snapshotError = String(e)
         this.addLog(`snapshot.load.failed: ${String(e)}`, 'warn', 'snapshot')
@@ -528,9 +578,11 @@ struct Index {
     this.ptyUnsupported = false
     try {
       this.ptySessions = await v2.listPty()
+      this.markV2Available()
     } catch (e) {
       if (e instanceof UnsupportedV2Endpoint) {
         this.ptyUnsupported = true
+        this.markV1Only()
       } else {
         this.ptyError = String(e)
       }
@@ -611,7 +663,8 @@ struct Index {
   async loadPlugins(): Promise<void> {
     const v2 = this.getV2()
     if (v2 === null) {
-      this.pluginUnsupported = true
+      // No client yet — empty state, don't mark unsupported.
+      this.plugins = []
       return
     }
     this.pluginLoading = true
@@ -650,14 +703,18 @@ struct Index {
   async loadAgentsV2(): Promise<void> {
     const v2 = this.getV2()
     if (v2 === null) {
-      this.agentUnsupported = true
+      this.agents = []
+      this.agentUnsupported = false
       return
     }
     try {
-      this.agents = await v2.listAgentsV2()
+      const list = await v2.listAgentsV2()
+      this.agents = list
+      this.agentUnsupported = false
     } catch (e) {
       if (e instanceof UnsupportedV2Endpoint) {
         this.agentUnsupported = true
+        this.agents = []
       } else {
         this.addLog(`agent.v2.failed: ${String(e)}`, 'warn', 'agent')
       }
@@ -1166,10 +1223,10 @@ struct Index {
       // Pass a local-time title so the sidebar shows Beijing time instead of
       // the server's auto-generated "New session - 2026-06-09T02:30:58.985Z"
       // (which is UTC and confused the user).
-      const localTitle = formatLocalSessionTitle('新会话')
+      const localTitle = formatLocalSessionTitle(i18n.t('session.new'))
       const session = await client.createSession(localTitle)
       this.addLog(`session.created ${session.id}`, 'info', 'session')
-      ToastManager.show('session created', 'success')
+      ToastManager.show(i18n.t('toast.session_created'), 'success')
       await this.loadSessions()
       await this.selectSession(session.id)
     } catch (e) {
@@ -1326,7 +1383,7 @@ struct Index {
   async abortRun(): Promise<void> {
     await this.abortSession()
     this.addLog('agent.aborted', 'info', 'agent')
-    ToastManager.show('aborted', 'info')
+    ToastManager.show(i18n.t('toast.aborted'), 'info')
   }
 
   // ══════════ Input Dispatch (Sprint 1) ══════════
@@ -1476,7 +1533,7 @@ struct Index {
       // plain createSession with a "(copy)" title.
       const session = await client.forkSession(sessionId)
       this.addLog(`session.forked ${session.id} from ${sessionId}`, 'info', 'session')
-      ToastManager.show('session forked', 'success')
+      ToastManager.show(i18n.t('toast.session_forked'), 'success')
       await this.loadSessions()
       await this.selectSession(session.id)
     } catch (e) {
@@ -1517,8 +1574,26 @@ struct Index {
   }
 
   async shareSession(sessionId: string): Promise<void> {
+    // v2 path: get the share URL back from the server
+    const v2 = this.getV2()
+    if (v2 !== null) {
+      try {
+        const url = await v2.shareSession(sessionId)
+        if (url.length > 0) {
+          this.addLog(`session.share ${sessionId} url=${url}`, 'info', 'session')
+          ToastManager.show(`${url}`, 'success')
+          return
+        }
+        // empty url but successful — treat as unsupported
+        this.addLog('session.share: empty url returned', 'warn', 'session')
+      } catch (e) {
+        if (!(e instanceof UnsupportedV2Endpoint)) {
+          this.addLog(`session.share.failed: ${String(e)}`, 'error', 'session')
+        }
+      }
+    }
     this.addLog(`session.share ${sessionId} — share link generation not yet available`, 'warn', 'session')
-    // In a full implementation, this would call a share API and copy to clipboard
+    // v1 / future: in a full implementation, this would call a share API and copy to clipboard
   }
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -1527,7 +1602,7 @@ struct Index {
     try {
       await client.deleteSession(sessionId)
       this.addLog(`session.deleted ${sessionId}`, 'info', 'session')
-      ToastManager.show('session deleted', 'success')
+      ToastManager.show(i18n.t('toast.session_deleted'), 'success')
       await this.loadSessions()
       // If we deleted the active session, select the first remaining one
       if (this.activeSessionId === sessionId) {
@@ -1694,6 +1769,9 @@ struct Index {
         pluginLoading: this.pluginLoading,
         pluginUnsupported: this.pluginUnsupported,
         pluginError: this.pluginError,
+        agents: this.agents,
+        agentUnsupported: this.agentUnsupported,
+        v2Status: this.v2Status,
         onRefreshSnapshots: () => { this.loadSnapshots() },
         onRestoreSnapshot: (id: string): void => { this.restoreSnapshot(id) },
         onCreateSnapshot: (): void => { this.createSnapshot() },

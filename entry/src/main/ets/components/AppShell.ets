@@ -18,7 +18,7 @@ import { SnapshotInfo } from '../services/V2Type'
 import { PtyPanel } from './PtyPanel'
 import { PtySessionInfo } from '../services/V2Type'
 import { PluginPanel } from './PluginPanel'
-import { PluginInfo } from '../services/V2Type'
+import { PluginInfo, AgentDetail } from '../services/V2Type'
 import { ProviderSettingsPage } from '../pages/ProviderSettingsPage'
 import { ModelSettingsPage } from '../pages/ModelSettingsPage'
 import { SettingsPage } from '../pages/SettingsPage'
@@ -94,6 +94,11 @@ export struct AppShell {
   @Prop snapshotLoading: boolean = false
   @Prop ptyLoading: boolean = false
   @Prop pluginLoading: boolean = false
+  // Sprint 3-B.14/15: agent list
+  @Prop agents: AgentDetail[] = []
+  @Prop agentUnsupported: boolean = false
+  // Sprint 5-F.42: v2 status (unknown/v2/v1)
+  @Prop v2Status: string = 'unknown'
   onRefreshMcp: () => void = () => {}
   onRefreshLsp: () => void = () => {}
   onRefreshFormatters: () => void = () => {}
@@ -461,6 +466,8 @@ export struct AppShell {
             agentMode: this.agentMode,
             tokensUsed: this.tokensUsed,
             tokensMax: this.tokensMax,
+            agents: this.agents,
+            agentUnsupported: this.agentUnsupported,
             onTextChange: (text: string) => {
               this.inputText = text
             },

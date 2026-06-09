@@ -19,8 +19,12 @@ export class I18nStrings {
   'agent.title': string = 'Agent'
   'agent.build': string = 'build'
   'agent.plan': string = 'plan'
+  'agent.unsupported': string = 'v2 agents unavailable'
   'composer.send': string = 'send'
   'composer.placeholder': string = 'Ask the agent anything... (or type / for commands)'
+  'composer.model': string = 'model'
+  'composer.shift_enter': string = 'Shift+Enter to send'
+  'composer.plan_hint': string = 'Plan mode restricts edit/bash permissions to ask'
 
   // ═══════ Sidebar / Activity ═══════
   'sidebar.chat': string = 'Chat'
@@ -35,6 +39,15 @@ export class I18nStrings {
   'sidebar.formatters': string = 'Formatters'
   'sidebar.plugins': string = 'Plugins'
   'sidebar.settings': string = 'Settings'
+  'sidebar.tools': string = 'tools'
+  'sidebar.dir': string = 'dir'
+
+  // ═══════ Session Header ═══════
+  'session.title': string = 'session'
+  'session.none': string = 'no session selected'
+  'session.running': string = 'running'
+  'session.new': string = 'new session'
+  'session.create_failed': string = 'Failed to create session'
 
   // ═══════ Status ═══════
   'status.connected': string = 'connected'
@@ -42,12 +55,25 @@ export class I18nStrings {
   'status.connecting': string = 'connecting'
   'status.error': string = 'error'
   'status.unsupported': string = 'unsupported'
+  'status.online': string = 'online'
+  'status.offline': string = 'offline'
+
+  // ═══════ Server info ═══════
+  'server.connecting': string = 'Connecting to'
+  'server.connected': string = 'connected to server'
+  'server.health_failed': string = 'Health check failed'
+  'server.v1_unsupported': string = 'v2 features unavailable — running against v1 server'
 
   // ═══════ Errors ═══════
   'error.network': string = 'network error'
   'error.server': string = 'server error'
   'error.timeout': string = 'timeout'
   'error.not_implemented': string = 'not implemented'
+  'error.runtime_not_connected': string = 'Local runtime not connected'
+  'error.init': string = 'init error'
+  'error.no_session_to_compact': string = 'no active session to compact'
+  'error.no_session_to_rename': string = 'no active session to rename'
+  'error.no_session_to_fork': string = 'no active session to fork'
 
   // ═══════ Toast / Log ═══════
   'toast.copied': string = 'copied'
@@ -57,6 +83,10 @@ export class I18nStrings {
   'toast.snapshot_restored': string = 'snapshot restored'
   'toast.pty_started': string = 'pty started'
   'toast.pty_closed': string = 'pty closed'
+  'toast.session_created': string = 'session created'
+  'toast.session_deleted': string = 'session deleted'
+  'toast.session_forked': string = 'session forked'
+  'toast.reconnecting': string = 'reconnecting...'
 
   // ═══════ Slash Commands ═══════
   'slash.help': string = 'show help'
@@ -80,6 +110,11 @@ export class I18nService {
 
   constructor() {
     this.loadBundles()
+    // Auto-load from AppStorage if present
+    const stored = AppStorage.get<string>('appLocale')
+    if (stored === 'zh-CN' || stored === 'en-US') {
+      this.currentLocale = stored
+    }
   }
 
   private loadBundles(): void {
@@ -87,8 +122,12 @@ export class I18nService {
     zh['agent.title'] = '代理'
     zh['agent.build'] = '构建'
     zh['agent.plan'] = '规划'
+    zh['agent.unsupported'] = 'v2 代理列表不可用'
     zh['composer.send'] = '发送'
     zh['composer.placeholder'] = '向代理提问... (输入 / 查看命令)'
+    zh['composer.model'] = '模型'
+    zh['composer.shift_enter'] = 'Shift+Enter 发送'
+    zh['composer.plan_hint'] = '规划模式:只读,需批准后才能执行'
     zh['sidebar.chat'] = '对话'
     zh['sidebar.diff'] = '差异'
     zh['sidebar.files'] = '文件'
@@ -101,15 +140,33 @@ export class I18nService {
     zh['sidebar.formatters'] = '格式化'
     zh['sidebar.plugins'] = '插件'
     zh['sidebar.settings'] = '设置'
+    zh['sidebar.tools'] = '工具'
+    zh['sidebar.dir'] = '目录'
+    zh['session.title'] = '会话'
+    zh['session.none'] = '未选择会话'
+    zh['session.running'] = '运行中'
+    zh['session.new'] = '新会话'
+    zh['session.create_failed'] = '创建会话失败'
     zh['status.connected'] = '已连接'
     zh['status.disconnected'] = '未连接'
     zh['status.connecting'] = '连接中'
     zh['status.error'] = '错误'
     zh['status.unsupported'] = '不支持'
+    zh['status.online'] = '在线'
+    zh['status.offline'] = '离线'
+    zh['server.connecting'] = '正在连接'
+    zh['server.connected'] = '已连接到服务器'
+    zh['server.health_failed'] = '健康检查失败'
+    zh['server.v1_unsupported'] = 'v2 功能不可用 — 正在连接 v1 服务器'
     zh['error.network'] = '网络错误'
     zh['error.server'] = '服务器错误'
     zh['error.timeout'] = '超时'
     zh['error.not_implemented'] = '未实现'
+    zh['error.runtime_not_connected'] = '本地运行时未连接'
+    zh['error.init'] = '初始化错误'
+    zh['error.no_session_to_compact'] = '没有可压缩的活动会话'
+    zh['error.no_session_to_rename'] = '没有可重命名的活动会话'
+    zh['error.no_session_to_fork'] = '没有可分叉的活动会话'
     zh['toast.copied'] = '已复制'
     zh['toast.compacted'] = '会话已压缩'
     zh['toast.aborted'] = '已中止'
@@ -117,6 +174,10 @@ export class I18nService {
     zh['toast.snapshot_restored'] = '快照已恢复'
     zh['toast.pty_started'] = '终端已启动'
     zh['toast.pty_closed'] = '终端已关闭'
+    zh['toast.session_created'] = '会话已创建'
+    zh['toast.session_deleted'] = '会话已删除'
+    zh['toast.session_forked'] = '会话已分叉'
+    zh['toast.reconnecting'] = '正在重连...'
     zh['slash.help'] = '显示帮助'
     zh['slash.clear'] = '清空输入'
     zh['slash.new'] = '新会话'
@@ -138,6 +199,7 @@ export class I18nService {
   setLocale(locale: Locale): void {
     if (this.currentLocale === locale) return
     this.currentLocale = locale
+    AppStorage.setOrCreate('appLocale', locale)
     for (const fn of this.listeners) {
       fn(locale)
     }
@@ -147,13 +209,18 @@ export class I18nService {
     return this.currentLocale
   }
 
+  /**
+   * Subscribe to locale change events. The callback is invoked synchronously
+   * on setLocale(). Components can use this to re-render their @State
+   * translations.
+   */
   subscribe(fn: (locale: Locale) => void): void {
     this.listeners.push(fn)
   }
 
   /**
-   * Translate a key. Falls back to the key itself if not found
-   * (or to en-US bundle if current locale has no entry).
+   * Translate a key. Falls back to en-US bundle if current locale has no
+   * entry, then to the key itself.
    */
   t(key: string): string {
     const bundle = this.strings.get(this.currentLocale)

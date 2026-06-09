@@ -18,6 +18,8 @@ export struct StatusPopover {
   @Prop tokensMax: number = 128000
   @Prop agentMode: string = 'build'
   @Prop uptime: string = ''
+  // Sprint 5-F.42: 'unknown' | 'v2' | 'v1'
+  @Prop v2Status: string = 'unknown'
 
   onDismiss: () => void = () => {}
   onReconnect: () => void = () => {}
@@ -55,6 +57,26 @@ export struct StatusPopover {
       return Theme.WARNING
     }
     return Theme.SUCCESS
+  }
+
+  // ── v2 status helpers (Sprint 5-F.42) ────────────────────────
+
+  private v2StatusLabel(): string {
+    if (this.v2Status === 'v2') return 'v2 (full)'
+    if (this.v2Status === 'v1') return 'v1 (legacy)'
+    return '-- (probing)'
+  }
+
+  private v2StatusColor(): string {
+    if (this.v2Status === 'v2') return Theme.SUCCESS
+    if (this.v2Status === 'v1') return Theme.WARNING
+    return Theme.TEXT_MUTED
+  }
+
+  private v2StatusBg(): string {
+    if (this.v2Status === 'v2') return Theme.SUCCESS_DIM
+    if (this.v2Status === 'v1') return Theme.WARNING_DIM
+    return Theme.ACTIVE_BG
   }
 
   // ── Build ───────────────────────────────────────────────────

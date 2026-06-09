@@ -309,6 +309,47 @@ export class V2Client {
     return out
   }
 
+  // ══════════ Share (v2 引入) ══════════
+
+  /**
+   * POST /session/:id/share
+   * v2 server 会返回一个 share URL。
+   * v1 不支持。
+   */
+  async shareSession(sessionID: string): Promise<string> {
+    const resp = await this.post(`/session/${encodeURIComponent(sessionID)}/share`, {})
+    if (resp.status === 404 || resp.status === 405) {
+      throw new UnsupportedV2Endpoint(`/session/${sessionID}/share`, resp.status)
+    }
+    if (typeof resp.data === 'object' && resp.data !== null) {
+      const obj: Record<string, Object> = resp.data as Record<string, Object>
+      const url = (obj['url'] as string) || (obj['shareURL'] as string) || (obj['share_url'] as string) || ''
+      if (url.length > 0) return url
+    }
+    if (typeof resp.data === 'string' && resp.data.length > 0) {
+      return resp.data
+    }
+    return ''
+  }
+
+  // ══════════ Providers (v2 详细列表) ══════════
+
+  /**
+   * GET /config/providers
+   * v2 返回每个 provider 的完整配置(model 列表、key 状态、id 等)。
+   * v1 server 不实现。
+   */
+  async listProvidersDetail(): Promise<Record<string, Object>> {
+    const resp = await this.get(`/config/providers`)
+    if (resp.status === 404 || resp.status === 405) {
+      throw new UnsupportedV2Endpoint('/config/providers', resp.status)
+    }
+    if (typeof resp.data === 'object' && resp.data !== null) {
+      return resp.data as Record<string, Object>
+    }
+    return new Record<string, Object>()
+  }
+
   // ══════════ Parsers ══════════
 
   private parseSnapshot(raw: Object): SnapshotInfo {
@@ -472,6 +513,13 @@ export class V2StreamPoller {
   private sinceSeq: number = 0
   private timerId: number = -1
   private running: boolean = false
+  // Sprint 5-F.41: PTY auto-reconnect
+  private consecutiveFailures: number = 0
+  private maxConsecutiveFailures: number = 10
+  private currentIntervalMs: number
+  private readonly minIntervalMs: number = 500
+  private readonly maxIntervalMs: number = 30000
+  private transientError: boolean = false
 
   constructor(client: V2Client, sessionID: string, onChunk: (chunk: PtyChunk) => void, onError: (msg: string) => void, intervalMs: number = 1000) {
     this.client = client
@@ -479,21 +527,62 @@ export class V2StreamPoller {
     this.onChunk = onChunk
     this.onError = onError
     this.intervalMs = intervalMs
+    this.currentIntervalMs = intervalMs
   }
 
   start(): void {
     if (this.running) return
     this.running = true
-    this.timerId = setInterval((): void => {
-      this.poll()
-    }, this.intervalMs)
+    this.consecutiveFailures = 0
+    this.currentIntervalMs = this.intervalMs
+    this.scheduleNext()
   }
 
   stop(): void {
     this.running = false
     if (this.timerId !== -1) {
-      clearInterval(this.timerId)
+      clearTimeout(this.timerId)
       this.timerId = -1
+    }
+  }
+
+  /**
+   * 标记为「暂时性」错误,触发退避。指数退避:500ms -> 1s -> 2s -> ... -> 30s 上限。
+   * 10 次连续失败后停止,需要外部 restart。
+   */
+  private scheduleNext(): void {
+    if (!this.running) return
+    if (this.timerId !== -1) {
+      clearTimeout(this.timerId)
+      this.timerId = -1
+    }
+    this.timerId = setTimeout((): void => {
+      this.poll()
+    }, this.currentIntervalMs)
+  }
+
+  private backoff(): void {
+    this.consecutiveFailures++
+    if (this.consecutiveFailures > this.maxConsecutiveFailures) {
+      this.onError(`pty poll gave up after ${this.maxConsecutiveFailures} failures`)
+      this.stop()
+      return
+    }
+    // Exponential backoff: 500ms, 1s, 2s, 4s, 8s, 16s, capped at maxIntervalMs
+    let next = this.minIntervalMs
+    for (let i = 1; i < this.consecutiveFailures && next < this.maxIntervalMs; i++) {
+      next *= 2
+    }
+    if (next > this.maxIntervalMs) next = this.maxIntervalMs
+    this.currentIntervalMs = next
+    this.transientError = true
+  }
+
+  private resetBackoff(): void {
+    if (this.consecutiveFailures > 0) {
+      this.consecutiveFailures = 0
+      this.currentIntervalMs = this.intervalMs
+      this.transientError = false
     }
   }
 
@@ -502,14 +591,19 @@ export class V2StreamPoller {
     try {
       const resp = await this.client.pollPtyOutput(this.sessionID, this.sinceSeq)
       if (resp.status === 404 || resp.status === 405) {
+        // Endpoint unsupported — fatal, don't retry.
         this.onError(`pty output endpoint not supported (HTTP ${resp.status})`)
         this.stop()
         return
       }
       if (!resp.ok) {
         this.onError(`pty poll failed: HTTP ${resp.status}`)
+        this.backoff()
+        this.scheduleNext()
         return
       }
+      // Success — reset backoff
+      this.resetBackoff()
       if (Array.isArray(resp.data)) {
         for (const raw of resp.data) {
           if (raw === null || raw === undefined) continue
@@ -532,6 +626,8 @@ export class V2StreamPoller {
       }
     } catch (e) {
       this.onError(`pty poll exception: ${String(e)}`)
+      this.backoff()
     }
+    this.scheduleNext()
   }
 }

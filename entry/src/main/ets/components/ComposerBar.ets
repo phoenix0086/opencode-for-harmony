@@ -1,9 +1,11 @@
 import { Theme } from './Theme'
 import { ContextUsage } from './ContextUsage'
+import { AgentSelector } from './AgentSelector'
+import { AgentDetail } from '../services/V2Type'
 
 /**
  * Bottom Composer input bar with M14 features
- * - Agent mode toggle (Build/Plan)
+ * - Agent mode toggle (Build/Plan) via AgentSelector
  * - Context usage indicator
  * - Clickable model label
  * - TextArea with send/abort controls
@@ -30,6 +32,10 @@ export struct ComposerBar {
   // ── M14: Context Usage ──
   @Prop tokensUsed: number = 0
   @Prop tokensMax: number = 128000
+
+  // ── Sprint 3-B.14/15: Agent list (v2 detail) ──
+  @Prop agents: AgentDetail[] = []
+  @Prop agentUnsupported: boolean = false
 
   build() {
     Column() {
@@ -103,33 +109,47 @@ export struct ComposerBar {
       .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.sm })
 
       // Bottom info bar
-      // Layout: [mode toggle] [session title] [context usage] --- [shift+enter hint]
+      // Layout: [agent selector] [session title] [context usage] --- [shift+enter hint]
       Row() {
-        // ── Agent mode toggle ──
-        Row() {
-          Text('build')
-            .fontSize(Theme.fs.xs)
-            .fontColor(this.agentMode === 'build' ? Theme.ACCENT : Theme.TEXT_MUTED)
-            .fontWeight(this.agentMode === 'build' ? FontWeight.Bold : FontWeight.Normal)
-            .fontFamily(Theme.FONT_MONO)
-            .onClick(() => {
-              this.onModeChange('build')
-            })
+        // ── Agent selector (Sprint 3-B.14/15) ──
+        // Falls back to legacy build/plan toggle if v2 unavailable OR
+        // no agents prop passed (parent still on M14 wiring).
+        if (this.agents.length > 0 || this.agentUnsupported) {
+          AgentSelector({
+            agents: this.agents,
+            currentAgent: this.agentMode,
+            unsupported: this.agentUnsupported,
+            onSelect: (name: string): void => { this.onModeChange(name) }
+          })
+        } else {
+          // Legacy M14 inline toggle (only rendered when parent didn't pass
+          // v2 agents — keeps backward compat for Index.ets callers that
+          // haven't yet wired the agents prop)
+          Row() {
+            Text('build')
+              .fontSize(Theme.fs.xs)
+              .fontColor(this.agentMode === 'build' ? Theme.ACCENT : Theme.TEXT_MUTED)
+              .fontWeight(this.agentMode === 'build' ? FontWeight.Bold : FontWeight.Normal)
+              .fontFamily(Theme.FONT_MONO)
+              .onClick(() => {
+                this.onModeChange('build')
+              })
 
-          Text('/')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .fontFamily(Theme.FONT_MONO)
-            .margin({ left: Theme.sp.xs, right: Theme.sp.xs })
+            Text('/')
+              .fontSize(Theme.fs.xs)
+              .fontColor(Theme.TEXT_MUTED)
+              .fontFamily(Theme.FONT_MONO)
+              .margin({ left: Theme.sp.xs, right: Theme.sp.xs })
 
-          Text('plan')
-            .fontSize(Theme.fs.xs)
-            .fontColor(this.agentMode === 'plan' ? Theme.ACCENT : Theme.TEXT_MUTED)
-            .fontWeight(this.agentMode === 'plan' ? FontWeight.Bold : FontWeight.Normal)
-            .fontFamily(Theme.FONT_MONO)
-            .onClick(() => {
-              this.onModeChange('plan')
-            })
+            Text('plan')
+              .fontSize(Theme.fs.xs)
+              .fontColor(this.agentMode === 'plan' ? Theme.ACCENT : Theme.TEXT_MUTED)
+              .fontWeight(this.agentMode === 'plan' ? FontWeight.Bold : FontWeight.Normal)
+              .fontFamily(Theme.FONT_MONO)
+              .onClick(() => {
+                this.onModeChange('plan')
+              })
+          }
         }
 
         // ── Session title ──
