@@ -6,12 +6,12 @@
  */
 
 export class FontSizes {
-  xs: number = 10
-  sm: number = 12
-  md: number = 13
-  lg: number = 15
-  xl: number = 18
-  code: number = 12
+  xs: number = 14
+  sm: number = 16
+  md: number = 18
+  lg: number = 20
+  xl: number = 24
+  code: number = 16
 }
 
 export class Spacing {
