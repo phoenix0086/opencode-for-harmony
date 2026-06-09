@@ -62,6 +62,22 @@ export struct LeftActivityBar {
     settings.label = 'Settings'
     settings.symbol = '*'
 
+    // Sprint 2-A.5 / A.6 / A.7
+    const lsp = new ActivityItem()
+    lsp.id = 'lsp'
+    lsp.label = 'LSP'
+    lsp.symbol = 'L'
+
+    const mcp = new ActivityItem()
+    mcp.id = 'mcp'
+    mcp.label = 'MCP'
+    mcp.symbol = 'M'
+
+    const formatters = new ActivityItem()
+    formatters.id = 'formatters'
+    formatters.label = 'Format'
+    formatters.symbol = 'F'
+
     const arr: ActivityItem[] = []
     arr.push(chat)
     arr.push(files)
@@ -70,6 +86,9 @@ export struct LeftActivityBar {
     arr.push(runtime)
     arr.push(server)
     arr.push(models)
+    arr.push(lsp)
+    arr.push(mcp)
+    arr.push(formatters)
     arr.push(settings)
     this.items = arr
   }

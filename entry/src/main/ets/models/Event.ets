@@ -78,6 +78,21 @@ export class MessageInfo {
   sessionID: string = ''
   agent: string = ''
   time: MessageTime = new MessageTime()
+  tokens: MessageTokens = new MessageTokens()
+  cost: number = 0
+  model: string = ''
+}
+
+export class MessageTokens {
+  input: number = 0
+  output: number = 0
+  reasoning: number = 0
+  cache: MessageTokenCache = new MessageTokenCache()
+}
+
+export class MessageTokenCache {
+  read: number = 0
+  write: number = 0
 }
 
 export class MessageTime {

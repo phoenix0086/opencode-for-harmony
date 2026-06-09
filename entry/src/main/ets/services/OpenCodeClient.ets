@@ -434,6 +434,16 @@ export class OpenCodeClient {
   }
 
   /**
+   * Same as getMessages() but also returns the raw WithParts list so the
+   * caller can read info.tokens / info.cost without a second request.
+   * Used by Index.loadMessages to update the context usage indicator.
+   */
+  async getMessagesWithRaw(sessionID: string, limit?: number): Promise<{ normalized: NormalizedMessage[], raw: WithParts[] }> {
+    const raw = await this.getMessagesRaw(sessionID, limit)
+    return { normalized: normalizeMessages(raw), raw }
+  }
+
+  /**
    * 同步发送消息 (阻塞直到 Agent 回复)
    */
   async sendMessage(sessionID: string, content: string): Promise<Record<string, Object>> {

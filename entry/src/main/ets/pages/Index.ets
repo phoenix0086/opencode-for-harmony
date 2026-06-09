@@ -50,6 +50,9 @@ struct Index {
   // ══════════ Composer State ══════════
   @State inputText: string = ''
   @State agentMode: string = 'build'
+  @State mcpServers: MCPServer[] = []
+  @State lspServers: LspServer[] = []
+  @State formatterList: FormatterEntry[] = []
   @State isSending: boolean = false
 
   // ══════════ Project State ══════════
@@ -115,6 +118,14 @@ struct Index {
       if (this.activeRunner !== null) {
         await this.testConnection()
         await this.loadSessions()
+        // Sprint 2: pre-warm MCP/LSP/Formatter panels
+        if (this.isConnected) {
+          await Promise.all([
+            this.loadMcpServers(),
+            this.loadLspServers(),
+            this.loadFormatters()
+          ])
+        }
       }
     } catch (e) {
       ToastManager.show(`init error: ${String(e)}`, 'error')
@@ -254,10 +265,12 @@ struct Index {
 
     this.loadMessagesInFlight = true
     try {
-      const messages = await client.getMessages(this.activeSessionId)
+      const data = await client.getMessagesWithRaw(this.activeSessionId)
+      const messages = data.normalized
       const blocks: TranscriptBlock[] = []
       const toolMap: Map<string, ToolTimelineEntry> = new Map()
       let lastAssistantId = ''
+      let totalTokens = 0
 
       for (const msg of messages) {
         if (msg.role === 'assistant') {
@@ -277,6 +290,20 @@ struct Index {
           }
         }
       }
+
+      // Sprint 2-C.19: sum tokens from the last assistant info.
+      // We read raw (info.tokens) so the user sees real context usage.
+      if (data.raw.length > 0) {
+        for (let i = data.raw.length - 1; i >= 0; i--) {
+          const info = data.raw[i].info
+          if (info && info.role === 'assistant' && info.tokens) {
+            const t = info.tokens
+            totalTokens = (t.input || 0) + (t.output || 0) + (t.reasoning || 0)
+            break
+          }
+        }
+      }
+      this.tokensUsed = totalTokens
 
       this.lastAssistantMessageId = lastAssistantId
       this.transcriptBlocks = blocks
@@ -300,6 +327,83 @@ struct Index {
     const p1 = this.loadMessages()
     const p2 = this.loadDiffs()
     await Promise.all([p1, p2])
+  }
+
+  // ─────────────── Sprint 2-A.5/A.6/A.7: extension panel loaders ───────────────
+
+  /**
+   * Pull MCP server list, normalizing raw Record<string, Object> shape into
+   * MCPServer instances for the panel.
+   */
+  async loadMcpServers(): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      const raw = await client.listMcpServers()
+      const list: MCPServer[] = []
+      for (const r of raw) {
+        const s = new MCPServer()
+        s.id = (r['name'] as string) || (r['id'] as string) || ''
+        s.name = s.id
+        const statusVal = r['status']
+        s.status = typeof statusVal === 'string' ? statusVal : 'disconnected'
+        const errVal = r['error']
+        if (typeof errVal === 'string') s.errorMessage = errVal
+        list.push(s)
+      }
+      this.mcpServers = list
+    } catch (e) {
+      this.addLog(`mcp.load.failed: ${String(e)}`, 'warn', 'mcp')
+    }
+  }
+
+  async loadLspServers(): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      const raw = await client.listLspStatus()
+      const list: LspServer[] = []
+      for (const r of raw) {
+        const s = new LspServer()
+        s.id = (r['name'] as string) || (r['id'] as string) || ''
+        s.name = s.id
+        s.root = (r['root'] as string) || ''
+        const statusVal = r['status']
+        s.status = typeof statusVal === 'string' ? statusVal : 'disconnected'
+        const errVal = r['error']
+        if (typeof errVal === 'string') s.errorMessage = errVal
+        list.push(s)
+      }
+      this.lspServers = list
+    } catch (e) {
+      this.addLog(`lsp.load.failed: ${String(e)}`, 'warn', 'lsp')
+    }
+  }
+
+  async loadFormatters(): Promise<void> {
+    const client = this.getClient()
+    if (client === null) return
+    try {
+      const raw = await client.listFormatters()
+      const list: FormatterEntry[] = []
+      for (const r of raw) {
+        const f = new FormatterEntry()
+        f.name = (r['name'] as string) || (r['id'] as string) || ''
+        f.command = (r['command'] as string) || ''
+        const enabledVal = r['enabled']
+        f.enabled = enabledVal === undefined ? true : (enabledVal === true)
+        const extsVal = r['extensions']
+        if (Array.isArray(extsVal)) {
+          for (const e of extsVal) {
+            if (typeof e === 'string') f.extensions.push(e)
+          }
+        }
+        list.push(f)
+      }
+      this.formatterList = list
+    } catch (e) {
+      this.addLog(`formatter.load.failed: ${String(e)}`, 'warn', 'formatter')
+    }
   }
 
   async loadDiffs(): Promise<void> {
@@ -1175,11 +1279,23 @@ struct Index {
           this.createNewSession()
         },
         onSend: () => {
-          this.sendMessage()
+          this.dispatchInput()
         },
         onAbort: () => {
           this.abortSession()
         },
+        onRefreshMcp: () => {
+          this.loadMcpServers()
+        },
+        onRefreshLsp: () => {
+          this.loadLspServers()
+        },
+        onRefreshFormatters: () => {
+          this.loadFormatters()
+        },
+        mcpServers: this.mcpServers,
+        lspServers: this.lspServers,
+        formatterList: this.formatterList,
         onApprovePermission: (id: string) => {
           this.approvePermission(id)
         },

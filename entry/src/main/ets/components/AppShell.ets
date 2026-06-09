@@ -61,7 +61,14 @@ export struct AppShell {
   onAbort: () => void = () => {}
   onApprovePermission: (id: string) => void = () => {}
   onAlwaysApprovePermission: (id: string) => void = () => {}
+  onAnswerQuestion: (id: string, optionIds: string[]) => void = () => {}
   onModeChange: (mode: string) => void = () => {}
+  @Prop mcpServers: MCPServer[] = []
+  @Prop lspServers: LspServer[] = []
+  @Prop formatterList: FormatterEntry[] = []
+  onRefreshMcp: () => void = () => {}
+  onRefreshLsp: () => void = () => {}
+  onRefreshFormatters: () => void = () => {}
   onModelClick: () => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
   onSessionAction: (sessionId: string, action: string) => void = () => {}
