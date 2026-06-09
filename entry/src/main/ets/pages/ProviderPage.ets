@@ -1,7 +1,6 @@
 import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { http } from '@kit.NetworkKit'
 import { providerRegistry } from '../services/ProviderRegistry'
-import { OpenCodeClient } from '../services/OpenCodeClient'
 import { Runner } from '../models/Runner'
 import { Theme } from '../components/Theme'
 import { TestConnectionResult } from '../services/ProviderConnectionService'
@@ -22,6 +21,7 @@ export struct ProviderPage {
   @State isInitialized: boolean = false
   @State statusMsg: string = ''
   @State configOutput: string = ''
+  @State showConfigDialog: boolean = false
 
   // Dialog state
   @State showEditDialog: boolean = false
@@ -642,8 +642,6 @@ export struct ProviderPage {
   // ══════════════════════════════════════════════════
   //  Config Preview Dialog
   // ══════════════════════════════════════════════════
-
-  @State showConfigDialog: boolean = false
 
   @Builder
   ConfigDialogOverlay() {
