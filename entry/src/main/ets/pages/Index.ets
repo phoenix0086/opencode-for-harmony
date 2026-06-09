@@ -247,7 +247,7 @@ struct Index {
         }
       } else {
         // Connection prompt
-        Button('Connect to Server')
+        Button('连接本地 Runtime')
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
           .width(200)
@@ -383,7 +383,7 @@ struct Index {
         .fontSize(18)
         .fontColor('#FFFFFF')
         .margin(16)
-      Text('Connect to server to load web interface')
+      Text('连接本地 OpenCode Runtime 后可继续使用')
         .fontSize(14)
         .fontColor('#666666')
     }
@@ -433,12 +433,12 @@ struct Index {
         .fontColor('#FFFFFF')
         .margin({ bottom: 24 })
 
-      // Server URL
-      Text('Server URL')
+      // Runtime URL
+      Text('Runtime URL')
         .fontSize(14)
         .fontColor('#AAAAAA')
         .margin({ bottom: 8 })
-      TextInput({ placeholder: 'http://localhost:3000', text: this.viewModel.serverInfo.url })
+      TextInput({ placeholder: 'http://127.0.0.1:4096', text: this.viewModel.serverInfo.url })
         .width('100%')
         .height(40)
         .backgroundColor('#2D2D2D')
@@ -484,7 +484,7 @@ struct Index {
         .fontSize(14)
         .fontColor('#AAAAAA')
         .margin({ top: 16, bottom: 8 })
-      TextInput({ placeholder: 'anthropic/claude-sonnet-4-20250514', text: this.viewModel.selectedModel })
+      TextInput({ placeholder: 'providerId/modelId，例如 xiaomi-mimo/mimo-v2.5-pro', text: this.viewModel.selectedModel })
         .width('100%')
         .height(40)
         .backgroundColor('#2D2D2D')

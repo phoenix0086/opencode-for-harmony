@@ -4,8 +4,7 @@ import { Constants } from '../utils/Constants';
 import { ServerInfo } from '../model/ServerInfo';
 
 /**
- * HTTP client for communicating with the OpenCode server.
- * Supports GET/POST/PUT/DELETE with basic auth.
+ * HTTP client for communicating with the local OpenCode Runtime.
  */
 export class HttpService {
   private server: ServerInfo | null = null;
@@ -14,125 +13,78 @@ export class HttpService {
     this.server = server;
   }
 
-  private buildUrl(path: string): string {
-    if (!this.server) {
-      throw new Error('Server not configured');
-    }
-    const base = this.server.url.replace(/\/+$/, '');
-    return base + path;
+  getBaseUrl(): string {
+    if (!this.server) return '';
+    return this.server.url.replace(/\/+$/, '');
   }
 
-  private buildHeaders(): Record<string, string> {
+  private buildUrl(path: string): string {
+    if (!this.server) throw new Error('Runtime not configured');
+    return this.server.url.replace(/\/+$/, '') + path;
+  }
+
+  private buildHeaders(extra?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     };
     if (this.server) {
       const auth = this.server.getAuthHeader();
-      if (auth.length > 0) {
-        headers['Authorization'] = auth;
-      }
+      if (auth.length > 0) headers['Authorization'] = auth;
+    }
+    if (extra) {
+      for (const key of Object.keys(extra)) headers[key] = extra[key];
     }
     return headers;
   }
 
-  async get<T>(path: string): Promise<T> {
+  private parseResult<T>(result: Object | string | ArrayBuffer | undefined | null): T {
+    if (result === undefined || result === null) return undefined as T;
+    if (typeof result === 'string') {
+      if (result.length === 0) return undefined as T;
+      try { return JSON.parse(result) as T; } catch { return result as T; }
+    }
+    return result as T;
+  }
+
+  private async request<T>(path: string, method: http.RequestMethod, body?: Object, extraHeaders?: Record<string, string>): Promise<T> {
     const url = this.buildUrl(path);
     const httpRequest = http.createHttp();
     try {
-      const response = await httpRequest.request(url, {
-        method: http.RequestMethod.GET,
-        header: this.buildHeaders(),
+      const options: http.HttpRequestOptions = {
+        method: method,
+        header: this.buildHeaders(extraHeaders),
         connectTimeout: Constants.HTTP_TIMEOUT_MS,
         readTimeout: Constants.HTTP_TIMEOUT_MS,
         expectDataType: http.HttpDataType.OBJECT
-      });
-      if (response.responseCode === 200) {
-        return response.result as T;
-      }
+      };
+      if (body !== undefined) options.extraData = JSON.stringify(body);
+      const response = await httpRequest.request(url, options);
+      if (response.responseCode >= 200 && response.responseCode < 300) return this.parseResult<T>(response.result);
       throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
     } catch (err) {
-      Logger.error('HTTP GET %{public}s failed: %{public}s', path, String(err));
+      Logger.error('HTTP %{public}s %{public}s failed: %{public}s', String(method), path, String(err));
       throw new Error(String(err));
     } finally {
       httpRequest.destroy();
     }
   }
 
-  async post<T>(path: string, body?: Object): Promise<T> {
-    const url = this.buildUrl(path);
-    const httpRequest = http.createHttp();
-    try {
-      const response = await httpRequest.request(url, {
-        method: http.RequestMethod.POST,
-        header: this.buildHeaders(),
-        extraData: body ? JSON.stringify(body) : undefined,
-        connectTimeout: Constants.HTTP_TIMEOUT_MS,
-        readTimeout: Constants.HTTP_TIMEOUT_MS,
-        expectDataType: http.HttpDataType.OBJECT
-      });
-      if (response.responseCode >= 200 && response.responseCode < 300) {
-        return response.result as T;
-      }
-      throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
-    } catch (err) {
-      Logger.error('HTTP POST %{public}s failed: %{public}s', path, String(err));
-      throw new Error(String(err));
-    } finally {
-      httpRequest.destroy();
-    }
-  }
+  async get<T>(path: string): Promise<T> { return this.request<T>(path, http.RequestMethod.GET); }
+  async post<T>(path: string, body?: Object): Promise<T> { return this.request<T>(path, http.RequestMethod.POST, body); }
+  async put<T>(path: string, body?: Object): Promise<T> { return this.request<T>(path, http.RequestMethod.PUT, body); }
+  async delete<T>(path: string): Promise<T> { return this.request<T>(path, http.RequestMethod.DELETE); }
 
-  async put<T>(path: string, body?: Object): Promise<T> {
-    const url = this.buildUrl(path);
-    const httpRequest = http.createHttp();
-    try {
-      const response = await httpRequest.request(url, {
-        method: http.RequestMethod.PUT,
-        header: this.buildHeaders(),
-        extraData: body ? JSON.stringify(body) : undefined,
-        connectTimeout: Constants.HTTP_TIMEOUT_MS,
-        readTimeout: Constants.HTTP_TIMEOUT_MS,
-        expectDataType: http.HttpDataType.OBJECT
-      });
-      if (response.responseCode >= 200 && response.responseCode < 300) {
-        return response.result as T;
-      }
-      throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
-    } catch (err) {
-      Logger.error('HTTP PUT %{public}s failed: %{public}s', path, String(err));
-      throw new Error(String(err));
-    } finally {
-      httpRequest.destroy();
-    }
-  }
-
-  async delete<T>(path: string): Promise<T> {
-    const url = this.buildUrl(path);
-    const httpRequest = http.createHttp();
-    try {
-      const response = await httpRequest.request(url, {
-        method: http.RequestMethod.DELETE,
-        header: this.buildHeaders(),
-        connectTimeout: Constants.HTTP_TIMEOUT_MS,
-        readTimeout: Constants.HTTP_TIMEOUT_MS,
-        expectDataType: http.HttpDataType.OBJECT
-      });
-      if (response.responseCode >= 200 && response.responseCode < 300) {
-        return response.result as T;
-      }
-      throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
-    } catch (err) {
-      Logger.error('HTTP DELETE %{public}s failed: %{public}s', path, String(err));
-      throw new Error(String(err));
-    } finally {
-      httpRequest.destroy();
-    }
+  async patch<T>(path: string, body?: Object): Promise<T> {
+    return this.request<T>(path, http.RequestMethod.POST, body, { 'X-HTTP-Method-Override': 'PATCH' });
   }
 
   async checkHealth(): Promise<boolean> {
     try {
-      await this.get<Record<string, string>>(Constants.API_HEALTH);
+      const result = await this.get<Record<string, Object>>(Constants.API_HEALTH);
+      if (!result) return true;
+      const healthy = result['healthy'];
+      if (typeof healthy === 'boolean') return healthy;
       return true;
     } catch {
       return false;

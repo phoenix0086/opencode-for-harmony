@@ -1,25 +1,12 @@
-/**
- * Represents a single chat message in a conversation.
- */
-export enum MessageRole {
-  User = 'user',
-  Assistant = 'assistant',
-  System = 'system'
-}
-
-export enum MessageStatus {
-  Pending = 'pending',
-  Streaming = 'streaming',
-  Complete = 'complete',
-  Error = 'error'
-}
+export enum MessageRole { User = 'user', Assistant = 'assistant', System = 'system' }
+export enum MessageStatus { Pending = 'pending', Streaming = 'streaming', Complete = 'complete', Error = 'error' }
 
 export class ToolCall {
   id: string = '';
   name: string = '';
   arguments: string = '';
   result: string = '';
-  status: string = 'pending'; // 'pending' | 'running' | 'complete' | 'error'
+  status: string = 'pending';
 }
 
 export class ChatMessage {
@@ -43,11 +30,11 @@ export class ChatMessage {
     return msg;
   }
 
-  static createAssistantMessage(): ChatMessage {
+  static createAssistantMessage(content: string = ''): ChatMessage {
     const msg = new ChatMessage();
     msg.id = generateId();
     msg.role = MessageRole.Assistant;
-    msg.content = '';
+    msg.content = content;
     msg.timestamp = Date.now();
     msg.status = MessageStatus.Streaming;
     msg.isStreaming = true;
@@ -64,26 +51,15 @@ export class ChatMessage {
     return msg;
   }
 
-  appendContent(delta: string): void {
-    this.content += delta;
+  static createErrorMessage(content: string): ChatMessage {
+    const msg = ChatMessage.createAssistantMessage(content);
+    msg.setError(content);
+    return msg;
   }
 
-  finalize(): void {
-    this.isStreaming = false;
-    this.status = MessageStatus.Complete;
-  }
-
-  setError(message: string): void {
-    this.isError = true;
-    this.isStreaming = false;
-    this.status = MessageStatus.Error;
-    this.content = message;
-  }
+  appendContent(delta: string): void { this.content += delta; }
+  finalize(): void { this.isStreaming = false; this.status = MessageStatus.Complete; }
+  setError(message: string): void { this.isError = true; this.isStreaming = false; this.status = MessageStatus.Error; this.content = message; }
 }
-
 let idCounter: number = 0;
-
-function generateId(): string {
-  idCounter++;
-  return 'msg_' + Date.now().toString() + '_' + idCounter.toString();
-}
+function generateId(): string { idCounter++; return 'msg_' + Date.now().toString() + '_' + idCounter.toString(); }
