@@ -235,7 +235,7 @@ export struct AppShell {
 
         // Left: Sidebar
         SessionSidebar({
-          workspaceName: this.projectName.length > 0 ? this.projectName : 'workspace',
+          workspaceName: this.projectName && this.projectName.length > 0 ? this.projectName : 'workspace',
           sessions: this.sessions,
           activeSessionId: this.activeSessionId,
           onSelectSession: (id: string) => {

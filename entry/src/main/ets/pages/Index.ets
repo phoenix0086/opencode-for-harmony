@@ -140,8 +140,12 @@ struct Index {
         // Parallel load: project / vcs / config / projects list
         const pProj = client.getCurrentProject().then(
           (project) => {
-            this.projectName = project.name
-            this.addLog(`project: ${project.name}`, 'info', 'server')
+            // /project/current returns {id, worktree, vcs, sandboxes} — no `name`.
+            // Use worktree path as the workspace label; fall back to a trimmed path tail.
+            const raw = (project.worktree && project.worktree.length > 0) ? project.worktree : ''
+            const trimmed = raw.split('/').filter((s: string) => s.length > 0).pop() || 'workspace'
+            this.projectName = trimmed
+            this.addLog(`project: ${trimmed}`, 'info', 'server')
           },
           (e: Object) => { this.addLog(`project load failed: ${String(e)}`, 'warn', 'server') }
         )
