@@ -316,13 +316,18 @@ export class OpenCodeClient {
     }
     const resp = await this.doGet(path)
     this.checkResponse(resp)
-    return this.parseJson<SessionInfo[]>(resp)
+    const raw = this.parseJson<Record<string, Object>[]>(resp)
+    const out: SessionInfo[] = []
+    for (const item of raw) {
+      out.push(normalizeSession(item))
+    }
+    return out
   }
 
   async getSession(sessionID: string): Promise<SessionInfo> {
     const resp = await this.doGet(`/session/${sessionID}`)
     this.checkResponse(resp)
-    return this.parseJson<SessionInfo>(resp)
+    return normalizeSession(this.parseJson<Record<string, Object>>(resp))
   }
 
   async createSession(title?: string): Promise<SessionInfo> {
@@ -332,7 +337,7 @@ export class OpenCodeClient {
     }
     const resp = await this.doPost('/session', JSON.stringify(body))
     this.checkResponse(resp)
-    return this.parseJson<SessionInfo>(resp)
+    return normalizeSession(this.parseJson<Record<string, Object>>(resp))
   }
 
   async deleteSession(sessionID: string): Promise<boolean> {
@@ -514,6 +519,56 @@ export class HealthResult {
  * WithParts[] → NormalizedMessage[]
  * 将原始 API 的 { info, parts } 结构转换为 UI 友好的扁平格式
  */
+/**
+ * Record<string, Object> → SessionInfo
+ * 保证 model / time / tokens / summary 四个嵌套对象一定有默认实例
+ * (parseJson<T> 不会跑类初始化器,直接 JSON.parse 后嵌套对象是 undefined)
+ */
+export function normalizeSession(raw: Record<string, Object>): SessionInfo {
+  const info = new SessionInfo()
+  info.id = (raw['id'] as string) || ''
+  info.slug = (raw['slug'] as string) || ''
+  info.title = (raw['title'] as string) || ''
+  info.projectID = (raw['projectID'] as string) || (raw['project_id'] as string) || ''
+  info.directory = (raw['directory'] as string) || ''
+  info.agent = (raw['agent'] as string) || ''
+  info.version = (raw['version'] as string) || ''
+  info.cost = (raw['cost'] as number) || 0
+
+  // defensive: extra fields the API may also include
+  info.workspaceID = (raw['workspaceID'] as string) || (raw['workspace_id'] as string) || ''
+  info.path = (raw['path'] as string) || ''
+
+  const time = raw['time'] as Record<string, Object> | undefined
+  if (time) {
+    info.time.created = (time['created'] as number) || 0
+    info.time.updated = (time['updated'] as number) || 0
+  }
+
+  const model = raw['model'] as Record<string, Object> | undefined
+  if (model) {
+    info.model.id = (model['id'] as string) || ''
+    info.model.providerID = (model['providerID'] as string) || (model['provider_id'] as string) || ''
+    info.model.variant = (model['variant'] as string) || ''
+  }
+
+  const tokens = raw['tokens'] as Record<string, Object> | undefined
+  if (tokens) {
+    info.tokens.input = (tokens['input'] as number) || 0
+    info.tokens.output = (tokens['output'] as number) || 0
+    info.tokens.reasoning = (tokens['reasoning'] as number) || 0
+  }
+
+  const summary = raw['summary'] as Record<string, Object> | undefined
+  if (summary) {
+    info.summary.additions = (summary['additions'] as number) || 0
+    info.summary.deletions = (summary['deletions'] as number) || 0
+    info.summary.files = (summary['files'] as number) || 0
+  }
+
+  return info
+}
+
 export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
   const result: NormalizedMessage[] = []
   for (const item of raw) {

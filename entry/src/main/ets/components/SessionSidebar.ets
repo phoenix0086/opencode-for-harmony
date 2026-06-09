@@ -97,14 +97,14 @@ export struct SessionSidebar {
 
                 Row() {
                   // Model badge
-                  if (session.model.id.length > 0) {
+                  if (session.model && session.model.id && session.model.id.length > 0) {
                     Text(session.model.id)
                       .fontSize(Theme.fs.xs)
                       .fontColor(Theme.ACCENT)
                       .fontFamily(Theme.FONT_MONO)
                   }
 
-                  if (session.time.updated > 0) {
+                  if (session.time && session.time.updated > 0) {
                     Text(this.formatRelTime(session.time.updated))
                       .fontSize(Theme.fs.xs)
                       .fontColor(Theme.TEXT_MUTED)
