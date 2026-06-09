@@ -11,6 +11,7 @@ class ToolTimelineEntry {
   status: string = '' // 'running' | 'success' | 'error' | 'cancelled'
   input: string = ''
   output: string = ''
+  error: string = ''
   step: number = 0
   timestamp: string = ''
 }
@@ -52,14 +53,22 @@ export struct ToolTimelinePanel {
       // Timeline
       if (this.entries.length === 0) {
         Column() {
-          Text('No tool calls yet')
+          Text('No tool calls yet.')
             .fontSize(Theme.fs.sm)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)
+          Text('发送一个需要读写文件或运行命令的任务后，这里会显示 OpenCode 的工具调用。')
+            .fontSize(Theme.fs.xs)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+            .margin({ top: Theme.sp.sm })
+            .textAlign(TextAlign.Center)
+            .padding({ left: Theme.sp.lg, right: Theme.sp.lg })
         }
         .layoutWeight(1)
         .width('100%')
         .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
       } else {
         List() {
           ForEach(this.entries, (entry: ToolTimelineEntry) => {

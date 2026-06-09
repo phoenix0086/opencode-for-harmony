@@ -1,29 +1,36 @@
 import { Runner } from '../../models/Runner'
 import { SessionInfo } from '../../models/Event'
 import { ProjectEntry } from '../DirectoryPicker'
+import { formatRelativeTime } from '../../utils/DateTimeUtil'
 
 /**
  * OpenCodeHomeLaunch
  *
- * This component is a FULL-SCREEN home shell.
+ * Home 全屏布局，移植自 opencode-dev LegacyHome (packages/app/src/pages/home.tsx)。
  *
- * Important:
- * - Do not render it inside the old AppShell IDE chrome.
- * - It already owns the title bar, activity rail, center composer, and right editor placeholder.
- * - AppShell must show this component before rendering TopStatusBar / LeftActivityBar / SessionSidebar.
+ * 三段式结构：
+ * - TitleBar：macOS 红黄绿按钮 + 布局切换 + 搜索 + 服务器状态
+ * - ActivityRail：左侧 0/紫色会话徽章、+、⚙、?（与 opencode 旧版对齐）
+ * - CenterPane：居中像素 opencode Logo + Local Server 状态按钮 + 最近项目列表
  *
- * Functional mapping:
- * - Purple session badge: sessions.length, opens chat.
- * - Left plus: create session.
- * - Gear: settings.
- * - Help: logs panel.
- * - Top search: directory picker.
- * - Server icon: status popover.
- * - Right split icon: toggle right panel.
- * - Center project/path/branch: real project state.
- * - Composer: inputText + onSend/onAbort.
- * - Model picker: models page.
- * - Right editor empty state: files page.
+ * 与 opencode-dev LegacyHome 的对应关系：
+ * - 大 Logo  + Local Server  → CenterPane 顶部 Stack
+ * - 状态点（绿/灰/红）       → isConnected
+ * - "最近项目" + "打开项目"  → 最近项目区
+ * - ForEach project 项       → 包含 worktree（~ 简写）+ formatRelativeTime
+ * - 空项目状态               → folder-add-left 图标 + 文案 + 打开项目按钮
+ * - loading 状态             → 居中转圈
+ *
+ * 行为映射：
+ * - 0 紫色徽章：跳到 chat 工作区（onOpenChat）
+ * - 左 +：onNewSession
+ * - ⚙：onOpenSettings
+ * - ?：onOpenHelp
+ * - 顶部搜索：onOpenDirectoryPicker
+ * - 服务器图标：onOpenServerStatus
+ * - Local Server 按钮：onOpenServerStatus
+ * - "打开项目" 按钮：onOpenDirectoryPicker
+ * - 单个最近项目：onOpenProject(directory) — 通过 onOpenDirectoryPicker 路由
  */
 @Component
 export struct OpenCodeHomeLaunch {
@@ -39,6 +46,8 @@ export struct OpenCodeHomeLaunch {
   @Prop isConnected: boolean = false
   @Prop serverVersion: string = ''
   @Prop projects: ProjectEntry[] = []
+  @Prop serverName: string = 'Local Server'
+  @Prop isServerReady: boolean = false
 
   onInputChange: (value: string) => void = () => {}
   onSend: () => void = () => {}
@@ -52,30 +61,54 @@ export struct OpenCodeHomeLaunch {
   onOpenRightPanel: () => void = () => {}
   onOpenFiles: () => void = () => {}
   onOpenModels: () => void = () => {}
+  onOpenProject: (directory: string) => void = () => {}
 
-  private displayProjectName(): string {
-    if (this.projectName.length > 0) return this.projectName
-    return '构建任何东西'
+  private serverLabel(): string {
+    if (this.serverName.length > 0) return this.serverName
+    if (this.activeRunner !== null) {
+      return `${this.activeRunner.protocol}://${this.activeRunner.host}:${this.activeRunner.port}`
+    }
+    return 'Local Server'
   }
 
-  private displayProjectPath(): string {
-    if (this.projectPath.length > 0) return this.projectPath
-    if (this.activeRunner !== null) return `${this.activeRunner.protocol}://${this.activeRunner.host}:${this.activeRunner.port}`
-    return '/workspace'
-  }
-
-  private displayBranch(): string {
-    if (this.branchName.length > 0) return this.branchName
-    return '未加载分支'
-  }
-
-  private displayModel(): string {
-    if (this.modelName.length > 0) return this.modelName
-    return '选择模型'
+  private serverDotColor(): string {
+    if (!this.isServerReady) return '#5a5a5a'
+    if (this.isConnected) return '#3dd24a'
+    return '#d24a3d'
   }
 
   private sessionCount(): string {
     return `${this.sessions.length}`
+  }
+
+  // 把 "~" 简写 home 替换前缀，对应 opencode home.tsx 的 worktree.replace(homedir(), "~")
+  private shortenPath(path: string): string {
+    return path
+  }
+
+  private projectRelativeTime(project: ProjectEntry): string {
+    if (project.lastOpened.length > 0) {
+      const label: string = formatRelativeTime(project.lastOpened)
+      if (label.length > 0) return label
+    }
+    return ''
+  }
+
+  // 按最近打开时间排序（最近的在最上），取前 5 条
+  private recentProjects(): ProjectEntry[] {
+    const list: ProjectEntry[] = []
+    for (const p of this.projects) {
+      list.push(p)
+    }
+    list.sort((a: ProjectEntry, b: ProjectEntry) => {
+      const at: number = a.lastOpened.length > 0 ? Date.parse(a.lastOpened) : 0
+      const bt: number = b.lastOpened.length > 0 ? Date.parse(b.lastOpened) : 0
+      return bt - at
+    })
+    if (list.length > 5) {
+      return list.slice(0, 5)
+    }
+    return list
   }
 
   build() {
@@ -85,7 +118,6 @@ export struct OpenCodeHomeLaunch {
       Row() {
         this.ActivityRail()
         this.CenterPane()
-        this.RightPane()
       }
       .layoutWeight(1)
       .width('100%')
@@ -251,189 +283,207 @@ export struct OpenCodeHomeLaunch {
 
   @Builder
   CenterPane() {
-    Stack({ alignContent: Alignment.BottomStart }) {
+    Column() {
+      // 上半部：居中 Logo + Local Server 状态
       Column() {
-        this.OpenCodeLogo(false)
-
-        Text(this.displayProjectName())
-          .fontSize(27)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#e8e2dd')
-          .margin({ top: 32 })
-
-        Text(this.displayProjectPath())
-          .fontSize(18)
-          .fontColor('#858585')
-          .margin({ top: 24 })
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-        Row() {
-          Text('⌘')
-            .fontSize(16)
-            .fontColor('#777')
-
-          Text(this.displayBranch())
-            .fontSize(16)
-            .fontColor('#777')
-            .margin({ left: 10 })
-        }
-        .margin({ top: 28 })
+        this.OpenCodeLogo()
+        this.LocalServerButton()
       }
-      .alignItems(HorizontalAlign.Center)
+      .layoutWeight(1)
       .width('100%')
-      .height('100%')
       .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
 
-      this.Composer()
+      // 下半部：最近项目
+      this.RecentProjectsSection()
+        .width('100%')
+        .padding({ left: 24, right: 24, bottom: 24 })
     }
     .layoutWeight(1)
     .height('100%')
     .backgroundColor('#111111')
-    .borderWidth({ right: 1 })
-    .borderColor('#292929')
   }
 
   @Builder
-  Composer() {
-    Column() {
-      Stack({ alignContent: Alignment.BottomStart }) {
-        TextArea({ text: this.inputText, placeholder: '随便问点什么... "这个错误是什么意思？"' })
-          .width('100%')
-          .height(116)
-          .fontSize(16)
-          .fontColor('#e8e2dd')
-          .placeholderColor('#757575')
-          .backgroundColor('#111111')
-          .padding({ left: 18, right: 70, top: 18, bottom: 18 })
-          .onChange((v: string) => {
-            this.onInputChange(v)
-          })
-
-        Row() {
-          Text('+')
-            .fontSize(34)
-            .fontColor('#8a8a8a')
-            .width(48)
-            .height(42)
-            .textAlign(TextAlign.Center)
-
-          Blank()
-
-          if (this.isSending) {
-            Text('×')
-              .fontSize(23)
-              .fontColor('#eeeeee')
-              .width(44)
-              .height(42)
-              .textAlign(TextAlign.Center)
-              .borderRadius(7)
-              .backgroundColor('#7a2f3a')
-              .onClick(() => this.onAbort())
-          } else {
-            Text('↑')
-              .fontSize(23)
-              .fontColor('#171717')
-              .width(44)
-              .height(42)
-              .textAlign(TextAlign.Center)
-              .borderRadius(7)
-              .backgroundColor(this.inputText.trim().length > 0 ? '#8d8d8d' : '#606060')
-              .onClick(() => {
-                if (this.inputText.trim().length > 0) {
-                  this.onSend()
-                }
-              })
-          }
-        }
-        .width('100%')
-        .height(52)
-        .padding({ left: 12, right: 12 })
-      }
-      .height(116)
-      .borderWidth({ bottom: 1 })
-      .borderColor('#292929')
-
-      Row() {
-        Text('⌄')
-          .fontSize(16)
-          .fontColor('#666')
-
-        Text(this.displayModel())
-          .fontSize(16)
-          .fontColor('#8e8e8e')
-          .margin({ left: 22 })
-
-        Text('⌄')
-          .fontSize(16)
-          .fontColor('#666')
-          .margin({ left: 22 })
-      }
-      .height(58)
-      .width('100%')
-      .padding({ left: 36 })
-      .backgroundColor('#111111')
-      .onClick(() => this.onOpenModels())
-    }
-    .width('calc(100% - 30px)')
-    .height(175)
-    .margin({ left: 15, right: 15, bottom: 14 })
-    .borderRadius(14)
-    .borderWidth(1)
-    .borderColor('#2d2d2d')
-    .backgroundColor('#111111')
-  }
-
-  @Builder
-  RightPane() {
-    Column() {
-      Row() {
-        Text('+')
-          .fontSize(32)
-          .fontColor('#8d8d8d')
-          .width(64)
-          .height(62)
-          .textAlign(TextAlign.Center)
-          .borderWidth({ right: 1 })
-          .borderColor('#292929')
-          .onClick(() => this.onOpenFiles())
-      }
-      .width('100%')
-      .height(62)
-      .borderWidth({ bottom: 1 })
-      .borderColor('#292929')
-
-      Column() {
-        this.OpenCodeLogo(true)
-
-        Text('选择要打开的文件')
-          .fontSize(18)
-          .fontColor('#6d6d6d')
-          .margin({ top: 34 })
-      }
-      .width('100%')
-      .layoutWeight(1)
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .onClick(() => this.onOpenFiles())
-    }
-    .layoutWeight(0.95)
-    .height('100%')
-    .backgroundColor('#111111')
-  }
-
-  @Builder
-  OpenCodeLogo(dim: boolean) {
+  OpenCodeLogo() {
+    // 像素 opencode logo (低透明度，居中显示)
+    // 对应 opencode-dev <Logo class="md:w-xl opacity-12" />
     Stack() {
       Rect()
-        .width(dim ? 74 : 54)
-        .height(dim ? 90 : 66)
-        .fill(dim ? '#282828' : '#e8e4de')
+        .width(280)
+        .height(96)
+        .fill('#e8e4de')
+        .opacity(0.12)
+        .borderRadius(6)
 
       Rect()
-        .width(dim ? 36 : 26)
-        .height(dim ? 54 : 38)
+        .width(60)
+        .height(60)
         .fill('#111111')
+        .margin({ top: 18 })
     }
+    .width(280)
+    .height(96)
+  }
+
+  @Builder
+  LocalServerButton() {
+    Row() {
+      Circle()
+        .width(8)
+        .height(8)
+        .fill(this.serverDotColor())
+
+      Text(this.serverLabel())
+        .fontSize(14)
+        .fontColor('#a8a8a8')
+        .margin({ left: 10 })
+    }
+    .height(36)
+    .padding({ left: 14, right: 14 })
+    .borderRadius(18)
+    .backgroundColor('#1a1a1a')
+    .margin({ top: 24 })
+    .onClick(() => this.onOpenServerStatus())
+  }
+
+  @Builder
+  RecentProjectsSection() {
+    Column() {
+      if (this.projects.length > 0) {
+        this.RecentProjectsHeader()
+        this.RecentProjectsList()
+      } else if (!this.isServerReady) {
+        this.LoadingState()
+      } else {
+        this.EmptyState()
+      }
+    }
+    .width('100%')
+  }
+
+  @Builder
+  RecentProjectsHeader() {
+    Row() {
+      Text('最近项目')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#e8e2dd')
+        .layoutWeight(1)
+
+      Row() {
+        Text('+')
+          .fontSize(16)
+          .fontColor('#a8a8a8')
+          .margin({ right: 6 })
+
+        Text('打开项目')
+          .fontSize(13)
+          .fontColor('#a8a8a8')
+      }
+      .height(32)
+      .padding({ left: 12, right: 12 })
+      .borderRadius(6)
+      .backgroundColor('#1a1a1a')
+      .onClick(() => this.onOpenDirectoryPicker())
+    }
+    .width('100%')
+    .height(36)
+    .padding({ left: 12, right: 8 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  RecentProjectsList() {
+    Column() {
+      ForEach(this.recentProjects(), (project: ProjectEntry, index: number) => {
+        Row() {
+          Text(this.shortenPath(project.directory.length > 0 ? project.directory : project.worktree))
+            .fontSize(13)
+            .fontColor('#c8c8c8')
+            .fontFamily('monospace')
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+          Text(this.projectRelativeTime(project))
+            .fontSize(12)
+            .fontColor('#7a7a7a')
+            .margin({ left: 12 })
+        }
+        .width('100%')
+        .height(40)
+        .padding({ left: 12, right: 12 })
+        .borderRadius(6)
+        .backgroundColor(index === 0 ? '#1a1a1a' : 'transparent')
+        .onClick(() => this.onOpenProject(project.directory))
+      }, (project: ProjectEntry, index: number) => project.id + '_' + index)
+    }
+    .width('100%')
+    .margin({ top: 8 })
+  }
+
+  @Builder
+  LoadingState() {
+    Column() {
+      LoadingProgress()
+        .width(24)
+        .height(24)
+        .color('#7a7a7a')
+
+      Text('加载中…')
+        .fontSize(12)
+        .fontColor('#7a7a7a')
+        .margin({ top: 10 })
+    }
+    .width('100%')
+    .padding({ top: 16, bottom: 16 })
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  EmptyState() {
+    Column() {
+      Text('+')
+        .fontSize(28)
+        .fontColor('#5a5a5a')
+        .width(44)
+        .height(44)
+        .textAlign(TextAlign.Center)
+        .borderRadius(22)
+        .borderWidth(1)
+        .borderColor('#2d2d2d')
+
+      Text('打开一个项目开始使用')
+        .fontSize(14)
+        .fontColor('#cfcfcf')
+        .fontWeight(FontWeight.Medium)
+        .margin({ top: 14 })
+
+      Text('选择一个本地目录作为工作区')
+        .fontSize(12)
+        .fontColor('#7a7a7a')
+        .margin({ top: 6 })
+
+      Row() {
+        Text('+')
+          .fontSize(14)
+          .fontColor('#cfcfcf')
+          .margin({ right: 6 })
+
+        Text('打开项目')
+          .fontSize(13)
+          .fontColor('#cfcfcf')
+      }
+      .height(34)
+      .padding({ left: 14, right: 14 })
+      .borderRadius(6)
+      .backgroundColor('#1f1f1f')
+      .margin({ top: 16 })
+      .onClick(() => this.onOpenDirectoryPicker())
+    }
+    .width('100%')
+    .padding({ top: 16, bottom: 16 })
+    .alignItems(HorizontalAlign.Center)
   }
 }

@@ -117,6 +117,8 @@ export struct AppShell {
           modelName: this.modelName,
           isConnected: this.isConnected,
           serverVersion: this.serverVersion,
+          serverName: this.activeRunner !== null ? `${this.activeRunner.host}:${this.activeRunner.port}` : 'Local Server',
+          isServerReady: this.activeRunner !== null,
           projects: this.projects,
           onInputChange: (value: string) => {
             this.inputText = value
@@ -156,6 +158,13 @@ export struct AppShell {
           },
           onOpenModels: () => {
             this.activeActivity = 'models'
+          },
+          onOpenProject: (directory: string) => {
+            // 点击最近项目：把目录写回当前项目名，进入 chat 工作区
+            if (directory.length > 0) {
+              this.projectName = directory
+            }
+            this.showDirectoryPicker = true
           }
         })
 

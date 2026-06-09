@@ -119,6 +119,15 @@ export class NormalizedPart {
   toolArgs: string = ''
   toolResult: string = ''
   step: number = 0
+  // Todo
+  todos: TodoItem[] = []
+}
+
+export class TodoItem {
+  id: string = ''
+  content: string = ''
+  status: string = '' // 'pending' | 'in_progress' | 'completed' | 'cancelled'
+  priority: string = ''
 }
 
 // ══════════ Permission ══════════

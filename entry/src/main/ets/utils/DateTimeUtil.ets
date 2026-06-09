@@ -35,6 +35,35 @@ function pad2(n: number): string {
 }
 
 /**
+ * 将时间戳（毫秒）格式化为相对时间：
+ * - 不到 1 分钟 → "刚刚"
+ * - 不到 1 小时 → "N 分钟前"
+ * - 不到 1 天   → "N 小时前"
+ * - 不到 30 天  → "N 天前"
+ * - 否则        → "YYYY-MM-DD"
+ *
+ * 与 Luxon `toRelative()` 输出风格对齐，对应 opencode home "9小时前"。
+ */
+export function formatRelativeTime(input: number | string): string {
+  const ts: number = typeof input === 'string' ? Date.parse(input) : input
+  if (isNaN(ts) || ts <= 0) return ''
+  const now: number = Date.now()
+  const diff: number = Math.max(0, now - ts)
+  const min: number = 60 * 1000
+  const hour: number = 60 * min
+  const day: number = 24 * hour
+  if (diff < min) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`
+  if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`
+  const d: Date = new Date(ts)
+  const y: string = String(d.getFullYear())
+  const mo: string = pad2(d.getMonth() + 1)
+  const da: string = pad2(d.getDate())
+  return `${y}-${mo}-${da}`
+}
+
+/**
  * 将 server 返回的标题转成本地时间友好格式
  * - "New session - 2026-06-09T02:30:58.985Z" → "新会话 2026-06-09 10:30:58"
  * - 其它标题（如 model-test-xxx、用户自定义）原样返回

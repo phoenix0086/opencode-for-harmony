@@ -617,6 +617,10 @@ export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
       } else if (part.type === 'reasoning') {
         np.type = 'reasoning'
         np.content = part.text
+      } else if (part.type === 'todo') {
+        np.type = 'todo'
+        np.content = ''
+        np.todos = parseTodosFromPart(part)
       } else {
         np.type = part.type
         np.content = part.text
@@ -627,6 +631,55 @@ export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
     result.push(msg)
   }
   return result
+}
+
+/**
+ * Parse todos from a RawPart whose type is 'todo'.
+ * Tolerates a few shapes seen in the wild:
+ * - { type:'todo', todos:[{id,content,status,priority}] }
+ * - { type:'todo', text:'[ ] ...' }  (markdown fallback)
+ */
+function parseTodosFromPart(part: RawPart): TodoItem[] {
+  const direct = part.state['todos']
+  if (Array.isArray(direct)) {
+    const out: TodoItem[] = []
+    for (const raw of direct) {
+      if (raw === null || raw === undefined) continue
+      const obj = raw as Record<string, Object>
+      const item = new TodoItem()
+      item.id = (obj['id'] as string) || ''
+      item.content = (obj['content'] as string) || (obj['text'] as string) || ''
+      item.status = ((obj['status'] as string) || 'pending').toLowerCase()
+      item.priority = ((obj['priority'] as string) || '').toLowerCase()
+      if (item.content.length > 0) {
+        out.push(item)
+      }
+    }
+    return out
+  }
+  // Fallback: parse markdown checkboxes from text
+  if (part.text.length > 0) {
+    const out: TodoItem[] = []
+    const lines = part.text.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      if (line.indexOf('[x]') >= 0 || line.indexOf('[X]') >= 0) {
+        const item = new TodoItem()
+        item.id = `t_${i}`
+        item.status = 'completed'
+        item.content = line.replace(/^\s*-\s*\[[xX]\]\s*/, '')
+        out.push(item)
+      } else if (line.indexOf('[ ]') >= 0) {
+        const item = new TodoItem()
+        item.id = `t_${i}`
+        item.status = 'pending'
+        item.content = line.replace(/^\s*-\s*\[\s\]\s*/, '')
+        out.push(item)
+      }
+    }
+    return out
+  }
+  return []
 }
 
 /**

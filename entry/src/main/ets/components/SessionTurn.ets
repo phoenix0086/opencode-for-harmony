@@ -29,7 +29,7 @@ export class TurnData {
  */
 export class TranscriptBlock {
   id: string = ''
-  type: string = '' // 'user' | 'assistant' | 'tool' | 'permission' | 'system'
+  type: string = '' // 'user' | 'assistant' | 'tool' | 'permission' | 'system' | 'error' | 'todo' | 'question'
   content: string = ''
   role: string = ''
   // Tool-specific
@@ -48,6 +48,8 @@ export class TranscriptBlock {
   // Metadata
   isStreaming: boolean = false
   timestamp: string = ''
+  // Todo-specific
+  todos: TodoItem[] = []
 }
 
 /**
@@ -85,7 +87,7 @@ export struct SessionTurn {
         .borderColor(Theme.BORDER)
       }
 
-      // ═══════ Assistant / Tool / System Blocks ═══════
+      // ═══════ Assistant / Tool / System / Todo Blocks ═══════
       ForEach(this.turn.assistantBlocks, (block: TranscriptBlock) => {
         if (block.type === 'assistant') {
           this.AssistantContent(block)
@@ -93,6 +95,8 @@ export struct SessionTurn {
           this.ToolContent(block)
         } else if (block.type === 'system') {
           this.SystemContent(block)
+        } else if (block.type === 'todo') {
+          this.TodoContent(block)
         }
       }, (block: TranscriptBlock) => block.id)
 
@@ -205,6 +209,14 @@ export struct SessionTurn {
     }
     .width('100%')
     .padding({ top: Theme.sp.sm, bottom: Theme.sp.sm })
+  }
+
+  // ══════════ Todo Content ══════════
+  @Builder
+  TodoContent(block: TranscriptBlock) {
+    TodoListBlock({
+      items: block.todos
+    })
   }
 
   // ══════════ Helpers ══════════

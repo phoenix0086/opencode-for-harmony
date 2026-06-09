@@ -49,7 +49,7 @@ export struct LeftActivityBar {
 
     const server = new ActivityItem()
     server.id = 'server'
-    server.label = 'Server'
+    server.label = 'Runtime+'
     server.symbol = 'S'
 
     const models = new ActivityItem()

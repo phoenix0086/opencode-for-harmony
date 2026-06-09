@@ -364,9 +364,33 @@ struct Index {
       }
 
       for (const part of msg.parts) {
-        if (part.type === 'tool-invocation') {
+        if (part.type === 'error') {
+          const err = new TranscriptBlock()
+          err.id = `${msg.id}_error_${blocks.length}`
+          err.type = 'error'
+          err.role = msg.role
+          err.content = part.content && part.content.length > 0 ? part.content : 'Runtime returned an error.'
+          blocks.push(err)
+          this.addLog(`message.error ${err.content}`, 'error', 'message')
+          continue
+        }
+
+        if (part.type === 'permission' || part.type === 'permission-request') {
+          const perm = new TranscriptBlock()
+          perm.id = `${msg.id}_permission_${blocks.length}`
+          perm.type = 'permission'
+          perm.role = msg.role
+          perm.content = part.content && part.content.length > 0 ? part.content : 'Runtime is requesting permission.'
+          perm.permTitle = part.toolName.length > 0 ? part.toolName : 'Permission'
+          perm.permDescription = part.toolArgs
+          perm.permStatus = 'pending'
+          blocks.push(perm)
+          continue
+        }
+
+        if (part.type === 'tool' || part.type === 'tool-call' || part.type === 'tool-result' || part.type === 'tool-invocation') {
           const toolBlock = new TranscriptBlock()
-          toolBlock.id = `tool_${part.id}`
+          toolBlock.id = `tool_${part.id.length > 0 ? part.id : msg.id + '_' + blocks.length}`
           toolBlock.type = 'tool'
           toolBlock.toolId = part.id
           toolBlock.toolName = part.toolName.length > 0 ? part.toolName : 'unknown'
@@ -375,6 +399,16 @@ struct Index {
           toolBlock.toolOutput = part.toolResult
           toolBlock.toolStep = part.step
           blocks.push(toolBlock)
+        }
+
+        if (part.type === 'todo') {
+          const todoBlock = new TranscriptBlock()
+          todoBlock.id = `todo_${msg.id}_${blocks.length}`
+          todoBlock.type = 'todo'
+          todoBlock.role = msg.role
+          todoBlock.content = ''
+          todoBlock.todos = part.todos
+          blocks.push(todoBlock)
         }
       }
     }
@@ -592,7 +626,19 @@ struct Index {
     try {
       this.addLog(`message.sending length=${text.length}`, 'info', 'message')
 
-      // Resolve model ref before sending
+      // Ensure event stream is connected before marking active run
+      if (!this.eventClient) {
+        this.connectEventStream()
+      }
+
+      if (this.activeSessionId.length === 0) {
+        const session = await client.createSession(formatLocalSessionTitle(text))
+        this.activeSessionId = session.id
+        this.sessionTitle = session.title.length > 0 ? formatServerTitle(session.title) : 'New session'
+        await this.loadSessions()
+        this.addLog(`session.created ${session.id}`, 'info', 'session')
+      }
+
       const settings = await storageService.loadSettings()
       let modelRef = settings.defaultModel
       if (modelRef.length === 0 && this.modelName.length > 0) {
@@ -606,15 +652,13 @@ struct Index {
         await client.updateConfig(patch)
         this.modelName = resolvedModel
         this.addLog(`model.active ${resolvedModel}`, 'info', 'model')
-      }
-
-      // Ensure event stream is connected before marking active run
-      if (!this.eventClient) {
-        this.connectEventStream()
+      } else {
+        this.addLog('model.empty: no default model configured', 'warn', 'model')
       }
 
       const before = await client.getMessagesRaw(this.activeSessionId)
       const beforeCount = before.length
+      this.addLog(`message.beforeCount=${beforeCount}`, 'debug', 'message')
 
       const sent = await client.sendMessageAsync(this.activeSessionId, text)
       this.addLog(`prompt_async.sent=${sent} beforeCount=${beforeCount}`, 'info', 'message')
@@ -625,35 +669,45 @@ struct Index {
 
       await this.loadMessages()
 
-      const poll = await agentResponsePoller.waitForAssistant(client, this.activeSessionId, beforeCount, 90, 1000)
+      const poll = await agentResponsePoller.waitForExecution(
+        client,
+        this.activeSessionId,
+        beforeCount,
+        120,
+        1000
+      )
+
       await this.loadMessages()
       await this.loadDiffs()
+      await this.loadSessions()
 
-      if (poll.ok) {
-        this.isSending = false
-        this.isStreaming = false
-      } else {
-        const level = poll.timedOut ? 'warn' : 'error'
-        this.addLog(`${poll.message} messageCount=${poll.messageCount}`, level, 'message')
+      this.addLog(
+        `poll.result ok=${poll.ok} assistant=${poll.hasAssistant} tool=${poll.hasTool} permission=${poll.hasPermission} error=${poll.hasError} count=${poll.messageCount}`,
+        poll.ok ? 'info' : (poll.timedOut ? 'warn' : 'error'),
+        'message'
+      )
+
+      if (!poll.ok) {
         ToastManager.show(poll.message, poll.timedOut ? 'warning' : 'error')
+      } else if (poll.hasError && poll.snapshot.errorText.length > 0) {
+        const errBlock = new TranscriptBlock()
+        errBlock.id = `err_${Date.now()}`
+        errBlock.type = 'error'
+        errBlock.content = poll.snapshot.errorText
+        const errList: TranscriptBlock[] = []
+        for (const b of this.transcriptBlocks) {
+          errList.push(b)
+        }
+        errList.push(errBlock)
+        this.transcriptBlocks = errList
       }
     } catch (e) {
+      const msg = `send.failed: ${String(e)}`
+      this.addLog(msg, 'error', 'message')
+      ToastManager.show(msg, 'error')
+    } finally {
       this.isSending = false
-      this.addLog(`message.failed: ${String(e)}`, 'error', 'message')
-      ToastManager.show(`send failed: ${String(e)}`, 'error')
-      if (this.eventClient) {
-        this.eventClient.markIdle()
-      }
-      const errBlock = new TranscriptBlock()
-      errBlock.id = `err_${Date.now()}`
-      errBlock.type = 'system'
-      errBlock.content = `Error: ${String(e)}`
-      const errBlocks: TranscriptBlock[] = []
-      for (const b of this.transcriptBlocks) {
-        errBlocks.push(b)
-      }
-      errBlocks.push(errBlock)
-      this.transcriptBlocks = errBlocks
+      this.isStreaming = false
     }
   }
 

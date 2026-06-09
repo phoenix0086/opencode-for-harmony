@@ -36,8 +36,8 @@ export struct AgentTranscript {
     for (let i = 0; i < this.blocks.length; i++) {
       const block = this.blocks[i]
 
-      if (block.type === 'permission') {
-        // Permissions stay at transcript level, not in turns
+      if (block.type === 'permission' || block.type === 'error') {
+        // Permissions and errors stay at transcript level, not in turns
         continue
       }
 
@@ -52,7 +52,7 @@ export struct AgentTranscript {
       // assistant / tool / system
       if (block.type === 'assistant') {
         const prev = i > 0 ? this.blocks[i - 1] : null
-        const isNewTurn = prev === null || prev.type === 'user' || prev.type === 'permission' || prev.type === 'system'
+        const isNewTurn = prev === null || prev.type === 'user' || prev.type === 'permission' || prev.type === 'error' || prev.type === 'system'
         if (isNewTurn || result.length === 0) {
           const turn = new TurnData()
           turn.id = block.id
@@ -108,13 +108,15 @@ export struct AgentTranscript {
 
   build() {
     List() {
-      // ═══════ Interleaved turns and permissions ═══════
+      // ═══════ Interleaved turns, errors and permissions ═══════
       ForEach(this.getRenderItems(), (item: RenderItem) => {
         ListItem() {
           if (item.kind === 'turn') {
             SessionTurn({ turn: item.turn })
           } else if (item.kind === 'permission') {
             this.PermissionBlock(item.block)
+          } else if (item.kind === 'error') {
+            this.ErrorBlock(item.block)
           }
         }
       }, (item: RenderItem) => item.id)
@@ -129,7 +131,7 @@ export struct AgentTranscript {
   }
 
   /**
-   * Build render items: interleave turns with permission blocks
+   * Build render items: interleave turns with permission/error blocks
    * to preserve the original block ordering.
    */
   private getRenderItems(): RenderItem[] {
@@ -150,6 +152,12 @@ export struct AgentTranscript {
         ri.kind = 'permission'
         ri.block = block
         items.push(ri)
+      } else if (block.type === 'error') {
+        const ri = new RenderItem()
+        ri.id = block.id
+        ri.kind = 'error'
+        ri.block = block
+        items.push(ri)
       } else if (block.type === 'user' || (turnIdx < this.turns.length && this.turns[turnIdx].id === block.id)) {
         // This block starts a turn
         if (turnIdx < this.turns.length) {
@@ -161,7 +169,7 @@ export struct AgentTranscript {
           turnIdx += 1
         }
       }
-      // assistant/tool/system blocks that are part of a turn are already included in the turn
+      // assistant/tool blocks that are part of a turn are already included in the turn
     }
 
     // If streaming with no blocks yet, add a placeholder
@@ -311,7 +319,7 @@ export struct AgentTranscript {
  */
 class RenderItem {
   id: string = ''
-  kind: string = '' // 'turn' | 'permission'
+  kind: string = '' // 'turn' | 'permission' | 'error'
   turn: TurnData = new TurnData()
   block: TranscriptBlock = new TranscriptBlock()
 }
