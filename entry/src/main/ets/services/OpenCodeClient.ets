@@ -192,7 +192,22 @@ export class OpenCodeClient {
   async updateConfig(config: Record<string, Object>): Promise<ConfigInfo> {
     const resp = await this.doPatch('/config', JSON.stringify(config))
     this.checkResponse(resp)
-    return this.parseJson<ConfigInfo>(resp)
+    // PATCH /config in v1.16.2 may return 200 with empty body, or a partial
+    // ConfigInfo. Avoid JSON.parse('') crash — return a fresh ConfigInfo on
+    // empty / non-JSON bodies.
+    const raw = resp.result as string
+    if (!raw || raw.length === 0) {
+      const fallback = new ConfigInfo()
+      fallback.model = (config['model'] as string) || ''
+      return fallback
+    }
+    try {
+      return this.parseJson<ConfigInfo>(resp)
+    } catch (e) {
+      const fallback = new ConfigInfo()
+      fallback.model = (config['model'] as string) || ''
+      return fallback
+    }
   }
 
   async getConfigProviders(): Promise<Record<string, Object>> {
