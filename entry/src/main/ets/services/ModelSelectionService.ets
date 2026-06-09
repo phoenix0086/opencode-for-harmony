@@ -49,6 +49,39 @@ export class ModelSelectionService {
     return settings.defaultSmallModel
   }
 
+  /**
+   * Resolve a local modelRef like "xiaomi-mimo/mimo-v2.5-pro" to the server-side
+   * namespace "anthropic/mimo-v2.5-pro". The App's local provider.id is the
+   * user-chosen label; the opencode server has its own provider id space and
+   * will reject unknown prefixes. We look up by the model id portion and
+   * return the first server provider that has a matching model. Prefers
+   * "anthropic" prefix when multiple match (MiMo is served via Anthropic API).
+   */
+  async resolveServerModelRef(localRef: string, runner: Runner | null): Promise<string> {
+    if (runner === null) return localRef
+    const slash = localRef.indexOf('/')
+    if (slash < 0) return localRef
+    const modelId = localRef.substring(slash + 1)
+    if (modelId.length === 0) return localRef
+    try {
+      const client = new OpenCodeClient(runner)
+      const list = await client.listProviders()
+      const candidates: string[] = []
+      for (const p of list.all) {
+        for (const m of p.models) {
+          if (m.id === modelId) {
+            candidates.push(`${p.id}/${modelId}`)
+          }
+        }
+      }
+      if (candidates.length === 0) return localRef
+      const anthropicHit = candidates.find((r) => r.startsWith('anthropic/'))
+      return anthropicHit || candidates[0]
+    } catch {
+      return localRef
+    }
+  }
+
   async setDefaultModel(modelRef: string, runner: Runner | null): Promise<ModelSelectionResult> {
     const result = new ModelSelectionResult()
     const settings = await storageService.loadSettings()
@@ -64,12 +97,15 @@ export class ModelSelectionService {
 
     try {
       const client = new OpenCodeClient(runner)
+      const resolved = await this.resolveServerModelRef(modelRef, runner)
       const patch: Record<string, Object> = {}
-      patch['model'] = modelRef
+      patch['model'] = resolved
       await client.updateConfig(patch)
       result.ok = true
       result.serverSynced = true
-      result.message = `默认模型已同步：${modelRef}`
+      result.message = resolved === modelRef
+        ? `默认模型已同步：${modelRef}`
+        : `默认模型已同步：${modelRef} (→ server: ${resolved})`
       return result
     } catch (e) {
       result.ok = false
@@ -93,12 +129,15 @@ export class ModelSelectionService {
 
     try {
       const client = new OpenCodeClient(runner)
+      const resolved = await this.resolveServerModelRef(modelRef, runner)
       const patch: Record<string, Object> = {}
-      patch['small_model'] = modelRef
+      patch['small_model'] = resolved
       await client.updateConfig(patch)
       result.ok = true
       result.serverSynced = true
-      result.message = `Small Model 已同步：${modelRef}`
+      result.message = resolved === modelRef
+        ? `Small Model 已同步：${modelRef}`
+        : `Small Model 已同步：${modelRef} (→ server: ${resolved})`
       return result
     } catch (e) {
       result.ok = false
@@ -112,14 +151,16 @@ export class ModelSelectionService {
 
     try {
       const client = new OpenCodeClient(runner)
+      const resolved = await this.resolveServerModelRef(modelRef, runner)
       const patch: Record<string, Object> = {}
-      patch['model'] = modelRef
+      patch['model'] = resolved
       await client.updateConfig(patch)
 
       const session = await client.createSession(`model-test-${Date.now()}`)
       client.setDefaultAgent('build')
       await client.sendMessageAsync(session.id, 'Say OK.')
-      return `测试请求已发送到 ${modelRef}。请查看会话 ${session.id}。`
+      const suffix = resolved === modelRef ? '' : ` (已映射到 server: ${resolved})`
+      return `测试请求已发送到 ${modelRef}${suffix}。请查看会话 ${session.id}。`
     } catch (e) {
       return `模型测试失败：${String(e)}`
     }
