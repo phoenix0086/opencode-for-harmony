@@ -10,6 +10,7 @@ const SERVER_URL_KEY = 'server_url'
 const WORKSPACE_KEY = 'workspace_path'
 const RECENT_WORKSPACES_KEY = 'recent_workspaces'
 const SETTINGS_KEY = 'app_settings'
+const LOCAL_SERVER_CONFIG_KEY = 'local_server_config'
 
 /**
  * Local persistence service.

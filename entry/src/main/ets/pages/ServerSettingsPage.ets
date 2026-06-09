@@ -20,11 +20,17 @@ export struct ServerSettingsPage {
   @State busy: boolean = false
 
   aboutToAppear(): void {
-    this.config = localOpenCodeServerManager.createDefaultConfig()
+    // Load last-used host/port/mode/token so the user doesn't have to retype
+    // the LAN IP on every app launch. Fall back to defaults if no saved config.
+    localOpenCodeServerManager.loadLastConfig().then((cfg: LocalServerConfig) => {
+      this.config = cfg
+      this.mode = cfg.mode
+      this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
+    })
     this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
     this.logs = [
       '[info] 本页用于管理本地 OpenCode Runtime。',
-      '[info] 点击“启动本地 Runtime”会通过 Native Bridge 启动 opencode serve。',
+      '[info] 点击"启动本地 Runtime"会通过 Native Bridge 启动 opencode serve。',
       '[info] 启动成功后会自动检测 /global/health 并激活 Runner。'
     ]
   }
@@ -98,7 +104,13 @@ export struct ServerSettingsPage {
         if (id === 'local') {
           this.config.host = '127.0.0.1'
         } else if (id === 'dev-pc') {
-          this.config.host = '192.168.1.xxx'
+          // Only seed the placeholder IP if the current host looks like a default
+          // (127.0.0.1, empty, or the legacy '192.168.1.xxx' placeholder). If the
+          // user already has a real LAN IP saved, keep it.
+          const cur = this.config.host
+          if (cur.length === 0 || cur === '127.0.0.1' || cur === '192.168.1.xxx') {
+            this.config.host = '192.168.1.xxx'
+          }
         }
         this.refreshStatusPreview()
       })
@@ -307,6 +319,8 @@ export struct ServerSettingsPage {
       const runner = localOpenCodeServerManager.createRunnerFromConfig(this.config)
       runner.status = 'connected'
       runner.version = this.status.version
+      // Persist the working config so the next visit / app launch keeps it.
+      localOpenCodeServerManager.saveLastConfig(this.config).catch(() => {})
       this.onRunnerActivated(runner)
       this.onReconnect()
     }

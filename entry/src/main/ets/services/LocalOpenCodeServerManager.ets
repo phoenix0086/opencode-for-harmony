@@ -29,6 +29,38 @@ export class LocalOpenCodeServerManager {
     return new LocalServerConfig()
   }
 
+  async loadLastConfig(): Promise<LocalServerConfig> {
+    const cfg = new LocalServerConfig()
+    const raw = await storageService.getLocalServerConfig()
+    if (raw === null) return cfg
+    if (typeof raw['host'] === 'string' && (raw['host'] as string).length > 0) {
+      cfg.host = raw['host'] as string
+    }
+    if (typeof raw['port'] === 'number' && (raw['port'] as number) > 0) {
+      cfg.port = raw['port'] as number
+    }
+    if (typeof raw['protocol'] === 'string' && (raw['protocol'] as string).length > 0) {
+      cfg.protocol = raw['protocol'] as 'http' | 'https'
+    }
+    if (typeof raw['token'] === 'string') {
+      cfg.token = raw['token'] as string
+    }
+    if (typeof raw['mode'] === 'string' && (raw['mode'] as string).length > 0) {
+      cfg.mode = raw['mode'] as string
+    }
+    return cfg
+  }
+
+  async saveLastConfig(config: LocalServerConfig): Promise<void> {
+    const out: Record<string, Object> = {}
+    out['host'] = config.host
+    out['port'] = config.port
+    out['protocol'] = config.protocol
+    out['token'] = config.token
+    out['mode'] = config.mode
+    await storageService.setLocalServerConfig(out)
+  }
+
   createRunnerFromConfig(config: LocalServerConfig): Runner {
     const rc = new RunnerConfig()
     rc.name = config.mode === 'remote' ? 'Remote OpenCode Runtime' : 'Local OpenCode Runtime'
