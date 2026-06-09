@@ -86,7 +86,8 @@ export class MainViewModel {
         this.serverStatusMessage = 'Runtime 已就绪，正在连接...';
         Logger.info('Auto-start: server running, connecting...');
         await this.connect();
-        if (this.connectionStatus === ConnectionStatus.Connected) {
+        const finalStatus: string = this.connectionStatus as string;
+        if (finalStatus === (ConnectionStatus.Connected as string)) {
           this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
         }
       } else {
