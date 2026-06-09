@@ -4,6 +4,9 @@ import {
   EventTypes, ServerEvent, LogEntry
 } from '../models/Event'
 import { OpenCodeClient, normalizeFileDiffs } from '../services/OpenCodeClient'
+import { V2Client } from '../services/V2Client'
+import { UnsupportedV2Endpoint, SnapshotInfo, PtySessionInfo, PluginInfo, AgentDetail, PtyChunk } from '../services/V2Type'
+import { i18n } from '../services/I18nService'
 import { EventStreamClient, EventCallback } from '../services/EventStreamClient'
 import { storageService } from '../services/StorageService'
 import { modelSelectionService } from '../services/ModelSelectionService'
@@ -60,6 +63,25 @@ struct Index {
   @State mcpServers: MCPServer[] = []
   @State lspServers: LspServer[] = []
   @State formatterList: FormatterEntry[] = []
+  // Sprint 2-A.3 / A.1 / 3-A.9
+  @State snapshots: SnapshotInfo[] = []
+  @State snapshotLoading: boolean = false
+  @State snapshotUnsupported: boolean = false
+  @State snapshotError: string = ''
+  @State ptySessions: PtySessionInfo[] = []
+  @State ptyActiveSessionID: string = ''
+  @State ptyOutput: string = ''
+  @State ptyLoading: boolean = false
+  @State ptyUnsupported: boolean = false
+  @State ptyError: string = ''
+  @State plugins: PluginInfo[] = []
+  @State pluginLoading: boolean = false
+  @State pluginUnsupported: boolean = false
+  @State pluginError: string = ''
+  @State agents: AgentDetail[] = []
+  @State agentUnsupported: boolean = false
+  private v2Client: V2Client | null = null
+  private activePtyPoller: object = new Object()
   @State isSending: boolean = false
 
   // ══════════ Project State ══════════
@@ -127,13 +149,16 @@ struct Index {
       if (this.activeRunner !== null) {
         await this.testConnection()
         await this.loadSessions()
-        // Sprint 2: pre-warm MCP/LSP/Formatter panels
+        // Sprint 2/3: pre-warm all extension panels
         if (this.isConnected) {
           await Promise.all([
             this.loadMcpServers(),
             this.loadLspServers(),
-            this.loadFormatters()
+            this.loadFormatters(),
+            this.loadPlugins(),
+            this.loadAgentsV2()
           ])
+          // Snapshot/Pty load on demand (per active session)
         }
       }
     } catch (e) {
@@ -257,7 +282,8 @@ struct Index {
     this.addLog(`session.selected ${this.sessionTitle}`, 'info', 'session')
     const p1 = this.loadMessages()
     const p2 = this.loadDiffs()
-    await Promise.all([p1, p2])
+    const p3 = this.loadSnapshots()
+    await Promise.all([p1, p2, p3])
     this.connectEventStream()
   }
 
@@ -413,6 +439,251 @@ struct Index {
     } catch (e) {
       this.addLog(`formatter.load.failed: ${String(e)}`, 'warn', 'formatter')
     }
+  }
+
+  // ══════════ Sprint 2-A.3: Snapshot loaders (v2) ══════════
+
+  private getV2(): V2Client | null {
+    if (this.v2Client !== null) return this.v2Client
+    const c = this.getClient()
+    if (c === null) return null
+    this.v2Client = new V2Client(c)
+    return this.v2Client
+  }
+
+  async loadSnapshots(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) {
+      this.snapshotUnsupported = true
+      return
+    }
+    if (this.activeSessionId.length === 0) {
+      this.snapshots = []
+      return
+    }
+    this.snapshotLoading = true
+    this.snapshotError = ''
+    this.snapshotUnsupported = false
+    try {
+      const list = await v2.listSnapshots(this.activeSessionId)
+      this.snapshots = list
+    } catch (e) {
+      if (e instanceof UnsupportedV2Endpoint) {
+        this.snapshotUnsupported = true
+      } else {
+        this.snapshotError = String(e)
+        this.addLog(`snapshot.load.failed: ${String(e)}`, 'warn', 'snapshot')
+      }
+    } finally {
+      this.snapshotLoading = false
+    }
+  }
+
+  async createSnapshot(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      await v2.createSnapshot(this.activeSessionId, '', 'manual checkpoint')
+      ToastManager.show(i18n.t('toast.snapshot_created'), 'success')
+      await this.loadSnapshots()
+    } catch (e) {
+      this.addLog(`snapshot.create.failed: ${String(e)}`, 'error', 'snapshot')
+    }
+  }
+
+  async restoreSnapshot(id: string): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      await v2.restoreSnapshot(id)
+      ToastManager.show(i18n.t('toast.snapshot_restored'), 'success')
+      await this.loadDiffs()
+    } catch (e) {
+      this.addLog(`snapshot.restore.failed: ${String(e)}`, 'error', 'snapshot')
+    }
+  }
+
+  async snapshotDiff(id: string): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      const diffs = await v2.snapshotDiff(id)
+      const summary = diffs.slice(0, 5).map((d): string => `${d.file} (+${d.additions} -${d.deletions})`).join('\n')
+      ToastManager.show(summary, 'info')
+    } catch (e) {
+      this.addLog(`snapshot.diff.failed: ${String(e)}`, 'error', 'snapshot')
+    }
+  }
+
+  // ══════════ Sprint 2-A.1: PTY loaders (v2) ══════════
+
+  async loadPtySessions(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) {
+      this.ptyUnsupported = true
+      return
+    }
+    this.ptyLoading = true
+    this.ptyError = ''
+    this.ptyUnsupported = false
+    try {
+      this.ptySessions = await v2.listPty()
+    } catch (e) {
+      if (e instanceof UnsupportedV2Endpoint) {
+        this.ptyUnsupported = true
+      } else {
+        this.ptyError = String(e)
+      }
+    } finally {
+      this.ptyLoading = false
+    }
+  }
+
+  async startPty(command: string): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      const session = await v2.startPty(command)
+      this.ptyActiveSessionID = session.id
+      this.ptyOutput = ''
+      ToastManager.show(i18n.t('toast.pty_started'), 'success')
+      this.startPtyPoller(session.id)
+      await this.loadPtySessions()
+    } catch (e) {
+      this.addLog(`pty.start.failed: ${String(e)}`, 'error', 'pty')
+    }
+  }
+
+  selectPty(id: string): void {
+    this.ptyActiveSessionID = id
+    this.ptyOutput = ''
+    this.startPtyPoller(id)
+  }
+
+  private startPtyPoller(id: string): void {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    // Stop any existing poller
+    if (this.ptyActiveSessionID.length > 0 && this.ptyActiveSessionID !== id) {
+      v2.stopPtyPoller(this.ptyActiveSessionID)
+    }
+    v2.startPtyPoller(id, (chunk: PtyChunk): void => {
+      if (chunk.data.length > 0) {
+        this.ptyOutput = this.ptyOutput + chunk.data
+        if (this.ptyOutput.length > 100000) {
+          this.ptyOutput = this.ptyOutput.substring(this.ptyOutput.length - 100000)
+        }
+      }
+    }, (msg: string): void => {
+      this.ptyError = msg
+    })
+  }
+
+  async closePty(id: string): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      v2.stopPtyPoller(id)
+      await v2.closePty(id)
+      if (this.ptyActiveSessionID === id) {
+        this.ptyActiveSessionID = ''
+        this.ptyOutput = ''
+      }
+      ToastManager.show(i18n.t('toast.pty_closed'), 'info')
+      await this.loadPtySessions()
+    } catch (e) {
+      this.addLog(`pty.close.failed: ${String(e)}`, 'error', 'pty')
+    }
+  }
+
+  async sendPtyInput(id: string, data: string): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      await v2.writePtyInput(id, data)
+    } catch (e) {
+      this.addLog(`pty.write.failed: ${String(e)}`, 'error', 'pty')
+    }
+  }
+
+  // ══════════ Sprint 3-A.9: Plugin loaders (v2) ══════════
+
+  async loadPlugins(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) {
+      this.pluginUnsupported = true
+      return
+    }
+    this.pluginLoading = true
+    this.pluginError = ''
+    this.pluginUnsupported = false
+    try {
+      this.plugins = await v2.listPlugins()
+    } catch (e) {
+      if (e instanceof UnsupportedV2Endpoint) {
+        this.pluginUnsupported = true
+      } else {
+        this.pluginError = String(e)
+      }
+    } finally {
+      this.pluginLoading = false
+    }
+  }
+
+  async togglePlugin(id: string, enabled: boolean): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) return
+    try {
+      if (enabled) {
+        await v2.enablePlugin(id)
+      } else {
+        await v2.disablePlugin(id)
+      }
+      await this.loadPlugins()
+    } catch (e) {
+      this.addLog(`plugin.toggle.failed: ${String(e)}`, 'error', 'plugin')
+    }
+  }
+
+  // ══════════ Sprint 3-B.14/B.15: Agent list (v2 detail) ══════════
+
+  async loadAgentsV2(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 === null) {
+      this.agentUnsupported = true
+      return
+    }
+    try {
+      this.agents = await v2.listAgentsV2()
+    } catch (e) {
+      if (e instanceof UnsupportedV2Endpoint) {
+        this.agentUnsupported = true
+      } else {
+        this.addLog(`agent.v2.failed: ${String(e)}`, 'warn', 'agent')
+      }
+    }
+  }
+
+  // ══════════ Sprint 3-B.13: Compaction (v2 path, v1 fallback already wired) ══════════
+
+  async requestCompactV2(): Promise<void> {
+    const v2 = this.getV2()
+    if (v2 !== null) {
+      try {
+        const r = await v2.compactSession(this.activeSessionId)
+        if (r.ok) {
+          ToastManager.show(i18n.t('toast.compacted'), 'success')
+          this.addLog(`compacted: ${r.compacted} messages`, 'info', 'session')
+          return
+        }
+      } catch (e) {
+        if (!(e instanceof UnsupportedV2Endpoint)) {
+          this.addLog(`compact.v2.failed: ${String(e)}`, 'warn', 'session')
+        }
+      }
+    }
+    // Fallback: v1 /session/:id/compact
+    await this.requestCompact()
   }
 
   async loadDiffs(): Promise<void> {
@@ -1408,6 +1679,32 @@ struct Index {
         mcpServers: this.mcpServers,
         lspServers: this.lspServers,
         formatterList: this.formatterList,
+        // Sprint 2-A.3 / A.1 / 3-A.9
+        snapshots: this.snapshots,
+        snapshotLoading: this.snapshotLoading,
+        snapshotUnsupported: this.snapshotUnsupported,
+        snapshotError: this.snapshotError,
+        ptySessions: this.ptySessions,
+        ptyActiveSessionID: this.ptyActiveSessionID,
+        ptyOutput: this.ptyOutput,
+        ptyLoading: this.ptyLoading,
+        ptyUnsupported: this.ptyUnsupported,
+        ptyError: this.ptyError,
+        plugins: this.plugins,
+        pluginLoading: this.pluginLoading,
+        pluginUnsupported: this.pluginUnsupported,
+        pluginError: this.pluginError,
+        onRefreshSnapshots: () => { this.loadSnapshots() },
+        onRestoreSnapshot: (id: string): void => { this.restoreSnapshot(id) },
+        onCreateSnapshot: (): void => { this.createSnapshot() },
+        onSnapshotDiff: (id: string): void => { this.snapshotDiff(id) },
+        onRefreshPty: () => { this.loadPtySessions() },
+        onStartPty: (cmd: string): void => { this.startPty(cmd) },
+        onSelectPty: (id: string): void => { this.selectPty(id) },
+        onClosePty: (id: string): void => { this.closePty(id) },
+        onSendPtyInput: (id: string, data: string): void => { this.sendPtyInput(id, data) },
+        onRefreshPlugins: () => { this.loadPlugins() },
+        onTogglePlugin: (id: string, enabled: boolean): void => { this.togglePlugin(id, enabled) },
         onApprovePermission: (id: string) => {
           this.approvePermission(id)
         },

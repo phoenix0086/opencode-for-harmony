@@ -13,6 +13,12 @@ import { LogsPanel } from './LogsPanel'
 import { MCPPanel, MCPServer } from './MCPPanel'
 import { LSPPanel, LspServer } from './LSPPanel'
 import { FormatterPanel, FormatterEntry } from './FormatterPanel'
+import { SnapshotPanel } from './SnapshotPanel'
+import { SnapshotInfo } from '../services/V2Type'
+import { PtyPanel } from './PtyPanel'
+import { PtySessionInfo } from '../services/V2Type'
+import { PluginPanel } from './PluginPanel'
+import { PluginInfo } from '../services/V2Type'
 import { ProviderSettingsPage } from '../pages/ProviderSettingsPage'
 import { ModelSettingsPage } from '../pages/ModelSettingsPage'
 import { SettingsPage } from '../pages/SettingsPage'
@@ -73,9 +79,35 @@ export struct AppShell {
   @Prop mcpServers: MCPServer[] = []
   @Prop lspServers: LspServer[] = []
   @Prop formatterList: FormatterEntry[] = []
+  // Sprint 2-A.3 / A.1 / 3-A.9 panels
+  @Prop snapshots: SnapshotInfo[] = []
+  @Prop ptySessions: PtySessionInfo[] = []
+  @Prop ptyOutput: string = ''
+  @Prop ptyActiveSessionID: string = ''
+  @Prop ptyUnsupported: boolean = false
+  @Prop snapshotUnsupported: boolean = false
+  @Prop snapshotError: string = ''
+  @Prop ptyError: string = ''
+  @Prop plugins: PluginInfo[] = []
+  @Prop pluginUnsupported: boolean = false
+  @Prop pluginError: string = ''
+  @Prop snapshotLoading: boolean = false
+  @Prop ptyLoading: boolean = false
+  @Prop pluginLoading: boolean = false
   onRefreshMcp: () => void = () => {}
   onRefreshLsp: () => void = () => {}
   onRefreshFormatters: () => void = () => {}
+  onRefreshSnapshots: () => void = () => {}
+  onRestoreSnapshot: (id: string) => void = () => {}
+  onCreateSnapshot: () => void = () => {}
+  onSnapshotDiff: (id: string) => void = () => {}
+  onRefreshPty: () => void = () => {}
+  onStartPty: (cmd: string) => void = () => {}
+  onSelectPty: (id: string) => void = () => {}
+  onClosePty: (id: string) => void = () => {}
+  onSendPtyInput: (id: string, data: string) => void = () => {}
+  onRefreshPlugins: () => void = () => {}
+  onTogglePlugin: (id: string, enabled: boolean) => void = () => {}
   onModelClick: () => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
   onSessionAction: (sessionId: string, action: string) => void = () => {}
@@ -381,6 +413,40 @@ export struct AppShell {
               onRefresh: () => {
                 this.onRefreshFormatters()
               }
+            })
+          } else if (this.activeActivity === 'history') {
+            SnapshotPanel({
+              snapshots: this.snapshots,
+              isLoading: this.snapshotLoading,
+              unsupported: this.snapshotUnsupported,
+              errorMessage: this.snapshotError,
+              onRefresh: () => { this.onRefreshSnapshots() },
+              onRestore: (id: string): void => { this.onRestoreSnapshot(id) },
+              onCreate: (): void => { this.onCreateSnapshot() },
+              onDiff: (id: string): void => { this.onSnapshotDiff(id) }
+            })
+          } else if (this.activeActivity === 'terminal') {
+            PtyPanel({
+              sessions: this.ptySessions,
+              activeSessionID: this.ptyActiveSessionID,
+              outputBuffer: this.ptyOutput,
+              isLoading: this.ptyLoading,
+              unsupported: this.ptyUnsupported,
+              errorMessage: this.ptyError,
+              onRefresh: () => { this.onRefreshPty() },
+              onStart: (cmd: string): void => { this.onStartPty(cmd) },
+              onSelect: (id: string): void => { this.onSelectPty(id) },
+              onClose: (id: string): void => { this.onClosePty(id) },
+              onSendInput: (id: string, data: string): void => { this.onSendPtyInput(id, data) }
+            })
+          } else if (this.activeActivity === 'plugins') {
+            PluginPanel({
+              plugins: this.plugins,
+              isLoading: this.pluginLoading,
+              unsupported: this.pluginUnsupported,
+              errorMessage: this.pluginError,
+              onRefresh: () => { this.onRefreshPlugins() },
+              onToggle: (id: string, enabled: boolean): void => { this.onTogglePlugin(id, enabled) }
             })
           } else if (this.activeActivity === 'settings') {
             SettingsPage()

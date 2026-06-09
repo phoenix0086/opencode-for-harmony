@@ -84,17 +84,17 @@ export class OpenCodeClient {
     return resp
   }
 
-  private async doGet(path: string): Promise<http.HttpResponse> {
+  public async doGet(path: string): Promise<http.HttpResponse> {
     const url = this.appendDir(`${this.baseUrl}${path}`)
     return this.doRequest(url, http.RequestMethod.GET)
   }
 
-  private async doPost(path: string, body?: string): Promise<http.HttpResponse> {
+  public async doPost(path: string, body?: string): Promise<http.HttpResponse> {
     const url = this.appendDir(`${this.baseUrl}${path}`)
     return this.doRequest(url, http.RequestMethod.POST, body)
   }
 
-  private async doPatch(path: string, body?: string): Promise<http.HttpResponse> {
+  public async doPatch(path: string, body?: string): Promise<http.HttpResponse> {
     // ArkTS http.RequestMethod 枚举不包含 PATCH
     // 使用 POST + X-HTTP-Method-Override 头
     const url = this.appendDir(`${this.baseUrl}${path}`)
@@ -120,7 +120,7 @@ export class OpenCodeClient {
     return this.doRequest(url, http.RequestMethod.PUT, body)
   }
 
-  private async doDelete(path: string): Promise<http.HttpResponse> {
+  public async doDelete(path: string): Promise<http.HttpResponse> {
     const url = this.appendDir(`${this.baseUrl}${path}`)
     return this.doRequest(url, http.RequestMethod.DELETE)
   }

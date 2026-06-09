@@ -73,6 +73,10 @@ export class ThemePalette {
   DIFF_ADD_TEXT: string = ''
   DIFF_DEL_BG: string = ''
   DIFF_DEL_TEXT: string = ''
+  // Panel & Button aliases (newer components use these)
+  PANEL_BG: string = ''
+  HEADER_BG: string = ''
+  BTN_BG: string = ''
   // Interactive
   HOVER: string = ''
   ACTIVE_BG: string = ''
@@ -125,10 +129,14 @@ const CatppuccinMocha: ThemePalette = (() => {
   p.CODE_BORDER = '#313244'
   p.TOOL_BG = '#181825'
   p.TOOL_BORDER = '#313244'
-  p.DIFF_ADD_BG = '#1a3a1a'
+  p.DIFF_ADD_BG = '#1e3a2a'
   p.DIFF_ADD_TEXT = '#a6e3a1'
-  p.DIFF_DEL_BG = '#3a1a25'
+  p.DIFF_DEL_BG = '#3a1e1e'
   p.DIFF_DEL_TEXT = '#f38ba8'
+  // Panel & button aliases
+  p.PANEL_BG = p.PANEL
+  p.HEADER_BG = p.STATUSBAR
+  p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#1e1e2e'
   p.ACTIVE_BG = '#313244'
@@ -182,6 +190,10 @@ const TokyoNight: ThemePalette = (() => {
   p.DIFF_ADD_TEXT = '#9ece6a'
   p.DIFF_DEL_BG = '#2e1a22'
   p.DIFF_DEL_TEXT = '#f7768e'
+  // Panel & button aliases
+  p.PANEL_BG = p.PANEL
+  p.HEADER_BG = p.STATUSBAR
+  p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#1a1b26'
   p.ACTIVE_BG = '#292e42'
@@ -235,6 +247,10 @@ const GruvboxDark: ThemePalette = (() => {
   p.DIFF_ADD_TEXT = '#b8bb26'
   p.DIFF_DEL_BG = '#2e1a1a'
   p.DIFF_DEL_TEXT = '#fb4934'
+  // Panel & button aliases
+  p.PANEL_BG = p.PANEL
+  p.HEADER_BG = p.STATUSBAR
+  p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#282828'
   p.ACTIVE_BG = '#3c3836'
@@ -301,6 +317,9 @@ export class Theme {
   static get DIFF_ADD_TEXT(): string { return Theme._current.DIFF_ADD_TEXT }
   static get DIFF_DEL_BG(): string { return Theme._current.DIFF_DEL_BG }
   static get DIFF_DEL_TEXT(): string { return Theme._current.DIFF_DEL_TEXT }
+  static get PANEL_BG(): string { return Theme._current.PANEL_BG }
+  static get HEADER_BG(): string { return Theme._current.HEADER_BG }
+  static get BTN_BG(): string { return Theme._current.BTN_BG }
 
   // Interactive
   static get HOVER(): string { return Theme._current.HOVER }

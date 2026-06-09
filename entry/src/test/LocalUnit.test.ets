@@ -1,33 +1,88 @@
-import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
+/**
+ * Unit tests for slash command parsing and V2 endpoint detection.
+ * 跑法: hvigorw test --module entry --test unittest
+ *
+ * Uses HarmonyOS Hypium framework. Tests are wrapped in describe/it blocks.
+ */
 
-export default function localUnitTest() {
-  describe('localUnitTest', () => {
-    // Defines a test suite. Two parameters are supported: test suite name and test suite function.
-    beforeAll(() => {
-      // Presets an action, which is performed only once before all test cases of the test suite start.
-      // This API supports only one parameter: preset action function.
-    });
-    beforeEach(() => {
-      // Presets an action, which is performed before each unit test case starts.
-      // The number of execution times is the same as the number of test cases defined by **it**.
-      // This API supports only one parameter: preset action function.
-    });
-    afterEach(() => {
-      // Presets a clear action, which is performed after each unit test case ends.
-      // The number of execution times is the same as the number of test cases defined by **it**.
-      // This API supports only one parameter: clear action function.
-    });
-    afterAll(() => {
-      // Presets a clear action, which is performed after all test cases of the test suite end.
-      // This API supports only one parameter: clear action function.
-    });
-    it('assertContain', 0, () => {
-      // Defines a test case. This API supports three parameters: test case name, filter parameter, and test case function.
-      let a = 'abc';
-      let b = 'b';
-      // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
-      expect(a).assertContain(b);
-      expect(a).assertEqual(a);
-    });
-  });
+import { describe, it, expect } from '@ohos/hypium'
+import {
+  parseSlashCommand,
+  buildHelpText,
+  slashRegistry
+} from '../main/ets/services/SlashCommandService'
+import { UnsupportedV2Endpoint } from '../main/ets/services/V2Type'
+import { i18n } from '../main/ets/services/I18nService'
+
+export default function slashCommandUnitTest() {
+  describe('SlashCommandService', () => {
+    it('parses simple /help', 0, () => {
+      const r = parseSlashCommand('/help')
+      expect(r !== null).assertTrue()
+      expect(r.command.name).assertEqual('help')
+      expect(r.args).assertEqual('')
+    })
+
+    it('parses /new with title', 0, () => {
+      const r = parseSlashCommand('/new my new session')
+      expect(r !== null).assertTrue()
+      expect(r.command.name).assertEqual('new')
+      expect(r.args).assertEqual('my new session')
+    })
+
+    it('returns null for non-slash input', 0, () => {
+      const r = parseSlashCommand('hello world')
+      expect(r).assertNull()
+    })
+
+    it('returns null for empty input', 0, () => {
+      expect(parseSlashCommand('')).assertNull()
+      expect(parseSlashCommand('   ')).assertNull()
+    })
+
+    it('returns null for unknown command', 0, () => {
+      const r = parseSlashCommand('/nonexistent')
+      expect(r).assertNull()
+    })
+
+    it('handles leading whitespace', 0, () => {
+      const r = parseSlashCommand('  /clear')
+      expect(r !== null).assertTrue()
+      expect(r.command.name).assertEqual('clear')
+    })
+
+    it('help text is non-empty', 0, () => {
+      const t = buildHelpText('')
+      expect(t.length).assertLarger(0)
+    })
+  })
+
+  describe('V2 UnsupportedV2Endpoint', () => {
+    it('constructs with path and status', 0, () => {
+      const e = new UnsupportedV2Endpoint('/snapshot', 404)
+      expect(e.endpoint).assertEqual('/snapshot')
+      expect(e.statusCode).assertEqual(404)
+      expect(e.name).assertEqual('UnsupportedV2Endpoint')
+    })
+  })
+
+  describe('I18nService', () => {
+    it('returns English by default for en-US locale', 0, () => {
+      i18n.setLocale('en-US')
+      const v = i18n.t('sidebar.chat')
+      expect(v).assertEqual('Chat')
+    })
+
+    it('returns Chinese for zh-CN locale', 0, () => {
+      i18n.setLocale('zh-CN')
+      const v = i18n.t('sidebar.chat')
+      expect(v).assertEqual('对话')
+    })
+
+    it('falls back to key when not found', 0, () => {
+      i18n.setLocale('en-US')
+      const v = i18n.t('nonexistent.key')
+      expect(v).assertEqual('nonexistent.key')
+    })
+  })
 }

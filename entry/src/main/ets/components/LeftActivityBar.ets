@@ -78,10 +78,29 @@ export struct LeftActivityBar {
     formatters.label = 'Format'
     formatters.symbol = 'F'
 
+    // Sprint 2-A.3 / A.1: file history + terminal
+    const history = new ActivityItem()
+    history.id = 'history'
+    history.label = 'History'
+    history.symbol = 'H'
+
+    const terminal = new ActivityItem()
+    terminal.id = 'terminal'
+    terminal.label = 'Term'
+    terminal.symbol = '$_'
+
+    // Sprint 3-A.9: plugins
+    const plugins = new ActivityItem()
+    plugins.id = 'plugins'
+    plugins.label = 'Plugin'
+    plugins.symbol = 'X'
+
     const arr: ActivityItem[] = []
     arr.push(chat)
     arr.push(files)
     arr.push(diff)
+    arr.push(history)
+    arr.push(terminal)
     arr.push(provider)
     arr.push(runtime)
     arr.push(server)
@@ -89,6 +108,7 @@ export struct LeftActivityBar {
     arr.push(lsp)
     arr.push(mcp)
     arr.push(formatters)
+    arr.push(plugins)
     arr.push(settings)
     this.items = arr
   }
