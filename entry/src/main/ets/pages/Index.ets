@@ -2,7 +2,7 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
-import { ConnectionStatus, AppView, SessionInfo } from '../model/AppState';
+import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
@@ -70,6 +70,8 @@ struct Index {
           Column() {
             this.NavItem(AppView.Home, $r('app.media.home'), 'Home')
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
+            this.NavItem(AppView.Provider, $r('app.media.server'), 'Provider')
+            this.NavItem(AppView.Models, $r('app.media.settings'), 'Models')
             this.NavItem(AppView.Files, $r('app.media.globe'), 'Files')
             this.NavItem(AppView.Terminal, $r('app.media.terminal'), 'Terminal')
             this.NavItem(AppView.WebView, $r('app.media.globe'), 'Web UI')
@@ -152,6 +154,10 @@ struct Index {
           this.HomeContent()
         } else if (this.currentView === AppView.Chat) {
           this.ChatContent()
+        } else if (this.currentView === AppView.Provider) {
+          this.ProviderContent()
+        } else if (this.currentView === AppView.Models) {
+          this.ModelsContent()
         } else if (this.currentView === AppView.WebView) {
           this.WebViewContent()
         } else if (this.currentView === AppView.Terminal) {
@@ -427,6 +433,203 @@ struct Index {
   }
 
   @Builder
+  ProviderContent() {
+    Column() {
+      Row() {
+        Text('Providers')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+
+        Blank()
+
+        Button('刷新')
+          .fontSize(13)
+          .height(32)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(6)
+          .onClick(() => {
+            this.viewModel.loadProviders()
+          })
+      }
+      .width('100%')
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      .alignItems(VerticalAlign.Center)
+
+      Divider().color('#2D2D2D').width('100%')
+
+      if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+        Column() {
+          Text('本地 Runtime 未连接')
+            .fontSize(18)
+            .fontColor('#FFFFFF')
+            .margin({ bottom: 8 })
+
+          Text('Provider 列表来自 OpenCode Runtime 的 /provider。请先连接本地 Runtime。')
+            .fontSize(14)
+            .fontColor('#888888')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 20 })
+
+          Button('去连接 Runtime')
+            .height(40)
+            .backgroundColor('#007DFF')
+            .fontColor('#FFFFFF')
+            .borderRadius(8)
+            .onClick(() => {
+              this.showSettings = true
+            })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      } else if (this.viewModel.providers.length === 0) {
+        Column() {
+          Text('没有从 Runtime 读取到 Provider')
+            .fontSize(18)
+            .fontColor('#FFFFFF')
+            .margin({ bottom: 8 })
+
+          Text('请确认 opencode 配置里已有 provider，或先在 Runtime 配置中添加自定义 Provider。')
+            .fontSize(14)
+            .fontColor('#888888')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 20 })
+
+          Button('重新读取 Provider')
+            .height(40)
+            .backgroundColor('#007DFF')
+            .fontColor('#FFFFFF')
+            .borderRadius(8)
+            .onClick(() => {
+              this.viewModel.loadProviders()
+            })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+      } else {
+        List() {
+          ForEach(this.viewModel.providers, (provider: ProviderInfo) => {
+            ListItem() {
+              Column() {
+                Row() {
+                  Column() {
+                    Text(provider.name.length > 0 ? provider.name : provider.id)
+                      .fontSize(16)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor('#FFFFFF')
+
+                    Text(provider.id)
+                      .fontSize(12)
+                      .fontColor('#888888')
+                      .margin({ top: 4 })
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+
+                  Text(provider.connected ? 'connected' : 'not connected')
+                    .fontSize(12)
+                    .fontColor(provider.connected ? '#3DDC84' : '#FFB020')
+                }
+                .width('100%')
+
+                if (provider.models.length > 0) {
+                  Flex({ wrap: FlexWrap.Wrap }) {
+                    ForEach(provider.models, (modelId: string) => {
+                      Button(modelId)
+                        .fontSize(12)
+                        .height(30)
+                        .backgroundColor(this.viewModel.selectedModel === `${provider.id}/${modelId}` ? '#007DFF' : '#2D2D2D')
+                        .fontColor('#FFFFFF')
+                        .borderRadius(6)
+                        .margin({ right: 8, top: 8 })
+                        .onClick(() => {
+                          this.viewModel.selectedModel = `${provider.id}/${modelId}`
+                          this.viewModel.saveServerConfig()
+                        })
+                    })
+                  }
+                  .width('100%')
+                  .margin({ top: 12 })
+                } else {
+                  Text('No models')
+                    .fontSize(12)
+                    .fontColor('#666666')
+                    .margin({ top: 12 })
+                }
+              }
+              .width('100%')
+              .padding(16)
+              .backgroundColor('#1A1A1A')
+              .borderRadius(10)
+              .margin({ left: 16, right: 16, bottom: 12 })
+            }
+          })
+        }
+        .layoutWeight(1)
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  ModelsContent() {
+    Column() {
+      Text('Models')
+        .fontSize(24)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .margin({ bottom: 24 })
+
+      Text('Current Model')
+        .fontSize(14)
+        .fontColor('#AAAAAA')
+        .margin({ bottom: 8 })
+
+      TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
+        .width('100%')
+        .height(40)
+        .backgroundColor('#2D2D2D')
+        .borderRadius(8)
+        .fontColor('#FFFFFF')
+        .onChange((value: string) => {
+          this.viewModel.selectedModel = value
+        })
+
+      Button('保存模型')
+        .height(40)
+        .backgroundColor('#007DFF')
+        .fontColor('#FFFFFF')
+        .borderRadius(8)
+        .margin({ top: 16 })
+        .onClick(() => {
+          this.viewModel.saveServerConfig()
+        })
+
+      Button('从 Provider 页面选择模型')
+        .height(40)
+        .backgroundColor('#2D2D2D')
+        .fontColor('#FFFFFF')
+        .borderRadius(8)
+        .margin({ top: 12 })
+        .onClick(() => {
+          this.currentView = AppView.Provider
+        })
+    }
+    .width('100%')
+    .height('100%')
+    .padding(32)
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   SettingsContent() {
     Column() {
       Text('Settings')
@@ -495,6 +698,31 @@ struct Index {
         .onChange((value: string) => {
           this.viewModel.selectedModel = value;
         })
+
+      Row() {
+        Button('刷新 Provider')
+          .height(36)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(6)
+          .onClick(() => {
+            this.viewModel.loadProviders()
+            this.currentView = AppView.Provider
+            this.showSettings = false
+          })
+
+        Button('打开 Models')
+          .height(36)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(6)
+          .margin({ left: 8 })
+          .onClick(() => {
+            this.currentView = AppView.Models
+            this.showSettings = false
+          })
+      }
+      .margin({ top: 8 })
 
       // Connect/Disconnect button
       Row() {

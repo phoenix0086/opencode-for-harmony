@@ -62,8 +62,38 @@ export class MainViewModel {
     catch (err) { Logger.error(`loadSessions failed: ${String(err)}`); }
   }
   async loadProviders(): Promise<void> {
-    try { const r = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER); const connected = this.extractStringArray(r['connected']); const all = this.extractArray(r['all'] as Object, 'providers', 'data'); this.providers = all.map((x: Object) => ProviderInfo.fromJson(x as Record<string, Object>, connected)); }
-    catch (err) { Logger.error(`loadProviders failed: ${String(err)}`); }
+    try {
+      const result = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+      const connectedIds = this.extractConnectedProviderIds(result['connected'])
+      const next: ProviderInfo[] = []
+
+      const all = result['all']
+      if (Array.isArray(all)) {
+        const arr = all as Object[]
+        for (const item of arr) {
+          next.push(ProviderInfo.fromJson(item as Record<string, Object>, connectedIds))
+        }
+      } else if (all && typeof all === 'object') {
+        const map = all as Record<string, Object>
+        for (const id of Object.keys(map)) {
+          next.push(ProviderInfo.fromRuntimeMapEntry(id, map[id], connectedIds))
+        }
+      } else {
+        for (const id of Object.keys(result)) {
+          if (id === 'connected' || id === 'default' || id === 'model') continue
+          const value = result[id]
+          if (value && typeof value === 'object') {
+            next.push(ProviderInfo.fromRuntimeMapEntry(id, value, connectedIds))
+          }
+        }
+      }
+
+      this.providers = next
+      Logger.info(`providers.loaded count=${next.length}`)
+    } catch (err) {
+      Logger.error(`loadProviders failed: ${String(err)}`)
+      this.providers = []
+    }
   }
   async createSession(): Promise<string> {
     try { const r = await this.httpService.post<Record<string, Object>>(Constants.API_SESSION, new EmptyRequest()); const id = (r['id'] as string) ?? ''; if (id.length > 0) { this.currentSessionId = id; await this.storageService?.setString(Constants.KEY_SESSION_ID, id); await this.loadSessions(); } return id; }
@@ -102,6 +132,30 @@ export class MainViewModel {
   private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] { const out: ChatMessage[]=[]; for(let i=0;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const roleStr=info?((info['role'] as string)??''):''; const id=info?((info['id'] as string)??''):''; const parts=(item['parts'] as Object[])??[]; const msg=new ChatMessage(); msg.id=id.length>0?id:`msg_${Date.now()}_${i}`; msg.sessionId=sessionId; msg.role=roleStr==='assistant'?MessageRole.Assistant:MessageRole.User; msg.timestamp=Date.now(); msg.status=MessageStatus.Complete; msg.isStreaming=false; const textParts:string[]=[]; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(type==='text'&&text.length>0) textParts.push(text); else if(this.isErrorType(type)||this.looksLikeError(text)){ msg.isError=true; msg.status=MessageStatus.Error; textParts.push(text.length>0?text:`Runtime error: ${type}`); } else if(this.isToolType(type)){ const tool=new ToolCall(); tool.id=((part['id'] as string)??(part['callID'] as string)??''); tool.name=((part['tool'] as string)??(part['name'] as string)??type); tool.arguments=JSON.stringify(part['input']??part['args']??part['state']??''); tool.result=text; tool.status=type.includes('error')?'error':'complete'; msg.toolCalls.push(tool);} else if(text.length>0) textParts.push(text);} msg.content=textParts.join('\n\n'); if(msg.content.length===0&&msg.toolCalls.length>0) msg.content=`[${msg.toolCalls.length} tool call(s)]`; if(msg.content.length>0||msg.toolCalls.length>0) out.push(msg);} return out; }
   private extractArray(value:Object, key1:string, key2:string): Object[] { if(Array.isArray(value)) return value as Object[]; if(!value||typeof value!=='object') return []; const rec=value as Record<string,Object>; const c1=rec[key1]; if(Array.isArray(c1)) return c1 as Object[]; const c2=rec[key2]; if(Array.isArray(c2)) return c2 as Object[]; return []; }
   private extractStringArray(value:Object|undefined): string[] { if(!value||!Array.isArray(value)) return []; return value as string[]; }
+  private extractConnectedProviderIds(value: Object | undefined): string[] {
+    const out: string[] = []
+    if (!value) return out
+    if (Array.isArray(value)) {
+      const arr = value as Object[]
+      for (const item of arr) {
+        if (typeof item === 'string') {
+          out.push(item)
+        } else if (item && typeof item === 'object') {
+          const rec = item as Record<string, Object>
+          const id = (rec['id'] as string) ?? ''
+          if (id.length > 0) out.push(id)
+        }
+      }
+      return out
+    }
+    if (typeof value === 'object') {
+      const map = value as Record<string, Object>
+      for (const id of Object.keys(map)) {
+        out.push(id)
+      }
+    }
+    return out
+  }
   private isToolType(type:string): boolean { return type==='tool-invocation'||type==='tool'||type==='step-start'||type==='step-finish'||type==='tool-call'||type==='tool-result'; }
   private isPermissionType(type:string): boolean { return type==='permission'||type==='permission-request'||type==='tool-permission'; }
   private isErrorType(type:string): boolean { return type==='error'||type==='tool-error'||type==='provider-error'; }
