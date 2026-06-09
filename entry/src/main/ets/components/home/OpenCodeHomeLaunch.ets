@@ -1,5 +1,5 @@
 import { Runner } from '../../models/Runner'
-import { SessionInfo } from '../../models/Event'
+import { SessionInfo } from '../../model/AppState'
 import { ProjectEntry } from '../DirectoryPicker'
 import { formatRelativeTime } from '../../utils/DateTimeUtil'
 

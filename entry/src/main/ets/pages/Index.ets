@@ -29,6 +29,7 @@ struct Index {
   @State showDirectoryPicker: boolean = false
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
+  @State inputText: string = '';
 
   private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
 
@@ -106,13 +107,13 @@ struct Index {
       let list: Array<Record<string, Object>> = []
       try { list = JSON.parse(raw) as Array<Record<string, Object>> } catch { list = [] }
       list = list.filter(x => (x['directory'] as string) !== directory)
-      list.unshift({
-        id: directory,
-        name: directory.split('/').pop() ?? directory,
-        directory: directory,
-        worktree: directory,
-        lastOpened: new Date().toISOString()
-      })
+      const entry: Record<string, Object> = {}
+      entry['id'] = directory
+      entry['name'] = directory.split('/').pop() ?? directory
+      entry['directory'] = directory
+      entry['worktree'] = directory
+      entry['lastOpened'] = new Date().toISOString()
+      list.unshift(entry)
       if (list.length > 10) list = list.slice(0, 10)
       await storage.setString('recents', JSON.stringify(list))
 
@@ -361,7 +362,6 @@ struct Index {
     .width('100%')
     .height('100%')
   }
-}
 
   @Builder
   NavItem(view: AppView, icon: Resource, label: string) {
@@ -648,8 +648,6 @@ struct Index {
     .width('100%')
     .height('100%')
   }
-
-  @State inputText: string = '';
 
   private sendInput(): void {
     if (this.inputText.length > 0) {

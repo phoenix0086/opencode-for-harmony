@@ -15,6 +15,7 @@ export class Constants {
   static readonly KEY_SESSION_ID: string = 'session_id';
   static readonly KEY_AUTH_USERNAME: string = 'auth_username';
   static readonly KEY_AUTH_PASSWORD: string = 'auth_password';
+  static readonly KEY_WORKSPACE_PATH: string = 'workspace_path';
 
   static readonly DEFAULT_SERVER_URL: string = 'http://127.0.0.1:4096';
   static readonly DEFAULT_MODEL: string = '';
