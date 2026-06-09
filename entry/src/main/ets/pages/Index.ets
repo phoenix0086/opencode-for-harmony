@@ -7,6 +7,9 @@ import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
+import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
+import { ProjectEntry } from '../components/DirectoryPicker';
+import { DirectoryPicker } from '../components/DirectoryPicker';
 
 /**
  * Main page of the OpenCode app.
@@ -21,6 +24,12 @@ struct Index {
   @State showSettings: boolean = false;
   @State initialized: boolean = false;
 
+  // ── OpenCodeHomeLaunch 相关状态 ──
+  @State homeProjects: ProjectEntry[] = []
+  @State showDirectoryPicker: boolean = false
+  @State showServerStatusDialog: boolean = false
+  @State showHelpDialog: boolean = false
+
   private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
@@ -32,6 +41,8 @@ struct Index {
       Logger.info('Index page initialized, starting auto-connect...');
       // Auto-start the built-in server and connect
       await this.viewModel.autoStartAndConnect();
+      // Load recent projects from storage
+      await this.loadRecentProjects()
     }
   }
 
@@ -41,7 +52,175 @@ struct Index {
     Logger.info('Index page destroyed, server shut down');
   }
 
+  /**
+   * 从 storage 加载最近项目列表 (与 opencode-dev 的 recentProjects 对齐)
+   * 数据源: StorageService.recents key,JSON 数组 [{id,directory,lastOpened,worktree}]
+   */
+  async loadRecentProjects(): Promise<void> {
+    try {
+      const storage = new StorageService(this.context);
+      await storage.init();
+      const raw = await storage.getString('recents', '[]')
+      const parsed = JSON.parse(raw) as Array<Record<string, Object>>
+      const projects: ProjectEntry[] = []
+      for (const item of parsed) {
+        const p = new ProjectEntry()
+        p.id = (item['id'] as string) ?? ''
+        p.name = (item['name'] as string) ?? ''
+        p.directory = (item['directory'] as string) ?? ''
+        p.worktree = (item['worktree'] as string) ?? p.directory
+        p.lastOpened = (item['lastOpened'] as string) ?? ''
+        p.isActive = false
+        projects.push(p)
+      }
+      // 注入当前工作区作为默认最近项目
+      const currentDir = await storage.getString(Constants.KEY_WORKSPACE_PATH, '')
+      if (currentDir.length > 0 && !projects.some(p => p.directory === currentDir)) {
+        const p = new ProjectEntry()
+        p.id = 'current'
+        p.name = currentDir.split('/').pop() ?? currentDir
+        p.directory = currentDir
+        p.worktree = currentDir
+        p.lastOpened = new Date().toISOString()
+        p.isActive = true
+        projects.unshift(p)
+      }
+      this.homeProjects = projects
+    } catch (err) {
+      Logger.warn(`loadRecentProjects: ${String(err)}`)
+      this.homeProjects = []
+    }
+  }
+
+  /**
+   * 打开一个项目:记录到 recents + 切到 Chat 视图
+   */
+  async openProject(directory: string): Promise<void> {
+    try {
+      const storage = new StorageService(this.context);
+      await storage.init();
+      await storage.setString(Constants.KEY_WORKSPACE_PATH, directory)
+
+      // 追加到 recents (去重,前置)
+      const raw = await storage.getString('recents', '[]')
+      let list: Array<Record<string, Object>> = []
+      try { list = JSON.parse(raw) as Array<Record<string, Object>> } catch { list = [] }
+      list = list.filter(x => (x['directory'] as string) !== directory)
+      list.unshift({
+        id: directory,
+        name: directory.split('/').pop() ?? directory,
+        directory: directory,
+        worktree: directory,
+        lastOpened: new Date().toISOString()
+      })
+      if (list.length > 10) list = list.slice(0, 10)
+      await storage.setString('recents', JSON.stringify(list))
+
+      await this.loadRecentProjects()
+      this.currentView = AppView.Chat
+    } catch (err) {
+      Logger.error(`openProject failed: ${String(err)}`)
+    }
+  }
+
+  /**
+   * 新建 session + 切到 Chat
+   */
+  async newSessionAndOpenChat(): Promise<void> {
+    const id = await this.viewModel.createSession()
+    if (id.length > 0) {
+      this.currentView = AppView.Chat
+    } else {
+      this.showSettings = true
+    }
+  }
+
   build() {
+    // ── Home 全屏模式: 与 opencode-dev 的 LegacyHome 完全对齐 ──
+    // 默认 currentView=Home 时直接显示 OpenCodeHomeLaunch,不带侧栏,
+    // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
+    if (this.currentView === AppView.Home) {
+      this.FullScreenHome()
+    } else {
+      this.SidebarLayout()
+    }
+  }
+
+  @Builder
+  FullScreenHome() {
+    Stack() {
+      OpenCodeHomeLaunch({
+        activeRunner: null,
+        sessions: this.viewModel.sessions,
+        projectName: '',
+        projectPath: '',
+        branchName: '',
+        modelName: this.viewModel.selectedModel,
+        isConnected: this.viewModel.connectionStatus === ConnectionStatus.Connected,
+        serverVersion: this.viewModel.serverInfo.url,
+        projects: this.homeProjects,
+        serverName: this.viewModel.serverInfo.displayName.length > 0 ? this.viewModel.serverInfo.displayName : 'Local Server',
+        isServerReady: this.viewModel.connectionStatus === ConnectionStatus.Connected ||
+                        this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ||
+                        this.viewModel.connectionStatus === ConnectionStatus.Connecting,
+        onNewSession: () => {
+          this.newSessionAndOpenChat()
+        },
+        onOpenChat: () => {
+          this.currentView = AppView.Chat
+        },
+        onOpenSettings: () => {
+          this.showSettings = true
+        },
+        onOpenHelp: () => {
+          this.showHelpDialog = true
+        },
+        onOpenDirectoryPicker: () => {
+          this.showDirectoryPicker = true
+        },
+        onOpenServerStatus: () => {
+          this.showServerStatusDialog = true
+        },
+        onOpenProject: (directory: string) => {
+          this.openProject(directory)
+        }
+      })
+
+      // ── DirectoryPicker 弹层 ──
+      DirectoryPicker({
+        visible: this.showDirectoryPicker,
+        projects: this.homeProjects,
+        currentDirectory: this.viewModel.serverInfo.url,
+        onSelect: (directory: string) => {
+          this.showDirectoryPicker = false
+          this.openProject(directory)
+        },
+        onDismiss: () => {
+          this.showDirectoryPicker = false
+        }
+      })
+
+      // ── Server Status 弹层 ──
+      if (this.showServerStatusDialog) {
+        this.ServerStatusDialog()
+      }
+
+      // ── Help 弹层 ──
+      if (this.showHelpDialog) {
+        this.HelpDialog()
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#0a0a0a')
+    .onAppear(() => {
+      // 进入 home 时刷新最近项目 (从 Chat 退回时也走这里)
+      this.loadRecentProjects()
+    })
+  }
+
+  @Builder
+  SidebarLayout() {
     Row() {
       // Sidebar
       if (!this.sidebarCollapsed) {
@@ -182,6 +361,7 @@ struct Index {
     .width('100%')
     .height('100%')
   }
+}
 
   @Builder
   NavItem(view: AppView, icon: Resource, label: string) {
@@ -938,5 +1118,168 @@ struct Index {
       default:
         return 'Disconnected';
     }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Home 弹层: Server Status (与 opencode 右上 server 按钮对应)
+  // ─────────────────────────────────────────────────────────
+
+  @Builder
+  ServerStatusDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#00000099')
+        .onClick(() => {
+          this.showServerStatusDialog = false
+        })
+
+      Column() {
+        Text('SERVER')
+          .fontSize(12)
+          .fontColor('#8a8a8a')
+          .fontFamily('monospace')
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .margin({ bottom: 12 })
+
+        Text(this.viewModel.serverInfo.url.length > 0 ? this.viewModel.serverInfo.url : '未配置')
+          .fontSize(13)
+          .fontColor('#e8e2dd')
+          .fontFamily('monospace')
+          .width('100%')
+
+        Row() {
+          Circle()
+            .width(8)
+            .height(8)
+            .fill(this.getStatusColor())
+          Text(this.getStatusText())
+            .fontSize(12)
+            .fontColor('#a8a8a8')
+            .fontFamily('monospace')
+            .margin({ left: 8 })
+        }
+        .margin({ top: 16 })
+
+        if (this.viewModel.serverStatusMessage.length > 0) {
+          Text(this.viewModel.serverStatusMessage)
+            .fontSize(12)
+            .fontColor('#7a7a7a')
+            .fontFamily('monospace')
+            .margin({ top: 8 })
+        }
+
+        Row() {
+          Button('关闭')
+            .fontSize(13)
+            .height(32)
+            .backgroundColor('#1f1f1f')
+            .fontColor('#cfcfcf')
+            .borderRadius(6)
+            .layoutWeight(1)
+            .onClick(() => {
+              this.showServerStatusDialog = false
+            })
+
+          Button('重新连接')
+            .fontSize(13)
+            .height(32)
+            .backgroundColor('#007DFF')
+            .fontColor('#FFFFFF')
+            .borderRadius(6)
+            .layoutWeight(1)
+            .margin({ left: 8 })
+            .onClick(() => {
+              this.showServerStatusDialog = false
+              this.viewModel.connect()
+            })
+        }
+        .margin({ top: 20 })
+        .width('100%')
+      }
+      .width(360)
+      .padding(24)
+      .backgroundColor('#181818')
+      .borderRadius(10)
+      .borderWidth(1)
+      .borderColor('#2d2d2d')
+    }
+    .width('100%')
+    .height('100%')
+    .alignContent(Alignment.Center)
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Home 弹层: Help (与 opencode 左下 ? 按钮对应)
+  // ─────────────────────────────────────────────────────────
+
+  @Builder
+  HelpDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#00000099')
+        .onClick(() => {
+          this.showHelpDialog = false
+        })
+
+      Column() {
+        Text('快捷键 / 帮助')
+          .fontSize(16)
+          .fontColor('#e8e2dd')
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+          .margin({ bottom: 16 })
+
+        this.HelpRow('新建会话', '点击左 + 按钮')
+        this.HelpRow('打开项目', '点击 "打开项目" 或搜索目录')
+        this.HelpRow('切换会话', '左栏 SessionSidebar')
+        this.HelpRow('设置', '点击左下 ⚙ 按钮')
+        this.HelpRow('查看文档', 'docs/harmony-native/api-mapping.md')
+
+        Button('关闭')
+          .fontSize(13)
+          .height(32)
+          .backgroundColor('#1f1f1f')
+          .fontColor('#cfcfcf')
+          .borderRadius(6)
+          .margin({ top: 20 })
+          .width('100%')
+          .onClick(() => {
+            this.showHelpDialog = false
+          })
+      }
+      .width(400)
+      .padding(24)
+      .backgroundColor('#181818')
+      .borderRadius(10)
+      .borderWidth(1)
+      .borderColor('#2d2d2d')
+    }
+    .width('100%')
+    .height('100%')
+    .alignContent(Alignment.Center)
+  }
+
+  @Builder
+  HelpRow(label: string, desc: string) {
+    Row() {
+      Text(label)
+        .fontSize(13)
+        .fontColor('#e8e2dd')
+        .fontWeight(FontWeight.Medium)
+        .width(96)
+
+      Text(desc)
+        .fontSize(12)
+        .fontColor('#a8a8a8')
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .height(28)
+    .alignItems(VerticalAlign.Center)
   }
 }

@@ -154,6 +154,13 @@ export class ProviderRegistry {
     await this.save()
   }
 
+  async removeProvider(providerId: string): Promise<void> {
+    const kept: CNProvider[] = []
+    for (const p of this.providers) if (p.id !== providerId) kept.push(p)
+    this.providers = kept
+    await this.save()
+  }
+
   async setModelEnabled(providerId: string, modelId: string, enabled: boolean): Promise<void> {
     const p = this.getById(providerId)
     if (!p) return

@@ -109,49 +109,5 @@ function provider(id: string, name: string, baseURL: string, authEnv: string, mo
 
 /** Create default OpenAI-compatible Provider Pack. */
 export function createDefaultProviders(): CNProvider[] {
-  const providers: CNProvider[] = []
-
-  providers.push(provider('deepseek-cn', 'DeepSeek', 'https://api.deepseek.com', 'DEEPSEEK_API_KEY', [
-    model('deepseek-chat', 'DeepSeek Chat', true, true),
-    model('deepseek-reasoner', 'DeepSeek Reasoner', true),
-  ]))
-
-  providers.push(provider('qwen-cn', '通义千问 / 阿里百炼', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'DASHSCOPE_API_KEY', [
-    model('qwen3-coder-plus', 'Qwen3 Coder Plus', true, true),
-    model('qwen-plus', 'Qwen Plus', false),
-    model('qwen-max', 'Qwen Max', false),
-  ]))
-
-  providers.push(provider('glm-cn', '智谱 GLM / BigModel', 'https://open.bigmodel.cn/api/paas/v4', 'BIGMODEL_API_KEY', [
-    model('glm-4.5', 'GLM-4.5', true, true),
-    model('glm-4.5-air', 'GLM-4.5 Air', true),
-  ]))
-
-  providers.push(provider('kimi-cn', 'Kimi / Moonshot', 'https://api.moonshot.cn/v1', 'MOONSHOT_API_KEY', [
-    model('kimi-k2', 'Kimi K2', true, true),
-  ]))
-
-  providers.push(provider('minimax-cn', 'MiniMax', 'https://api.minimax.chat/v1', 'MINIMAX_API_KEY', [
-    model('MiniMax-M2', 'MiniMax M2', true, true),
-  ]))
-
-  providers.push(provider('volcengine-cn', '火山方舟 / Volcengine Ark', 'https://ark.cn-beijing.volces.com/api/v3', 'VOLCENGINE_API_KEY', [
-    model('doubao-seed-1-6', 'Doubao Seed 1.6', true, true),
-  ]))
-
-  providers.push(provider('baidu-qianfan-cn', '百度千帆', 'https://qianfan.baidubce.com/v2', 'QIANFAN_API_KEY', [
-    model('ernie-4.5-turbo-128k', 'ERNIE 4.5 Turbo 128K', true, true),
-  ]))
-
-  providers.push(provider('siliconflow-cn', 'SiliconFlow', 'https://api.siliconflow.cn/v1', 'SILICONFLOW_API_KEY', [
-    model('Qwen/Qwen3-Coder-480B-A35B-Instruct', 'Qwen3 Coder 480B', true, true),
-    model('deepseek-ai/DeepSeek-V3', 'DeepSeek V3', true),
-  ]))
-
-  const custom = provider('custom-openai-compatible', '自定义 OpenAI Compatible', '', 'CUSTOM_API_KEY', [])
-  custom.builtIn = false
-  custom.enabled = false
-  providers.push(custom)
-
-  return providers
+  return []
 }

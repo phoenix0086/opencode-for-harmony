@@ -34,8 +34,9 @@ import { formatRelativeTime } from '../../utils/DateTimeUtil'
  */
 @Component
 export struct OpenCodeHomeLaunch {
-  @Link inputText: string
-  @Link isSending: boolean
+  // 输入状态虽然 home 屏不直接用,但保留 props 供未来 Editor 区复用
+  @Prop inputText: string = ''
+  @Prop isSending: boolean = false
 
   @Prop activeRunner: Runner | null = null
   @Prop sessions: SessionInfo[] = []
@@ -308,24 +309,28 @@ export struct OpenCodeHomeLaunch {
 
   @Builder
   OpenCodeLogo() {
-    // 像素 opencode logo (低透明度，居中显示)
-    // 对应 opencode-dev <Logo class="md:w-xl opacity-12" />
-    Stack() {
-      Rect()
-        .width(280)
-        .height(96)
-        .fill('#e8e4de')
-        .opacity(0.12)
-        .borderRadius(6)
-
-      Rect()
-        .width(60)
-        .height(60)
-        .fill('#111111')
-        .margin({ top: 18 })
-    }
-    .width(280)
-    .height(96)
+    // 像素 opencode logo — 对应 opencode-dev 的 <Logo /> 组件
+    //
+    // 设计意图:
+    //   - 用 monospace 字体 (像 'Major Mono Display' / 'Share Tech Mono') 渲染
+    //   - 大字号 + Bold + 紧凑 letterSpacing,营造"块状/LED"质感
+    //   - 用 #e8e4de (米白) + 0.12 opacity 模拟"水印/背景"效果
+    //   - 居中显示
+    //
+    // ArkTS 没有自定义字体文件,所以我们用系统 monospace + 调字号
+    // 接近 opencode 官方 logo 视觉效果。高级方案是把 logo SVG
+    // 转成 Image 资源 (entry/src/main/resources/base/media/opencode_logo.svg)
+    // 然后用 Image 渲染,这里先走纯文本方案。
+    Text('opencode')
+      .fontSize(96)
+      .fontWeight(FontWeight.Bold)
+      .fontFamily('monospace')
+      .fontColor('#e8e4de')
+      .opacity(0.12)
+      .letterSpacing(2)
+      .textAlign(TextAlign.Center)
+      .height(120)
+      .width('100%')
   }
 
   @Builder
