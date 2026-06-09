@@ -15,24 +15,25 @@ export struct ServerSettingsPage {
   @State status: LocalServerStatus = new LocalServerStatus()
   @State statusMsg: string = ''
   @State logs: string[] = []
-  @State mode: string = 'local'
+  @State mode: string = 'dev-pc'
   @State processPid: number = -1
   @State busy: boolean = false
 
   aboutToAppear(): void {
     // Load last-used host/port/mode/token so the user doesn't have to retype
-    // the LAN IP on every app launch. Fall back to defaults if no saved config.
-    localOpenCodeServerManager.loadLastConfig().then((cfg: LocalServerConfig) => {
-      this.config = cfg
-      this.mode = cfg.mode
-      this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
-    })
-    this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
+    // the LAN IP on every app launch. Status is initialised AFTER the load
+    // so it picks up the saved values (fixes race with UI binding to this.mode
+    // / this.config.host before the async read resolves).
     this.logs = [
       '[info] 本页用于管理本地 OpenCode Runtime。',
       '[info] 点击"启动本地 Runtime"会通过 Native Bridge 启动 opencode serve。',
       '[info] 启动成功后会自动检测 /global/health 并激活 Runner。'
     ]
+    localOpenCodeServerManager.loadLastConfig().then((cfg: LocalServerConfig) => {
+      this.config = cfg
+      this.mode = cfg.mode
+      this.status = localOpenCodeServerManager.createPreviewStatus(this.config)
+    })
   }
 
   build() {
@@ -104,12 +105,14 @@ export struct ServerSettingsPage {
         if (id === 'local') {
           this.config.host = '127.0.0.1'
         } else if (id === 'dev-pc') {
-          // Only seed the placeholder IP if the current host looks like a default
-          // (127.0.0.1, empty, or the legacy '192.168.1.xxx' placeholder). If the
-          // user already has a real LAN IP saved, keep it.
+          // Only seed the IP if the current host looks like a default/placeholder
+          // (127.0.0.1, empty, the legacy '192.168.1.xxx' placeholder, or the
+          // hard-coded default 192.168.1.72 — the last case is the typical
+          // re-tap of the same pill, where we want to keep the user-typed IP).
+          // Real user-typed LAN IPs are preserved.
           const cur = this.config.host
           if (cur.length === 0 || cur === '127.0.0.1' || cur === '192.168.1.xxx') {
-            this.config.host = '192.168.1.xxx'
+            this.config.host = '192.168.1.72'
           }
         }
         this.refreshStatusPreview()

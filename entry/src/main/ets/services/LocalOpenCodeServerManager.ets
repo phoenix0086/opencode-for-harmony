@@ -6,22 +6,22 @@ import { ProcessBridge } from './ProcessBridge'
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
   message: string = ''
-  baseUrl: string = 'http://127.0.0.1:4096'
+  baseUrl: string = 'http://192.168.1.72:4096'
   version: string = ''
-  host: string = '127.0.0.1'
+  host: string = '192.168.1.72'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
-  startCommand: string = 'opencode serve --port 4096 --hostname 127.0.0.1'
+  startCommand: string = 'opencode serve --port 4096 --hostname 192.168.1.72'
   logs: string[] = []
   processPid: number = -1
 }
 
 export class LocalServerConfig {
-  host: string = '127.0.0.1'
+  host: string = '192.168.1.72'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
   token: string = ''
-  mode: string = 'local' // local | dev-pc | remote
+  mode: string = 'dev-pc' // local | dev-pc | remote
 }
 
 export class LocalOpenCodeServerManager {
