@@ -143,14 +143,14 @@ struct Index {
             this.projectName = project.name
             this.addLog(`project: ${project.name}`, 'info', 'server')
           },
-          (e) => { this.addLog(`project load failed: ${String(e)}`, 'warn', 'server') }
+          (e: Object) => { this.addLog(`project load failed: ${String(e)}`, 'warn', 'server') }
         )
         const pVcs = client.getVcsInfo().then(
           (vcs) => {
             this.branchName = vcs.branch
             this.addLog(`branch: ${vcs.branch}`, 'info', 'server')
           },
-          (e) => { this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server') }
+          (e: Object) => { this.addLog(`vcs load failed: ${String(e)}`, 'warn', 'server') }
         )
         const pConfig = client.getConfig().then(
           (config) => {
@@ -159,7 +159,7 @@ struct Index {
             }
             this.addLog(`config.model: ${config.model}`, 'info', 'server')
           },
-          (e) => { this.addLog(`config load failed: ${String(e)}`, 'warn', 'server') }
+          (e: Object) => { this.addLog(`config load failed: ${String(e)}`, 'warn', 'server') }
         )
         const pProjects = this.loadProjects()
         await Promise.all([pProj, pVcs, pConfig, pProjects])

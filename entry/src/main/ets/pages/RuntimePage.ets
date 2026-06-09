@@ -37,11 +37,14 @@ export struct RuntimePage {
     this.statusLoading = true
     try {
       const client = new OpenCodeClient(this.activeRunner)
-      const [mcp, lsp, fmt] = await Promise.all([
+      const extResults = await Promise.all([
         client.listMcpServers(),
         client.listLspStatus(),
         client.listFormatters()
       ])
+      const mcp = extResults[0]
+      const lsp = extResults[1]
+      const fmt = extResults[2]
       this.mcpCount = mcp.length
       this.lspCount = lsp.length
       this.formatterCount = fmt.length
