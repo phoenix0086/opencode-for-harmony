@@ -6,25 +6,27 @@ import { ProcessBridge } from './ProcessBridge'
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
   message: string = ''
-  baseUrl: string = 'http://192.168.1.72:4096'
+  baseUrl: string = 'http://127.0.0.1:4096'
   version: string = ''
-  host: string = '192.168.1.72'
+  host: string = '127.0.0.1'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
-  startCommand: string = 'opencode serve --port 4096 --hostname 192.168.1.72'
+  startCommand: string = 'opencode serve --port 4096 --hostname 127.0.0.1'
   logs: string[] = []
   processPid: number = -1
 }
 
 export class LocalServerConfig {
-  host: string = '192.168.1.72'
+  host: string = '127.0.0.1'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
   token: string = ''
-  mode: string = 'dev-pc' // local | dev-pc | remote
+  mode: string = 'local' // local | dev-pc | remote
 }
 
 export class LocalOpenCodeServerManager {
+  managedPid: number = -1
+
   createDefaultConfig(): LocalServerConfig {
     return new LocalServerConfig()
   }
@@ -237,8 +239,131 @@ export class LocalOpenCodeServerManager {
     }
   }
 
+  /**
+   * Auto-start: the core method for built-in server.
+   * 1. Load saved config (or use default)
+   * 2. Check health → if already running, activate and return
+   * 3. Start process via native bridge
+   * 4. Poll health until server is ready
+   * 5. Save and activate the runner
+   * Returns status with logs for UI display.
+   */
+  async autoStart(onStatusChange?: (status: LocalServerStatus) => void): Promise<LocalServerStatus> {
+    const config = await this.loadLastConfig()
+
+    // Step 1: check if already running
+    let healthStatus = await this.checkHealth(config)
+    if (healthStatus.status === 'running') {
+      await this.saveAndActivate(config)
+      healthStatus.logs.push('[auto] server already running, activated')
+      if (onStatusChange) onStatusChange(healthStatus)
+      return healthStatus
+    }
+
+    // Step 2: start the process
+    const startStatus = this.startServerProcess(config)
+    if (onStatusChange) onStatusChange(startStatus)
+
+    if (startStatus.status === 'error') {
+      return startStatus
+    }
+
+    this.managedPid = startStatus.processPid
+
+    // Step 3: poll health up to 30 times (30 seconds max)
+    const maxPolls = 30
+    const pollIntervalMs = 1000
+    for (let i = 0; i < maxPolls; i++) {
+      await this.delay(pollIntervalMs)
+
+      // Check if process is still alive
+      if (!this.isProcessRunning(this.managedPid)) {
+        const logs = this.collectProcessLogs(this.managedPid)
+        const failStatus = new LocalServerStatus()
+        failStatus.status = 'error'
+        failStatus.processPid = this.managedPid
+        failStatus.message = 'Runtime 进程已退出，启动失败。'
+        failStatus.logs = startStatus.logs.concat(logs)
+        failStatus.logs.push(`[auto] process exited during startup poll #${i + 1}`)
+        this.managedPid = -1
+        if (onStatusChange) onStatusChange(failStatus)
+        return failStatus
+      }
+
+      // Check health endpoint
+      healthStatus = await this.checkHealth(config)
+      if (healthStatus.status === 'running') {
+        await this.saveAndActivate(config)
+        healthStatus.processPid = this.managedPid
+        healthStatus.logs = startStatus.logs.concat(healthStatus.logs)
+        healthStatus.logs.push(`[auto] server healthy after ${(i + 1)}s, activated`)
+        if (onStatusChange) onStatusChange(healthStatus)
+        return healthStatus
+      }
+
+      // Report progress
+      const progressStatus = new LocalServerStatus()
+      progressStatus.status = 'starting'
+      progressStatus.processPid = this.managedPid
+      progressStatus.host = config.host
+      progressStatus.port = config.port
+      progressStatus.baseUrl = `${config.protocol}://${config.host}:${config.port}`
+      progressStatus.message = `Runtime 启动中... 等待就绪 (${i + 1}/${maxPolls}s)`
+      progressStatus.logs = startStatus.logs
+      progressStatus.logs.push(`[auto] health poll #${i + 1}: not ready yet`)
+      if (onStatusChange) onStatusChange(progressStatus)
+    }
+
+    // Step 4: timed out
+    const timeoutStatus = new LocalServerStatus()
+    timeoutStatus.status = 'error'
+    timeoutStatus.processPid = this.managedPid
+    timeoutStatus.host = config.host
+    timeoutStatus.port = config.port
+    timeoutStatus.message = `Runtime 启动超时 (${maxPolls}s)。进程可能卡住，请检查日志。`
+    timeoutStatus.logs = startStatus.logs
+    timeoutStatus.logs.push(`[auto] health check timed out after ${maxPolls}s`)
+    // Collect any available logs
+    const finalLogs = this.collectProcessLogs(this.managedPid)
+    timeoutStatus.logs = timeoutStatus.logs.concat(finalLogs)
+    if (onStatusChange) onStatusChange(timeoutStatus)
+    return timeoutStatus
+  }
+
+  /**
+   * Gracefully shut down the managed server process.
+   * Should be called when the app is closing.
+   */
+  shutdown(): LocalServerStatus {
+    if (this.managedPid <= 0) {
+      const s = new LocalServerStatus()
+      s.status = 'stopped'
+      s.message = '没有正在管理的 Runtime 进程。'
+      return s
+    }
+    const result = this.stopServerProcess(this.managedPid)
+    this.managedPid = -1
+    return result
+  }
+
+  /**
+   * Stop all managed processes (safety net).
+   */
+  shutdownAll(): void {
+    ProcessBridge.stopAll()
+    this.managedPid = -1
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), ms)
+    })
+  }
+
   private findOpencodeBinary(): string {
-    // V2 still relies on PATH. V3 should resolve bundled runtime path first.
+    // Priority: bundled binary > common install paths > PATH fallback
+    // V3: bundled binary would be at context.filesDir/opencode
+    // V2: relies on PATH for now
     return 'opencode'
   }
 }

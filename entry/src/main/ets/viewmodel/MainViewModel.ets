@@ -7,6 +7,7 @@ import { ConnectionStatus, SessionInfo, ProviderInfo } from '../model/AppState';
 import { EmptyRequest, TextPromptPart, PromptAsyncRequest, ConfigModelPatch, ExecutionPollResult } from '../model/OpenCodeApiTypes';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
+import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
 
 export class MainViewModel {
   httpService: HttpService = new HttpService();
@@ -21,6 +22,8 @@ export class MainViewModel {
   selectedModel: string = Constants.DEFAULT_MODEL;
   isGenerating: boolean = false;
   errorMessage: string = '';
+  serverStatusMessage: string = '';
+  serverLogs: string[] = [];
   private healthTimer: number = -1;
 
   async init(storage: StorageService): Promise<void> {
@@ -56,6 +59,64 @@ export class MainViewModel {
     } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = String(err); Logger.error(`Connection failed: ${String(err)}`); }
   }
   disconnect(): void { this.wsService.disconnect(); this.stopHealthCheck(); this.connectionStatus = ConnectionStatus.Disconnected; this.serverInfo.connected = false; }
+
+  /**
+   * Auto-start the built-in OpenCode server and connect.
+   * Called automatically on app launch for HarmonyOS computer deployment.
+   * Flow: check health → start process if needed → poll until healthy → connect.
+   */
+  async autoStartAndConnect(): Promise<void> {
+    this.connectionStatus = ConnectionStatus.AutoStarting;
+    this.serverStatusMessage = '正在启动内置 Runtime...';
+    this.serverLogs = [];
+    this.errorMessage = '';
+    Logger.info('Auto-start: beginning built-in server startup');
+
+    try {
+      const result: LocalServerStatus = await localOpenCodeServerManager.autoStart(
+        (status: LocalServerStatus) => {
+          this.serverStatusMessage = status.message;
+          this.serverLogs = status.logs;
+          Logger.info(`Auto-start progress: ${status.status} - ${status.message}`);
+        }
+      );
+
+      if (result.status === 'running') {
+        // Server is healthy and activated, now connect
+        this.serverStatusMessage = 'Runtime 已就绪，正在连接...';
+        Logger.info('Auto-start: server running, connecting...');
+        await this.connect();
+        if (this.connectionStatus === ConnectionStatus.Connected) {
+          this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
+        }
+      } else {
+        // Server start failed
+        this.connectionStatus = ConnectionStatus.StartFailed;
+        this.serverStatusMessage = result.message;
+        this.serverLogs = result.logs;
+        this.errorMessage = result.message;
+        Logger.error(`Auto-start failed: ${result.message}`);
+      }
+    } catch (err) {
+      this.connectionStatus = ConnectionStatus.StartFailed;
+      this.serverStatusMessage = `自动启动异常：${String(err)}`;
+      this.errorMessage = String(err);
+      Logger.error(`Auto-start exception: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Gracefully shut down the built-in server.
+   * Should be called when the app is closing.
+   */
+  shutdown(): void {
+    const result = localOpenCodeServerManager.shutdown();
+    Logger.info(`Shutdown: ${result.message}`);
+    this.serverStatusMessage = result.message;
+    this.stopHealthCheck();
+    this.connectionStatus = ConnectionStatus.Disconnected;
+    this.serverInfo.connected = false;
+  }
 
   async loadSessions(): Promise<void> {
     try { const r = await this.httpService.get<Object>(Constants.API_SESSION); this.sessions = this.extractArray(r, 'sessions', 'data').map((x: Object) => SessionInfo.fromJson(x as Record<string, Object>)); }

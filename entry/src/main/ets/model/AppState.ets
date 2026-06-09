@@ -4,8 +4,10 @@
 
 export enum ConnectionStatus {
   Disconnected = 'disconnected',
+  AutoStarting = 'auto_starting',
   Connecting = 'connecting',
   Connected = 'connected',
+  StartFailed = 'start_failed',
   Error = 'error'
 }
 

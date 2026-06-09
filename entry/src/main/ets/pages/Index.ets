@@ -28,8 +28,16 @@ struct Index {
       await storage.init();
       await this.viewModel.init(storage);
       this.initialized = true;
-      Logger.info('Index page initialized');
+      Logger.info('Index page initialized, starting auto-connect...');
+      // Auto-start the built-in server and connect
+      await this.viewModel.autoStartAndConnect();
     }
+  }
+
+  aboutToDisappear(): void {
+    // Gracefully shut down the built-in server when the page is destroyed
+    this.viewModel.shutdown();
+    Logger.info('Index page destroyed, server shut down');
   }
 
   build() {
@@ -253,9 +261,94 @@ struct Index {
             })
           })
         }
+      } else if (this.viewModel.connectionStatus === ConnectionStatus.AutoStarting) {
+        // Auto-start in progress
+        Column() {
+          LoadingProgress()
+            .width(48)
+            .height(48)
+            .color('#007DFF')
+            .margin({ bottom: 16 })
+
+          Text(this.viewModel.serverStatusMessage.length > 0
+            ? this.viewModel.serverStatusMessage
+            : '正在启动内置 Runtime...')
+            .fontSize(16)
+            .fontColor('#FFB300')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 8 })
+
+          if (this.viewModel.serverLogs.length > 0) {
+            Text(this.viewModel.serverLogs[this.viewModel.serverLogs.length - 1])
+              .fontSize(12)
+              .fontColor('#666666')
+              .textAlign(TextAlign.Center)
+              .maxLines(2)
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.viewModel.connectionStatus === ConnectionStatus.StartFailed) {
+        // Auto-start failed
+        Column() {
+          Text('Runtime 启动失败')
+            .fontSize(20)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FF5252')
+            .margin({ bottom: 12 })
+
+          Text(this.viewModel.serverStatusMessage.length > 0
+            ? this.viewModel.serverStatusMessage
+            : '内置 Runtime 无法启动')
+            .fontSize(14)
+            .fontColor('#AAAAAA')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 8 })
+            .padding({ left: 32, right: 32 })
+
+          if (this.viewModel.serverLogs.length > 0) {
+            Text(this.viewModel.serverLogs.slice(-3).join('\n'))
+              .fontSize(11)
+              .fontColor('#666666')
+              .textAlign(TextAlign.Start)
+              .padding(12)
+              .backgroundColor('#1A1A1A')
+              .borderRadius(8)
+              .width('100%')
+              .margin({ bottom: 16 })
+          }
+
+          Button('重新启动')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .width(200)
+            .height(48)
+            .backgroundColor('#007DFF')
+            .borderRadius(8)
+            .margin({ bottom: 12 })
+            .onClick(() => {
+              this.viewModel.autoStartAndConnect();
+            })
+
+          Button('手动连接')
+            .fontSize(14)
+            .width(200)
+            .height(40)
+            .backgroundColor('#2D2D2D')
+            .fontColor('#FFFFFF')
+            .borderRadius(8)
+            .onClick(() => {
+              this.showSettings = true;
+            })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+        .padding(32)
       } else {
         // Connection prompt
-        Button('连接本地 Runtime')
+        Button('启动并连接 Runtime')
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
           .width(200)
@@ -264,7 +357,7 @@ struct Index {
           .borderRadius(8)
           .margin({ top: 24 })
           .onClick(() => {
-            this.showSettings = true;
+            this.viewModel.autoStartAndConnect();
           })
       }
     }
@@ -736,8 +829,16 @@ struct Index {
             .onClick(() => {
               this.viewModel.disconnect();
             })
+        } else if (this.viewModel.connectionStatus === ConnectionStatus.AutoStarting) {
+          Button('启动中...')
+            .width(120)
+            .height(44)
+            .backgroundColor('#FFB300')
+            .borderRadius(8)
+            .fontColor('#FFFFFF')
+            .enabled(false)
         } else {
-          Button(this.viewModel.connectionStatus === ConnectionStatus.Connecting ? 'Connecting...' : 'Connect')
+          Button('Connect')
             .width(120)
             .height(44)
             .backgroundColor('#007DFF')
@@ -763,6 +864,36 @@ struct Index {
       }
       .margin({ top: 24 })
 
+      // Built-in server control
+      Row() {
+        Text('内置 Runtime')
+          .fontSize(14)
+          .fontColor('#AAAAAA')
+          .layoutWeight(1)
+
+        Button(this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ? '启动中...' : '启动内置 Runtime')
+          .height(36)
+          .backgroundColor('#007DFF')
+          .fontColor('#FFFFFF')
+          .borderRadius(6)
+          .enabled(this.viewModel.connectionStatus !== ConnectionStatus.AutoStarting)
+          .onClick(() => {
+            this.viewModel.autoStartAndConnect();
+          })
+
+        Button('停止 Runtime')
+          .height(36)
+          .backgroundColor('#FF5252')
+          .fontColor('#FFFFFF')
+          .borderRadius(6)
+          .margin({ left: 8 })
+          .onClick(() => {
+            this.viewModel.shutdown();
+          })
+      }
+      .margin({ top: 12 })
+      .width('100%')
+
       if (this.viewModel.errorMessage.length > 0) {
         Text(this.viewModel.errorMessage)
           .fontSize(13)
@@ -780,8 +911,10 @@ struct Index {
     switch (this.viewModel.connectionStatus) {
       case ConnectionStatus.Connected:
         return '#00C853';
+      case ConnectionStatus.AutoStarting:
       case ConnectionStatus.Connecting:
         return '#FFB300';
+      case ConnectionStatus.StartFailed:
       case ConnectionStatus.Error:
         return '#FF5252';
       default:
@@ -793,8 +926,12 @@ struct Index {
     switch (this.viewModel.connectionStatus) {
       case ConnectionStatus.Connected:
         return 'Connected';
+      case ConnectionStatus.AutoStarting:
+        return 'Starting...';
       case ConnectionStatus.Connecting:
         return 'Connecting...';
+      case ConnectionStatus.StartFailed:
+        return 'Start Failed';
       case ConnectionStatus.Error:
         return 'Error';
       default:
