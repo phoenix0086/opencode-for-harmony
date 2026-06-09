@@ -24,6 +24,7 @@ export class EventStreamClient {
   private seenMessageIds: Set<string> = new Set()
   private messageFingerprints: Map<string, string> = new Map()
   private seenPermissionIds: Set<string> = new Set()
+  private seenQuestionIds: Set<string> = new Set()
 
   private listeners: Map<string, EventCallback[]> = new Map()
 
@@ -49,6 +50,7 @@ export class EventStreamClient {
     this.seenMessageIds = new Set()
     this.messageFingerprints = new Map()
     this.seenPermissionIds = new Set()
+    this.seenQuestionIds = new Set()
     this.initialized = false
     this.pollingMode = 'cold_start'
     this.consecutiveErrors = 0

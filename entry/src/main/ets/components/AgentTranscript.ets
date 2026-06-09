@@ -1,6 +1,6 @@
 import { Theme } from './Theme'
 import { SessionTurn, TurnData, TranscriptBlock } from './SessionTurn'
-import { QuestionBlock } from './QuestionBlock'
+import { QuestionCard, QuestionBlockData, QuestionOption } from './QuestionCard'
 
 export { TranscriptBlock }
 
@@ -20,6 +20,7 @@ export struct AgentTranscript {
   onApprovePermission: (id: string) => void = () => {}
   onRejectPermission: (id: string) => void = () => {}
   onAlwaysApprovePermission: (id: string) => void = () => {}
+  onAnswerQuestion: (id: string, optionIds: string[]) => void = () => {}
   @State turns: TurnData[] = []
   private lastBlocksLen: number = -1
 
@@ -37,8 +38,8 @@ export struct AgentTranscript {
     for (let i = 0; i < this.blocks.length; i++) {
       const block = this.blocks[i]
 
-      if (block.type === 'permission' || block.type === 'error') {
-        // Permissions and errors stay at transcript level, not in turns
+      if (block.type === 'permission' || block.type === 'error' || block.type === 'question') {
+        // Permissions, errors, and questions stay at transcript level, not in turns
         continue
       }
 
@@ -53,7 +54,7 @@ export struct AgentTranscript {
       // assistant / tool / system
       if (block.type === 'assistant') {
         const prev = i > 0 ? this.blocks[i - 1] : null
-        const isNewTurn = prev === null || prev.type === 'user' || prev.type === 'permission' || prev.type === 'error' || prev.type === 'system'
+        const isNewTurn = prev === null || prev.type === 'user' || prev.type === 'permission' || prev.type === 'error' || prev.type === 'question' || prev.type === 'system'
         if (isNewTurn || result.length === 0) {
           const turn = new TurnData()
           turn.id = block.id
@@ -118,6 +119,8 @@ export struct AgentTranscript {
             this.PermissionBlock(item.block)
           } else if (item.kind === 'error') {
             this.ErrorBlock(item.block)
+          } else if (item.kind === 'question') {
+            this.QuestionBlock(item.block)
           }
         }
       }, (item: RenderItem) => item.id)
@@ -157,6 +160,12 @@ export struct AgentTranscript {
         const ri = new RenderItem()
         ri.id = block.id
         ri.kind = 'error'
+        ri.block = block
+        items.push(ri)
+      } else if (block.type === 'question') {
+        const ri = new RenderItem()
+        ri.id = block.id
+        ri.kind = 'question'
         ri.block = block
         items.push(ri)
       } else if (block.type === 'user' || (turnIdx < this.turns.length && this.turns[turnIdx].id === block.id)) {
@@ -297,6 +306,67 @@ export struct AgentTranscript {
     .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
   }
 
+  // ══════════ Error Block (M14) ══════════
+  /**
+   * Renders a TranscriptBlock of type 'error' as a red error card.
+   * Used for: part.type = error | provider-error | tool-error | poll.hasError.
+   * Also auto-fires the onOpenLogs callback so the diagnostic chain is visible.
+   */
+  @Builder
+  ErrorBlock(block: TranscriptBlock) {
+    Row() {
+      // Risk bar (always red for errors)
+      Column()
+        .width(3)
+        .height('100%')
+        .backgroundColor(Theme.DANGER)
+        .borderRadius(2)
+        .margin({ right: Theme.sp.md })
+
+      // Body
+      Column() {
+        Row() {
+          Text('!')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.DANGER)
+            .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Bold)
+            .width(18)
+            .height(18)
+            .textAlign(TextAlign.Center)
+            .backgroundColor(Theme.DANGER_DIM)
+            .borderRadius(9)
+
+          Text('Runtime Error')
+            .fontSize(Theme.fs.md)
+            .fontColor(Theme.DANGER)
+            .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Bold)
+            .margin({ left: Theme.sp.sm })
+        }
+        .width('100%')
+
+        if (block.content.length > 0) {
+          Text(block.content)
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_PRIMARY)
+            .fontFamily(Theme.FONT_MONO)
+            .margin({ top: Theme.sp.xs })
+            .maxLines(6)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .padding({ top: Theme.sp.md, bottom: Theme.sp.md, left: Theme.sp.md, right: Theme.sp.md })
+    .backgroundColor(Theme.DANGER_DIM)
+    .borderRadius(Theme.rd.md)
+    .borderWidth(1)
+    .borderColor(Theme.DANGER)
+    .margin({ top: Theme.sp.sm, bottom: Theme.sp.sm })
+  }
+
   // ══════════ Question Block ══════════
   @Builder
   QuestionBlock(block: TranscriptBlock) {
@@ -321,16 +391,22 @@ export struct AgentTranscript {
     const opts: QuestionOption[] = []
     if (block.toolInput.length > 0) {
       try {
-        const parsed = JSON.parse(block.toolInput) as Record<string, Object>
-        multi = parsed['multiSelect'] === true
-        const rawOpts = parsed['options'] as Array<Record<string, string>>
-        if (Array.isArray(rawOpts)) {
-          for (const o of rawOpts) {
-            const qo = new QuestionOption()
-            qo.id = (o['id'] as string) || ''
-            qo.label = (o['label'] as string) || ''
-            qo.description = (o['description'] as string) || ''
-            opts.push(qo)
+        const parsed: Object = JSON.parse(block.toolInput)
+        if (typeof parsed === 'object' && parsed !== null) {
+          const obj: Record<string, Object> = parsed as Record<string, Object>
+          multi = obj['multiSelect'] === true
+          const rawOpts: Object = obj['options']
+          if (Array.isArray(rawOpts)) {
+            for (let i = 0; i < rawOpts.length; i++) {
+              const o: Object = rawOpts[i]
+              if (o === null || o === undefined) continue
+              const oo: Record<string, Object> = o as Record<string, Object>
+              const qo = new QuestionOption()
+              qo.id = (oo['id'] as string) || ''
+              qo.label = (oo['label'] as string) || ''
+              qo.description = (oo['description'] as string) || ''
+              opts.push(qo)
+            }
           }
         }
       } catch (e) {

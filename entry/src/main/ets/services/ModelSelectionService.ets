@@ -2,6 +2,7 @@ import { Runner } from '../models/Runner'
 import { providerRegistry } from './ProviderRegistry'
 import { storageService } from './StorageService'
 import { OpenCodeClient } from './OpenCodeClient'
+import { agentResponsePoller } from './AgentResponsePoller'
 
 export class ModelOption {
   providerId: string = ''
@@ -148,21 +149,76 @@ export class ModelSelectionService {
     }
   }
 
+  /**
+   * M14: Drive the model test to completion.
+   *
+   * Old behavior only proved "prompt_async was sent" — it could not tell
+   * whether the model actually replied. We now:
+   *   1. resolve modelRef against server provider list
+   *   2. PATCH /config so subsequent prompts go to the tested model
+   *   3. create a fresh session
+   *   4. prompt_async with "Say OK."
+   *   5. waitForExecution (assistant | tool | error | permission | timeout)
+   *
+   * Result is one of three classes the UI surfaces explicitly:
+   *   成功：assistant returned
+   *   失败：Runtime error: <errorText>
+   *   超时：poll timeout
+   */
   async testModel(modelRef: string, runner: Runner | null): Promise<string> {
     if (runner === null) return '无法测试模型：本地 Runtime 未连接。请先到"本地 Runtime"页面连接。'
 
+    let client: OpenCodeClient
+    let resolved: string
+    let sessionId: string
     try {
-      const client = new OpenCodeClient(runner)
-      const resolved = await this.resolveServerModelRef(modelRef, runner)
+      client = new OpenCodeClient(runner)
+      resolved = await this.resolveServerModelRef(modelRef, runner)
       const patch: Record<string, Object> = {}
       patch['model'] = resolved
       await client.updateConfig(patch)
 
       const session = await client.createSession(`model-test-${Date.now()}`)
+      sessionId = session.id
       client.setDefaultAgent('build')
-      await client.sendMessageAsync(session.id, 'Say OK.')
+      const sent = await client.sendMessageAsync(sessionId, 'Say OK.')
+      if (!sent) {
+        return `模型测试失败：prompt_async 返回失败 (${modelRef})。请检查 Runtime 日志。`
+      }
+
+      const before = await client.getMessagesRaw(sessionId)
+      const beforeCount = before.length
+
+      // Wait up to ~30s for assistant / error / permission. Test probes are
+      // tiny prompts, so the long prod timeout (120 × 1s) is wasteful here.
+      const poll = await agentResponsePoller.waitForExecution(
+        client,
+        sessionId,
+        beforeCount,
+        30,
+        1000
+      )
+
       const suffix = resolved === modelRef ? '' : ` (已映射到 server: ${resolved})`
-      return `测试请求已发送到 ${modelRef}${suffix}。请查看会话 ${session.id}。`
+      if (poll.ok) {
+        if (poll.hasAssistant) {
+          return `模型测试成功：assistant returned — ${modelRef}${suffix}`
+        }
+        if (poll.hasError) {
+          return `模型测试失败：Runtime error — ${poll.snapshot.errorText.length > 0 ? poll.snapshot.errorText : '未知错误'} (${modelRef}${suffix})`
+        }
+        if (poll.hasTool) {
+          return `模型测试成功：触发了工具调用 (${modelRef}${suffix})`
+        }
+        if (poll.hasPermission) {
+          return `模型测试需要权限：${modelRef}${suffix}`
+        }
+        return `模型测试完成，但未识别到明确结果 (${modelRef}${suffix})`
+      }
+      if (poll.timedOut) {
+        return `模型测试超时：Runtime 没有返回 (${modelRef}${suffix})。请检查 Provider 配置或 Runtime 日志。`
+      }
+      return `模型测试失败：${poll.message.length > 0 ? poll.message : 'unknown'} (${modelRef}${suffix})`
     } catch (e) {
       return `模型测试失败：${String(e)}`
     }

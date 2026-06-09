@@ -10,6 +10,9 @@ import { ToolTimelinePanel, ToolTimelineEntry } from './ToolTimelinePanel'
 import { DiffPanel } from './DiffPanel'
 import { FilePanel } from './FilePanel'
 import { LogsPanel } from './LogsPanel'
+import { MCPPanel, MCPServer } from './MCPPanel'
+import { LSPPanel, LspServer } from './LSPPanel'
+import { FormatterPanel, FormatterEntry } from './FormatterPanel'
 import { ProviderSettingsPage } from '../pages/ProviderSettingsPage'
 import { ModelSettingsPage } from '../pages/ModelSettingsPage'
 import { SettingsPage } from '../pages/SettingsPage'
@@ -34,6 +37,10 @@ export struct AppShell {
   @Link activeSessionId: string
   @Link inputText: string
   @Link isSending: boolean
+  // M14: parent (Index.ets) controls which right-panel tab is open so it can
+  // auto-switch to tools/logs/permission based on poll results.
+  @Link rightPanelTab: string // 'tools' | 'diff' | 'logs'
+  @Link showRightPanel: boolean
   @Prop activeRunner: Runner | null = null
   @Prop sessions: SessionInfo[] = []
   @Prop transcriptBlocks: TranscriptBlock[] = []
@@ -82,8 +89,6 @@ export struct AppShell {
   @State contextMenuX: number = 0
   @State contextMenuY: number = 0
 
-  @State showRightPanel: boolean = true
-  @State rightPanelTab: string = 'tools' // 'tools' | 'diff' | 'logs'
   @State toasts: ToastData[] = []
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @State showStatusPopover: boolean = false
@@ -355,6 +360,27 @@ export struct AppShell {
               projectName: this.projectName,
               branchName: this.branchName,
               activeRunner: this.activeRunner
+            })
+          } else if (this.activeActivity === 'mcp') {
+            MCPPanel({
+              servers: this.mcpServers,
+              onRefresh: () => {
+                this.onRefreshMcp()
+              }
+            })
+          } else if (this.activeActivity === 'lsp') {
+            LSPPanel({
+              servers: this.lspServers,
+              onRefresh: () => {
+                this.onRefreshLsp()
+              }
+            })
+          } else if (this.activeActivity === 'formatters') {
+            FormatterPanel({
+              formatters: this.formatterList,
+              onRefresh: () => {
+                this.onRefreshFormatters()
+              }
             })
           } else if (this.activeActivity === 'settings') {
             SettingsPage()

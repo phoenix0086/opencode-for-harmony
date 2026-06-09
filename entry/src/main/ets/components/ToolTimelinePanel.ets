@@ -52,23 +52,28 @@ export struct ToolTimelinePanel {
 
       // Timeline
       if (this.entries.length === 0) {
+        // M14: Make the empty state helpful — explain *when* tools will appear,
+        // not just that they are missing. Mirrors OpenCode Desktop's empty hint.
         Column() {
-          Text('No tool calls yet.')
+          Text('Tools')
             .fontSize(Theme.fs.sm)
-            .fontColor(Theme.TEXT_MUTED)
+            .fontColor(Theme.TEXT_SECONDARY)
             .fontFamily(Theme.FONT_MONO)
-          Text('发送一个需要读写文件或运行命令的任务后，这里会显示 OpenCode 的工具调用。')
+            .fontWeight(FontWeight.Medium)
+
+          Text('发送需要读写文件或运行命令的任务后，这里会显示 OpenCode 的工具调用。')
             .fontSize(Theme.fs.xs)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)
-            .margin({ top: Theme.sp.sm })
             .textAlign(TextAlign.Center)
-            .padding({ left: Theme.sp.lg, right: Theme.sp.lg })
+            .margin({ top: Theme.sp.sm })
+            .lineHeight(18)
         }
         .layoutWeight(1)
         .width('100%')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
+        .padding({ left: Theme.sp.lg, right: Theme.sp.lg })
       } else {
         List() {
           ForEach(this.entries, (entry: ToolTimelineEntry) => {
@@ -139,6 +144,17 @@ export struct ToolTimelinePanel {
                     Text(entry.output)
                       .fontSize(Theme.fs.xs)
                       .fontColor(Theme.TEXT_SECONDARY)
+                      .fontFamily(Theme.FONT_MONO)
+                      .margin({ top: Theme.sp.xs })
+                      .maxLines(3)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+
+                  // Error snippet
+                  if (entry.error.length > 0 && entry.status === 'error') {
+                    Text(entry.error)
+                      .fontSize(Theme.fs.xs)
+                      .fontColor(Theme.DANGER)
                       .fontFamily(Theme.FONT_MONO)
                       .margin({ top: Theme.sp.xs })
                       .maxLines(3)

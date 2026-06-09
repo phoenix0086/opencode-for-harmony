@@ -1,20 +1,11 @@
 import { Theme } from './Theme'
-
-/**
- * TodoItem — 单个 todo 条目。
- * 对应上游 SessionTodo / v2 TodoItem。
- */
-@Observed
-export class TodoItem {
-  id: string = ''
-  content: string = ''
-  status: string = '' // 'pending' | 'in_progress' | 'completed' | 'cancelled'
-  priority: string = '' // 'low' | 'medium' | 'high'
-}
+import { TodoItem } from '../models/Event'
 
 /**
  * TodoListBlock — 整个 turn 的 todo 列表视图。
  * 一个 turn 可能只有一份 todo 列表（agent 在每个 step 输出一份）。
+ *
+ * 复用 Event.ets 中的 TodoItem 模型，避免重复定义导致类型不兼容。
  */
 @Component
 export struct TodoListBlock {

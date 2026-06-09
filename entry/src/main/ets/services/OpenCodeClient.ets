@@ -6,7 +6,7 @@ import {
   WithParts, RawPart, NormalizedMessage, NormalizedPart,
   PermissionRequest, QuestionRequest, FileDiff, VcsInfo, VcsFileStatus,
   ProjectInfo, AgentInfo, PathInfo,
-  ProviderListResult, ProviderPublicInfo
+  ProviderListResult, ProviderPublicInfo, TodoItem
 } from '../models/Event'
 
 /**
@@ -407,6 +407,23 @@ export class OpenCodeClient {
     return resp.responseCode === 200
   }
 
+  /**
+   * POST /session/:id/compact to request context compaction.
+   * v1 server returns 404/405; we surface that to the caller as `false`
+   * so the UI can show "unsupported" instead of crashing.
+   */
+  async requestCompact(sessionID: string): Promise<boolean> {
+    try {
+      const resp = await this.doPost(`/session/${sessionID}/compact`, '{}')
+      if (resp.responseCode === 200 || resp.responseCode === 204) {
+        return true
+      }
+      return false
+    } catch (e) {
+      return false
+    }
+  }
+
   // ══════════ Messages ══════════
   // GET /session/:id/message → WithParts[] (raw)
   // POST /session/:id/message → WithParts (sync prompt)
@@ -438,9 +455,12 @@ export class OpenCodeClient {
    * caller can read info.tokens / info.cost without a second request.
    * Used by Index.loadMessages to update the context usage indicator.
    */
-  async getMessagesWithRaw(sessionID: string, limit?: number): Promise<{ normalized: NormalizedMessage[], raw: WithParts[] }> {
+  async getMessagesWithRaw(sessionID: string, limit?: number): Promise<MessagesWithRaw> {
     const raw = await this.getMessagesRaw(sessionID, limit)
-    return { normalized: normalizeMessages(raw), raw }
+    const out = new MessagesWithRaw()
+    out.normalized = normalizeMessages(raw)
+    out.raw = raw
+    return out
   }
 
   /**
@@ -478,6 +498,7 @@ export class OpenCodeClient {
   // ══════════ Permission ══════════
   // GET /permission → PermissionRequest[]
   // POST /permission/:requestID/reply → { reply: "once"|"always"|"deny" } → boolean
+  // POST /session/:sessionID/permissions/:requestID/reply (M14: session-scoped reply)
 
   async listPermissions(): Promise<PermissionRequest[]> {
     const resp = await this.doGet('/permission')
@@ -486,7 +507,7 @@ export class OpenCodeClient {
   }
 
   /**
-   * 回复权限请求
+   * Reply to a permission request at the global /permission endpoint.
    * @param reply - "once" (本次允许), "always" (永久允许), "deny" (拒绝)
    */
   async replyPermission(requestID: string, reply: string): Promise<boolean> {
@@ -494,6 +515,31 @@ export class OpenCodeClient {
     body['reply'] = reply
     const resp = await this.doPost(`/permission/${requestID}/reply`, JSON.stringify(body))
     return resp.responseCode === 200
+  }
+
+  /**
+   * M14: Reply to a session-scoped permission request.
+   * Some v1.x servers route /permission/:id/reply under the session namespace;
+   * we hit the more specific endpoint first and fall back to the global one
+   * if the server returns 404/405.
+   *
+   * @param sessionID - the session that owns the request
+   * @param requestID - the permission request id
+   * @param reply     - "once" | "always" | "deny"
+   */
+  async replySessionPermission(sessionID: string, requestID: string, reply: string): Promise<boolean> {
+    if (sessionID.length === 0 || requestID.length === 0) return false
+    const body: Record<string, string> = {}
+    body['reply'] = reply
+    const sessionPath = `/session/${encodeURIComponent(sessionID)}/permissions/${encodeURIComponent(requestID)}/reply`
+    try {
+      const resp = await this.doPost(sessionPath, JSON.stringify(body))
+      if (resp.responseCode === 200) return true
+      // Server does not implement session-scoped route — fall through to global
+    } catch (e) {
+      // network/parse error: try the global endpoint as a last resort
+    }
+    return this.replyPermission(requestID, reply)
   }
 
   // ══════════ Question (Sprint 1-A.2) ══════════
@@ -598,6 +644,17 @@ export class HealthResult {
   ok: boolean = false
   version: string = ''
   error: string = ''
+}
+
+// ══════════ Messages With Raw ══════════
+
+/**
+ * Combined result for getMessagesWithRaw(): normalized view + raw WithParts
+ * so callers can read info.tokens / info.cost without a second HTTP request.
+ */
+export class MessagesWithRaw {
+  normalized: NormalizedMessage[] = []
+  raw: WithParts[] = []
 }
 
 // ══════════ Normalize Functions ══════════
@@ -712,12 +769,13 @@ export function normalizeMessages(raw: WithParts[]): NormalizedMessage[] {
  * - { type:'todo', text:'[ ] ...' }  (markdown fallback)
  */
 function parseTodosFromPart(part: RawPart): TodoItem[] {
-  const direct = part.state['todos']
+  const direct: Object = part.state['todos']
   if (Array.isArray(direct)) {
     const out: TodoItem[] = []
-    for (const raw of direct) {
-      if (raw === null || raw === undefined) continue
-      const obj = raw as Record<string, Object>
+    for (let i = 0; i < direct.length; i++) {
+      const entry: Object = direct[i]
+      if (entry === null || entry === undefined) continue
+      const obj: Record<string, Object> = entry as Record<string, Object>
       const item = new TodoItem()
       item.id = (obj['id'] as string) || ''
       item.content = (obj['content'] as string) || (obj['text'] as string) || ''

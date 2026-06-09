@@ -28,6 +28,16 @@ export class SlashResult {
   newModel: string = ''              // for /model
 }
 
+/**
+ * Result of parseSlashCommand: matched command + remaining argument text.
+ * Encapsulated as a class to satisfy ArkTS strict mode (no inline object
+ * literals as type declarations).
+ */
+export class ParsedSlashCommand {
+  command: SlashCommand = new SlashCommand()
+  args: string = ''
+}
+
 @Observed
 export class SlashRegistry {
   private commands: Map<string, SlashCommand> = new Map()
@@ -144,7 +154,7 @@ function makeSimpleCmd(
  *   "/new Fix auth"    → command="new", args="Fix auth"
  *   "/model x/abc"     → command="model", args="x/abc"
  */
-export function parseSlashCommand(input: string): { command: SlashCommand, args: string } | null {
+export function parseSlashCommand(input: string): ParsedSlashCommand | null {
   const trimmed = input.trim()
   if (trimmed.length === 0 || trimmed.charAt(0) !== '/') {
     return null
@@ -169,7 +179,10 @@ export function parseSlashCommand(input: string): { command: SlashCommand, args:
   if (!cmd) {
     return null
   }
-  return { command: cmd, args: rest }
+  const out = new ParsedSlashCommand()
+  out.command = cmd
+  out.args = rest
+  return out
 }
 
 /**

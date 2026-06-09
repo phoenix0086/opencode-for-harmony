@@ -295,9 +295,11 @@ export struct OpenCodeHomeLaunch {
       .alignItems(HorizontalAlign.Center)
 
       // 下半部：最近项目
-      this.RecentProjectsSection()
-        .width('100%')
-        .padding({ left: 24, right: 24, bottom: 24 })
+      Column() {
+        this.RecentProjectsSection()
+      }
+      .width('100%')
+      .padding({ left: 24, right: 24, bottom: 24 })
     }
     .layoutWeight(1)
     .height('100%')

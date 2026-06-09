@@ -2,6 +2,8 @@ import { Theme } from './Theme'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { ThinkingHeading } from './ThinkingHeading'
 import { BasicToolCard } from './BasicToolCard'
+import { TodoListBlock } from './TodoListBlock'
+import { TodoItem } from '../models/Event'
 import {
   BashToolCard,
   EditToolCard,

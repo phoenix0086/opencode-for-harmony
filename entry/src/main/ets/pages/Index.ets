@@ -15,6 +15,9 @@ import { TranscriptBlock } from '../components/AgentTranscript'
 import { ToolTimelineEntry } from '../components/ToolTimelinePanel'
 import { ToastManager } from '../components/ToastNotification'
 import { DirectoryPicker, ProjectEntry } from '../components/DirectoryPicker'
+import { MCPServer } from '../components/MCPPanel'
+import { LspServer } from '../components/LSPPanel'
+import { FormatterEntry } from '../components/FormatterPanel'
 import { formatLocalSessionTitle, formatServerTitle } from '../utils/DateTimeUtil'
 
 /**
@@ -26,6 +29,10 @@ import { formatLocalSessionTitle, formatServerTitle } from '../utils/DateTimeUti
 struct Index {
   // ══════════ Navigation State ══════════
   @State activeActivity: string = 'chat'
+  // M14: parent-controlled right-panel tab. Auto-switched by sendMessage()
+  // based on what the runtime actually did: tools / diff / logs / permission.
+  @State rightPanelTab: string = 'tools'
+  @State showRightPanel: boolean = true
 
   // ══════════ Connection State ══════════
   @State runners: Runner[] = []
@@ -63,6 +70,8 @@ struct Index {
   @State branchName: string = ''
   @State modelName: string = ''
   @State tokenCost: string = '0 tokens'
+  @State tokensUsed: number = 0
+  @State tokensMax: number = 128000
 
   // ══════════ Init State ══════════
   @State isInitialized: boolean = false
@@ -830,6 +839,31 @@ struct Index {
         'message'
       )
 
+      // M14: auto-focus the right panel on the artifact the user needs to see.
+      // - tool ran      → tools tab + diff tab (if diffs are present)
+      // - permission    → tools tab (permission card lives in chat, but logs
+      //                   are also useful); keep panel visible
+      // - error         → logs tab (full diagnostic chain)
+      // - assistant text → tools tab (if there are tool entries) or diff tab
+      if (poll.ok) {
+        if (poll.hasError) {
+          this.rightPanelTab = 'logs'
+          this.showRightPanel = true
+        } else if (poll.hasPermission) {
+          this.rightPanelTab = 'logs'
+          this.showRightPanel = true
+        } else if (poll.hasTool) {
+          this.rightPanelTab = this.diffs.length > 0 ? 'diff' : 'tools'
+          this.showRightPanel = true
+        } else if (poll.hasAssistant) {
+          this.rightPanelTab = this.diffs.length > 0 ? 'diff' : 'tools'
+        }
+      } else if (poll.hasError || poll.timedOut) {
+        // failures should land the user in the diagnostic log
+        this.rightPanelTab = 'logs'
+        this.showRightPanel = true
+      }
+
       if (!poll.ok) {
         ToastManager.show(poll.message, poll.timedOut ? 'warning' : 'error')
       } else if (poll.hasError && poll.snapshot.errorText.length > 0) {
@@ -876,7 +910,10 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      await client.replyPermission(permId, 'once')
+      // M14: prefer the session-scoped endpoint; OpenCodeClient falls back
+      // to the global /permission/:id/reply if the server doesn't implement
+      // the session route.
+      await client.replySessionPermission(this.activeSessionId, permId, 'once')
       this.addLog(`permission.reply.once ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'approved')
     } catch (e) {
@@ -916,7 +953,8 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      await client.replyPermission(permId, 'deny')
+      // M14: see approvePermission
+      await client.replySessionPermission(this.activeSessionId, permId, 'deny')
       this.addLog(`permission.reply.deny ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'rejected')
     } catch (e) {
@@ -1020,6 +1058,85 @@ struct Index {
     ToastManager.show('aborted', 'info')
   }
 
+  // ══════════ Input Dispatch (Sprint 1) ══════════
+
+  /**
+   * Central input dispatcher. Called by ComposerBar's onSend callback.
+   * - Intercepts /-prefixed commands via SlashCommandService
+   * - Otherwise forwards to sendMessage() to talk to the agent
+   */
+  async dispatchInput(): Promise<void> {
+    const text = this.inputText.trim()
+    if (text.length === 0) return
+
+    const parsed = parseSlashCommand(text)
+    if (parsed === null) {
+      // Not a slash command → send to agent as a normal prompt
+      await this.sendMessage()
+      return
+    }
+
+    // Slash command — handle locally without consuming LLM tokens
+    this.inputText = ''
+    this.addLog(`slash.${parsed.command.name} ${parsed.args}`, 'info', 'slash')
+    await this.handleSlash(parsed.command, parsed.args)
+  }
+
+  /**
+   * Execute a parsed slash command. Each branch maps to a method on Index
+   * that talks to OpenCodeClient (or runs locally for /clear, /help, etc.).
+   */
+  async handleSlash(cmd: SlashCommand, args: string): Promise<void> {
+    switch (cmd.name) {
+      case 'help':
+        ToastManager.show(buildHelpText(args), 'info')
+        return
+      case 'clear':
+        this.inputText = ''
+        return
+      case 'new':
+        await this.createNewSessionWithTitle(args)
+        ToastManager.show(`new session: ${args.length > 0 ? args : 'untitled'}`, 'success')
+        return
+      case 'model':
+        if (args.length > 0) {
+          this.modelName = args
+          ToastManager.show(`model: ${args}`, 'info')
+        } else {
+          ToastManager.show(`current model: ${this.modelName.length > 0 ? this.modelName : '(unset)'}`, 'info')
+        }
+        return
+      case 'mode':
+        await this.setAgentMode(args.length > 0 ? args : 'build')
+        return
+      case 'sessions':
+        await this.loadSessions()
+        ToastManager.show(`sessions: ${this.sessions.length}`, 'info')
+        return
+      case 'rename':
+        await this.renameCurrentSession(args)
+        return
+      case 'fork':
+        await this.forkCurrentSession()
+        return
+      case 'compact':
+        await this.requestCompact()
+        return
+      case 'tokens':
+        ToastManager.show(`tokens used: ${this.tokensUsed}`, 'info')
+        return
+      case 'abort':
+        await this.abortRun()
+        return
+      case 'theme':
+        ToastManager.show(`theme: ${args.length > 0 ? args : '(unchanged)'}`, 'info')
+        return
+      default:
+        ToastManager.show(`unknown slash command: /${cmd.name}`, 'warning')
+        return
+    }
+  }
+
   /**
    * Request context compaction. v1 server does not expose /compact; we
    * optimistically POST and surface the error if it fails.
@@ -1032,17 +1149,8 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      // v1/v2 path may differ; try both
-      let tried = 0
-      try {
-        const r = await client.doPost(`/session/${this.activeSessionId}/compact`, '{}')
-        if (r.responseCode === 200 || r.responseCode === 204) {
-          tried = 1
-        }
-      } catch (e) {
-        // ignore
-      }
-      if (tried === 0) {
+      const ok = await client.requestCompact(this.activeSessionId)
+      if (!ok) {
         this.addLog('compact: server does not implement /compact (v1)', 'warn', 'session')
         ToastManager.show('compact: 不支持当前 server 版本', 'warning')
         return
@@ -1202,7 +1310,8 @@ struct Index {
     const client = this.getClient()
     if (client === null) return
     try {
-      await client.replyPermission(permId, 'always')
+      // M14: see approvePermission
+      await client.replySessionPermission(this.activeSessionId, permId, 'always')
       this.addLog(`permission.reply.always ${permId}`, 'info', 'permission')
       this.updatePermissionStatus(permId, 'always_approved')
     } catch (e) {
@@ -1243,6 +1352,9 @@ struct Index {
         activeSessionId: $activeSessionId,
         inputText: $inputText,
         isSending: $isSending,
+        // M14: parent-controlled right panel
+        rightPanelTab: $rightPanelTab,
+        showRightPanel: $showRightPanel,
 
         // Connection
         activeRunner: this.activeRunner,
