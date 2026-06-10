@@ -90,6 +90,20 @@ export class StorageService {
     }
   }
 
+  /**
+   * 清掉 storage 里的 provider 配置,让应用启动时用 createDefaultProviders()
+   * 重新生成。用于"重置为默认"按钮,尤其在 baseURL/协议变更后需要立刻生效。
+   */
+  async resetProviders(): Promise<void> {
+    if (this.store === null) return
+    try {
+      await this.store.delete(PROVIDERS_KEY)
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
+  }
+
   async saveServerUrl(url: string): Promise<void> {
     if (this.store === null) return
     try {
@@ -236,3 +250,11 @@ export class AppSettings {
 }
 
 export const storageService = new StorageService()
+
+/**
+ * Initialize the global storageService singleton.
+ * Must be called once during app startup (e.g. in Index.aboutToAppear).
+ */
+export async function initStorageService(context: Context): Promise<void> {
+  await storageService.init(context)
+}

@@ -2,6 +2,7 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
+import { initStorageService } from '../services/StorageService';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
@@ -18,7 +19,7 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 @Entry
 @Component
 struct Index {
-  @StorageLink('viewModel') viewModel: MainViewModel = new MainViewModel();
+  @State viewModel: MainViewModel = new MainViewModel();
   @State currentView: AppView = AppView.Home;
   @State sidebarCollapsed: boolean = false;
   @State showSettings: boolean = false;
@@ -65,6 +66,8 @@ struct Index {
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
+      // Initialize the services/ StorageService singleton (used by ProviderRegistry)
+      await initStorageService(this.context);
       const storage = new StorageService(this.context);
       await storage.init();
       await this.viewModel.init(storage);
@@ -484,7 +487,7 @@ struct Index {
               this.viewModel.currentSessionId = session.id;
               this.currentView = AppView.Chat;
             })
-          })
+          }, (session: SessionInfo) => session.id)
         }
       } else if (this.viewModel.connectionStatus === ConnectionStatus.AutoStarting) {
         // Auto-start in progress
@@ -650,7 +653,7 @@ struct Index {
             .width('100%')
             .padding({ left: 16, right: 16, top: 8, bottom: 8 })
           }
-        })
+        }, (msg: ChatMessage) => msg.id)
       }
       .layoutWeight(1)
       .width('100%')
@@ -868,7 +871,7 @@ struct Index {
                           this.viewModel.selectedModel = `${provider.id}/${modelId}`
                           this.viewModel.saveServerConfig()
                         })
-                    })
+                    }, (modelId: string) => `${provider.id}/${modelId}`)
                   }
                   .width('100%')
                   .margin({ top: 12 })
@@ -885,7 +888,7 @@ struct Index {
               .borderRadius(10)
               .margin({ left: 16, right: 16, bottom: 12 })
             }
-          })
+          }, (provider: ProviderInfo) => provider.id)
         }
         .layoutWeight(1)
         .width('100%')

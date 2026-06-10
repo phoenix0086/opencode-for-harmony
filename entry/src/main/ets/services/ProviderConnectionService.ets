@@ -44,12 +44,6 @@ export class ProviderConnectResult {
   error: string = ''
 }
 
-class UrlParts {
-  host: string = ''
-  path: string = '/'
-  query: string = ''
-}
-
 export class ProviderConnectionService {
 
   // ══════════ API Type → npm mapping ══════════
@@ -383,100 +377,29 @@ export class ProviderConnectionService {
   }
 
   // ══════════ AWS SigV4 Helpers ══════════
+  // NOTE: Real AWS SigV4 requires HMAC-SHA256 which is not available in ArkTS
+  // without an external crypto library. Bedrock providers should configure
+  // credentials externally and use a proxy or pre-signed URL.
 
-  private awsDateStamp(d: Date): string {
+  private awsAmzDate(d: Date): string {
     const y = d.getUTCFullYear()
     const m = String(d.getUTCMonth() + 1).padStart(2, '0')
     const day = String(d.getUTCDate()).padStart(2, '0')
-    return `${y}${m}${day}`
-  }
-
-  private awsAmzDate(d: Date): string {
     const h = String(d.getUTCHours()).padStart(2, '0')
     const min = String(d.getUTCMinutes()).padStart(2, '0')
     const s = String(d.getUTCSeconds()).padStart(2, '0')
-    return `${this.awsDateStamp(d)}T${h}${min}${s}Z`
+    return `${y}${m}${day}T${h}${min}${s}Z`
   }
 
-  private signAwsV4(headers: Record<string, string>, body: string, url: string, region: string, service: string, accessKeyId: string, secretKey: string, now: Date): void {
-    const dateStamp = this.awsDateStamp(now)
-    const amzDate = this.awsAmzDate(now)
-    const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`
-
-    const parsedUrl = this.parseUrl(url)
-    const canonicalUri = parsedUrl.path
-    const canonicalQueryString = parsedUrl.query
-
-    const signedHeaderNames: string[] = ['content-type', 'host', 'x-amz-date', 'x-amz-target']
-    let canonicalHeaders = ''
-    for (let i = 0; i < signedHeaderNames.length; i++) {
-      const name = signedHeaderNames[i]
-      const val = headers[name] || ''
-      canonicalHeaders += `${name}:${val}\n`
+  private signAwsV4(headers: Record<string, string>, _body: string, _url: string, _region: string, _service: string, accessKeyId: string, secretKey: string, _now: Date): void {
+    // ArkTS does not provide HMAC-SHA256 natively.
+    // Fall back to a bearer-style auth header; real SigV4 signing must be
+    // done externally (e.g. via a proxy or pre-signed URL).
+    if (secretKey.length > 0) {
+      headers['Authorization'] = `Bearer ${accessKeyId}:${secretKey}`
+    } else {
+      headers['Authorization'] = `Bearer ${accessKeyId}`
     }
-    const signedHeadersStr = signedHeaderNames.join(';')
-
-    const payloadHash = this.simpleHash(body)
-    const canonicalRequest = `POST\n${canonicalUri}\n${canonicalQueryString}\n${canonicalHeaders}\n${signedHeadersStr}\n${payloadHash}`
-    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${this.simpleHash(canonicalRequest)}`
-
-    const signature = this.awsHmacChain(secretKey, dateStamp, region, service, stringToSign)
-
-    headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`
-  }
-
-  private parseUrl(url: string): UrlParts {
-    const parts = new UrlParts()
-    try {
-      const withoutProtocol = url.replace(/^https?:\/\//, '')
-      const slashIdx = withoutProtocol.indexOf('/')
-      if (slashIdx < 0) {
-        parts.host = withoutProtocol
-        parts.path = '/'
-        parts.query = ''
-        return parts
-      }
-      parts.host = withoutProtocol.substring(0, slashIdx)
-      const pathAndQuery = withoutProtocol.substring(slashIdx)
-      const qIdx = pathAndQuery.indexOf('?')
-      if (qIdx < 0) {
-        parts.path = pathAndQuery
-        parts.query = ''
-      } else {
-        parts.path = pathAndQuery.substring(0, qIdx)
-        parts.query = pathAndQuery.substring(qIdx + 1)
-      }
-    } catch (e) {
-      // defaults
-    }
-    return parts
-  }
-
-  private awsHmacChain(secretKey: string, dateStamp: string, region: string, service: string, stringToSign: string): string {
-    const kDate = this.simpleHmac(`AWS4${secretKey}`, dateStamp)
-    const kRegion = this.simpleHmac(kDate, region)
-    const kService = this.simpleHmac(kRegion, service)
-    const kSigning = this.simpleHmac(kService, 'aws4_request')
-    return this.simpleHmac(kSigning, stringToSign)
-  }
-
-  private simpleHash(data: string): string {
-    let hash = 0
-    for (let i = 0; i < data.length; i++) {
-      hash = ((hash << 5) - hash) + data.charCodeAt(i)
-      hash |= 0
-    }
-    return Math.abs(hash).toString(16).padStart(64, '0')
-  }
-
-  private simpleHmac(key: string, data: string): string {
-    let hash = 0
-    const combined = key + data
-    for (let i = 0; i < combined.length; i++) {
-      hash = ((hash << 5) - hash) + combined.charCodeAt(i)
-      hash |= 0
-    }
-    return Math.abs(hash).toString(16).padStart(64, '0')
   }
 
   // ══════════ Connect Provider ══════════

@@ -39,52 +39,6 @@ export class CNProvider {
   notes: string = ''
 }
 
-export class ProviderConfigState {
-  providerId: string = ''
-  hasApiKey: boolean = false
-  selectedModel: string = ''
-  selectedSmallModel: string = ''
-  customBaseURL: string = ''
-}
-
-export class ProviderEditDraft {
-  id: string = ''
-  name: string = ''
-  npm: string = '@ai-sdk/openai-compatible'
-  baseURL: string = ''
-  authEnv: string = ''
-  authMode: string = 'apiKey'
-  apiKeyMode: string = 'direct'
-  apiKey: string = ''
-  headerName: string = ''
-  headerValue: string = ''
-  modelId: string = ''
-  modelName: string = ''
-}
-
-export class ProviderGenerateInput {
-  providerId: string = ''
-  baseURL: string = ''
-  models: string[] = []
-  defaultModel: string = ''
-  smallModel: string = ''
-  authEnvVar: string = ''
-}
-
-export class OpenCodeConfig {
-  server_port: number = 4096
-  server_hostname: string = '127.0.0.1'
-  permission_bash: string = 'ask'
-  permission_edit: string = 'ask'
-  permission_write: string = 'ask'
-  permission_webfetch: string = 'allow'
-  model: string = ''
-  small_model: string = ''
-  autoupdate: boolean = false
-  snapshot: boolean = true
-  providers: string = '{}'
-}
-
 function model(id: string, name: string, coding: boolean, recommended: boolean = false, contextWindow: number = 0, maxOutput: number = 0): CNModel {
   const m = new CNModel()
   m.id = id
@@ -96,31 +50,22 @@ function model(id: string, name: string, coding: boolean, recommended: boolean =
   return m
 }
 
-function provider(id: string, name: string, baseURL: string, authEnv: string, models: CNModel[]): CNProvider {
-  const p = new CNProvider()
-  p.id = id
-  p.name = name
-  p.baseURL = baseURL
-  p.authEnv = authEnv
-  p.apiKeyRef = authEnv
-  p.models = models
-  return p
-}
-
 /** Create default providers — only Xiaomi MiMo. */
 export function createDefaultProviders(): CNProvider[] {
   const mimo = new CNProvider()
   mimo.id = 'xiaomi-mimo'
   mimo.name = 'Xiaomi MiMo'
-  mimo.npm = '@ai-sdk/anthropic'
-  mimo.baseURL = 'https://token-plan-cn.xiaomimimo.com/anthropic'
-  mimo.apiKey = 'tp-ctgx27ynv0rkbt1jod87kkt779afid0eqrcmu68kst5zr13o'
+  // 小米 MiMo 实测只支持 OpenAI 兼容端点 (curl 验证 /v1/models → 401 端点存在,
+  // /v1/messages → 404 不支持 Anthropic 协议)
+  mimo.npm = '@ai-sdk/openai-compatible'
+  mimo.baseURL = 'https://token-plan-cn.xiaomimimo.com/v1'
+  mimo.apiKey = ''
   mimo.apiKeyMode = 'direct'
-  mimo.authEnv = 'ANTHROPIC_AUTH_TOKEN'
-  mimo.apiKeyRef = 'ANTHROPIC_AUTH_TOKEN'
+  mimo.authEnv = 'OPENAI_API_KEY'
+  mimo.apiKeyRef = 'OPENAI_API_KEY'
   mimo.enabled = true
   mimo.builtIn = false
-  mimo.authStatus = 'configured'
+  mimo.authStatus = 'missing'
   mimo.models = [
     model('mimo-v2.5-pro', 'MiMo v2.5 Pro', true, true, 1000000, 16384),
     model('mimo-v2.5', 'MiMo v2.5', true, false, 1000000, 16384),

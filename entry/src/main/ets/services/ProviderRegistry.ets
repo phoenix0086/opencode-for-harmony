@@ -15,22 +15,49 @@ export class ProviderRegistry {
 
     if (saved.length === 0) {
       this.providers = defaults
-      if (this.providers.length > 0) this.providers[0].enabled = true
-      if (this.providers.length > 1) this.providers[1].enabled = true
+      // Enable the first provider by default (if any)
+      if (this.providers.length > 0) {
+        this.providers[0].enabled = true
+      }
       await this.save()
       return
     }
 
+    // Merge: defaults provide structure, saved provides user customizations
     const merged: CNProvider[] = []
     for (const d of defaults) {
       const s = this.findProvider(saved, d.id)
-      merged.push(s ? this.mergeProvider(d, s) : d)
+      if (s) {
+        merged.push(this.mergeProvider(d, s))
+      } else {
+        // Default not in saved — include it as-is (new built-in provider)
+        d.enabled = false
+        merged.push(d)
+      }
     }
 
+    // Preserve user-created custom providers not in defaults
     for (const s of saved) {
-      if (!this.findProvider(merged, s.id)) merged.push(this.normalizeProvider(s))
+      if (!this.findProvider(merged, s.id)) {
+        merged.push(this.normalizeProvider(s))
+      }
     }
     this.providers = merged
+  }
+
+  /**
+   * 清掉 storage 里的 provider 配置并把内存里的 providers 替换成
+   * createDefaultProviders() 的输出。专治 baseURL/协议变更后旧 storage
+   * 卡住的情况,无需用户去 DevEco 清 AppStorage。
+   */
+  async resetToDefaults(): Promise<void> {
+    await storageService.resetProviders()
+    const defaults = createDefaultProviders()
+    this.providers = defaults
+    if (this.providers.length > 0) {
+      this.providers[0].enabled = true
+    }
+    await this.save()
   }
 
   private findProvider(list: CNProvider[], id: string): CNProvider | undefined {
@@ -60,14 +87,15 @@ export class ProviderRegistry {
 
   private mergeProvider(base: CNProvider, saved: CNProvider): CNProvider {
     const p = this.normalizeProvider(base)
-    p.enabled = saved.enabled === true
-    p.baseURL = saved.baseURL || base.baseURL
-    p.authEnv = saved.authEnv || base.authEnv
-    p.apiKeyMode = saved.apiKeyMode || 'env'
-    p.apiKey = saved.apiKey || ''
-    p.authStatus = saved.authStatus || (p.apiKey.length > 0 || p.apiKeyMode === 'env' ? 'configured' : 'missing')
-    p.headers = saved.headers || []
-    if (saved.models && saved.models.length > 0) p.models = saved.models
+    // User's enable/disable preference is preserved
+    p.enabled = saved.enabled
+    p.baseURL = saved.baseURL.length > 0 ? saved.baseURL : base.baseURL
+    p.authEnv = saved.authEnv.length > 0 ? saved.authEnv : base.authEnv
+    p.apiKeyMode = saved.apiKeyMode.length > 0 ? saved.apiKeyMode : 'env'
+    p.apiKey = saved.apiKey
+    p.authStatus = saved.authStatus.length > 0 ? saved.authStatus : (p.apiKey.length > 0 || p.apiKeyMode === 'env' ? 'configured' : 'missing')
+    p.headers = saved.headers.length > 0 ? saved.headers : []
+    if (saved.models.length > 0) p.models = saved.models
     return p
   }
 

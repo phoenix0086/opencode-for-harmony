@@ -25,6 +25,7 @@ export struct ProviderPage {
 
   // Dialog state
   @State showEditDialog: boolean = false
+  @State showResetDialog: boolean = false
   @State isNewProvider: boolean = false
   @State editId: string = ''
   @State editName: string = ''
@@ -126,6 +127,10 @@ export struct ProviderPage {
       if (this.showConfigDialog) {
         this.ConfigDialogOverlay()
       }
+
+      if (this.showResetDialog) {
+        this.ResetConfirmDialog()
+      }
     }
     .width('100%')
     .height('100%')
@@ -152,6 +157,15 @@ export struct ProviderPage {
         .borderRadius(6)
         .backgroundColor(Theme.ACTIVE_BG)
         .onClick(() => this.generateConfig())
+
+      Text('重置为默认')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(6)
+        .backgroundColor(Theme.ACTIVE_BG)
+        .margin({ left: 8 })
+        .onClick(() => this.confirmReset())
 
       Text('+ 添加提供商')
         .fontSize(Theme.fs.sm)
@@ -700,6 +714,68 @@ export struct ProviderPage {
   }
 
   // ══════════════════════════════════════════════════
+  //  Reset Confirm Dialog
+  // ══════════════════════════════════════════════════
+
+  @Builder
+  ResetConfirmDialog() {
+    Stack() {
+      Rect()
+        .fill('rgba(0,0,0,0.5)')
+        .width('100%')
+        .height('100%')
+        .onClick(() => { this.showResetDialog = false })
+
+      Column() {
+        Text('重置为默认提供商?')
+          .fontSize(Theme.fs.lg)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .margin({ bottom: 12 })
+
+        Text('这会清掉当前所有自定义的提供商配置,恢复成内置的默认列表(Xiaomi MiMo)。\n\n用于在切换 baseURL/协议后旧 storage 卡住时快速恢复。')
+          .fontSize(Theme.fs.sm)
+          .fontColor(Theme.TEXT_SECONDARY)
+          .lineHeight(20)
+          .margin({ bottom: 20 })
+
+        Row() {
+          Text('取消')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_PRIMARY)
+            .fontWeight(FontWeight.Medium)
+            .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(Theme.SIDEBAR)
+            .borderWidth(1)
+            .borderColor(Theme.BORDER)
+            .onClick(() => { this.showResetDialog = false })
+
+          Blank()
+
+          Text('确认重置')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_INVERSE)
+            .fontWeight(FontWeight.Bold)
+            .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+            .borderRadius(8)
+            .backgroundColor(Theme.DANGER)
+            .onClick(() => this.executeReset())
+        }
+        .width('100%')
+      }
+      .width(420)
+      .padding(24)
+      .borderRadius(16)
+      .backgroundColor(Theme.BG)
+      .borderWidth(1)
+      .borderColor(Theme.BORDER)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ══════════════════════════════════════════════════
   //  Shared Builders
   // ══════════════════════════════════════════════════
 
@@ -816,13 +892,17 @@ export struct ProviderPage {
 
     try {
       const req = http.createHttp()
-      const resp = await req.request(url, {
-        method: http.RequestMethod.GET,
-        header: headers,
-        connectTimeout: 8000,
-        readTimeout: 15000
-      })
-      req.destroy()
+      let resp: http.HttpResponse
+      try {
+        resp = await req.request(url, {
+          method: http.RequestMethod.GET,
+          header: headers,
+          connectTimeout: 8000,
+          readTimeout: 15000
+        })
+      } finally {
+        req.destroy()
+      }
 
       const result = new TestConnectionResult()
       result.latencyMs = Date.now() - startTime
@@ -913,13 +993,17 @@ export struct ProviderPage {
 
     try {
       const req = http.createHttp()
-      const resp = await req.request(url, {
-        method: http.RequestMethod.GET,
-        header: headers,
-        connectTimeout: 8000,
-        readTimeout: 15000
-      })
-      req.destroy()
+      let resp: http.HttpResponse
+      try {
+        resp = await req.request(url, {
+          method: http.RequestMethod.GET,
+          header: headers,
+          connectTimeout: 8000,
+          readTimeout: 15000
+        })
+      } finally {
+        req.destroy()
+      }
 
       if (resp.responseCode >= 200 && resp.responseCode < 300) {
         const raw = resp.result as string
@@ -937,10 +1021,10 @@ export struct ProviderPage {
             }
             this.refreshProviders()
           }
+          this.statusMsg = `已获取 ${count} 个模型`
         } catch (e) {
           this.statusMsg = '解析模型列表失败'
         }
-        this.statusMsg = `已获取 ${count} 个模型`
       } else {
         this.statusMsg = `获取模型失败: HTTP ${resp.responseCode}`
       }
@@ -1015,5 +1099,16 @@ export struct ProviderPage {
   private generateConfig(): void {
     this.configOutput = providerRegistry.generatePreviewConfig(this.defaultModel, this.smallModel)
     this.showConfigDialog = true
+  }
+
+  private confirmReset(): void {
+    this.showResetDialog = true
+  }
+
+  private async executeReset(): Promise<void> {
+    this.showResetDialog = false
+    await providerRegistry.resetToDefaults()
+    this.refreshProviders()
+    this.statusMsg = '已重置为默认提供商'
   }
 }
