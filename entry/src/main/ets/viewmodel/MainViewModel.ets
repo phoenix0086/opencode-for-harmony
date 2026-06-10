@@ -101,12 +101,20 @@ export class MainViewModel {
           this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
         }
       } else {
-        // Server start failed
-        this.connectionStatus = ConnectionStatus.StartFailed;
+        // Server start failed (or manual_required)
         this.serverStatusMessage = result.message;
         this.serverLogs = result.logs;
         this.errorMessage = result.message;
-        Logger.error(`Auto-start failed: ${result.message}`);
+        Logger.warn(`Auto-start: ${result.status} - ${result.message}`);
+
+        if (result.status === 'manual_required') {
+          // dev-pc / remote 模式需要用户在开发电脑启动 server
+          // 不要标 StartFailed (那是真出错),用 Disconnected 让卡片显示 "Runtime 未连接"
+          this.connectionStatus = ConnectionStatus.Disconnected;
+        } else {
+          this.connectionStatus = ConnectionStatus.StartFailed;
+          Logger.error(`Auto-start failed: ${result.message}`);
+        }
 
         // fallback：如果用户已经手动启动了 opencode serve，则尝试直接连接
         // 比如终端跑了 `opencode serve --port 4096 --hostname 0.0.0.0`

@@ -266,8 +266,18 @@ export class LocalOpenCodeServerManager {
 
     if (config.mode === 'remote') {
       status.status = 'error'
-      status.message = '远程模式不能启动本地 Runtime，请使用“检测”或“保存并连接”。'
+      status.message = '远程模式不能启动本地 Runtime，请使用"检测"或"保存并连接"。'
       status.logs.push('[error] remote mode cannot start local process')
+      return status
+    }
+
+    // dev-pc 模式用户在自己电脑上跑 server, app 不应该再 fork 进程
+    // 直接返回 manual_required,让 UI 提示用户去检测而不是启动
+    if (config.mode === 'dev-pc') {
+      status.status = 'manual_required'
+      status.message = '开发电脑模式：Runtime 应在开发电脑上启动。请确认 opencode serve 已在开发电脑运行后点击"检测并连接"。'
+      status.logs.push('[dev-pc] skip local process spawn, server must run on dev PC')
+      status.logs.push(`[hint] 在开发电脑终端执行: opencode serve --port ${config.port} --hostname 0.0.0.0`)
       return status
     }
 
@@ -354,8 +364,8 @@ export class LocalOpenCodeServerManager {
    * Auto-start: the core method for built-in server.
    * 1. Load saved config (or use default)
    * 2. Check health → if already running, activate and return
-   * 3. Start process via native bridge
-   * 4. Poll health until server is ready
+   * 3. (local mode only) Start process via native bridge
+   * 4. (local mode only) Poll health until server is ready
    * 5. Save and activate the runner
    * Returns status with logs for UI display.
    */
@@ -377,7 +387,21 @@ export class LocalOpenCodeServerManager {
       return healthStatus
     }
 
-    // Step 2: start the process
+    // Step 1.5: dev-pc / remote 模式 health 失败就不应该再尝试启动本地进程
+    // 直接返回 manual_required 让 UI 提示用户去检测
+    if (config.mode === 'dev-pc' || config.mode === 'remote') {
+      const manual = this.createPreviewStatus(config)
+      manual.status = 'manual_required'
+      manual.message = config.mode === 'dev-pc'
+        ? `开发电脑模式：未检测到 Runtime (${config.host}:${config.port})。请确认 opencode serve 已在开发电脑启动，然后点击"检测并连接"。`
+        : `远程模式：未检测到 Runtime (${config.host}:${config.port})。请确认目标服务器已启动。`
+      manual.logs = diagPrefix.concat([`[auto] ${config.mode} mode, health failed, skip process spawn`])
+      manual.logs.push(`[hint] 在开发电脑/远程服务器终端: opencode serve --port ${config.port} --hostname 0.0.0.0`)
+      if (onStatusChange) onStatusChange(manual)
+      return manual
+    }
+
+    // Step 2: start the process (only for local mode)
     const startStatus = this.startServerProcess(config)
     startStatus.logs = diagPrefix.concat(startStatus.logs)
     if (onStatusChange) onStatusChange(startStatus)
