@@ -235,7 +235,26 @@ export class MainViewModel {
       await this.syncModelToRuntime();
       const before = await this.getRawMessages(sessionId); const beforeCount = before.length;
       const req = new PromptAsyncRequest(); const part = new TextPromptPart(); part.text = text; req.parts = [part];
-      await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req);
+      let promptSent = false
+      try {
+        await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req);
+        promptSent = true
+      } catch (promptErr) {
+        Logger.error(`prompt_async failed: ${String(promptErr)}`)
+        // Fallback: try sync message endpoint
+        try {
+          await this.httpService.post<Object>(this.sessionMessagesPath(sessionId), req);
+          promptSent = true
+        } catch (syncErr) {
+          Logger.error(`sync prompt also failed: ${String(syncErr)}`)
+        }
+      }
+      if (!promptSent) {
+        assistantMsg.setError('发送消息失败，请检查 Runtime 连接和模型配置。')
+        this.messages = [...this.messages]
+        this.errorMessage = 'prompt 发送失败'
+        return
+      }
       await this.loadMessages(sessionId);
       const poll = await this.waitForExecution(sessionId, beforeCount); await this.loadMessages(sessionId);
       if (!poll.ok) { const e = ChatMessage.createErrorMessage(poll.message); e.sessionId = sessionId; this.messages = [...this.messages, e]; this.errorMessage = poll.message; }
@@ -249,7 +268,54 @@ export class MainViewModel {
 
   private async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
   private async getRawMessages(sessionId: string): Promise<Object[]> { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); return this.extractArray(raw, 'messages', 'data'); }
-  private async waitForExecution(sessionId: string, beforeCount: number, maxAttempts: number = Constants.POLL_MAX_ATTEMPTS, intervalMs: number = Constants.POLL_INTERVAL_MS): Promise<ExecutionPollResult> { const r = new ExecutionPollResult(); for (let i=0;i<maxAttempts;i++){ await this.delay(intervalMs); try { const raw=await this.getRawMessages(sessionId); r.messageCount=raw.length; if(raw.length>beforeCount){ const s=this.inspectMessages(raw,beforeCount); r.hasAssistant=s.hasAssistant; r.hasTool=s.hasTool; r.hasError=s.hasError; r.hasPermission=s.hasPermission; if(s.hasError){r.ok=false; r.message=s.errorText.length>0?s.errorText:'Runtime 返回错误。'; return r;} if(s.hasPermission){r.ok=true; r.message='Runtime 正在等待权限确认。'; return r;} if(s.hasTool){r.ok=true; r.message='Runtime 已开始工具调用。'; return r;} if(s.hasAssistant){r.ok=true; r.message='assistant response received'; return r;} } } catch(err){ r.ok=false; r.message=`轮询消息失败：${String(err)}`; return r; }} r.timedOut=true; r.message='等待 assistant/tool/error/permission 超时。'; return r; }
+  private async waitForExecution(sessionId: string, beforeCount: number, maxAttempts: number = Constants.POLL_MAX_ATTEMPTS, intervalMs: number = Constants.POLL_INTERVAL_MS): Promise<ExecutionPollResult> {
+    const r = new ExecutionPollResult();
+    for (let i=0;i<maxAttempts;i++){
+      await this.delay(intervalMs);
+      try {
+        const raw=await this.getRawMessages(sessionId);
+        r.messageCount=raw.length;
+
+        // Condition 1: new messages appeared
+        if(raw.length>beforeCount){
+          const s=this.inspectMessages(raw,beforeCount);
+          r.hasAssistant=s.hasAssistant; r.hasTool=s.hasTool; r.hasError=s.hasError; r.hasPermission=s.hasPermission;
+          if(s.hasError){r.ok=false; r.message=s.errorText.length>0?s.errorText:'Runtime 返回错误。'; return r;}
+          if(s.hasPermission){r.ok=true; r.message='Runtime 正在等待权限确认。'; return r;}
+          if(s.hasTool){r.ok=true; r.message='Runtime 已开始工具调用。'; return r;}
+          if(s.hasAssistant){r.ok=true; r.message='assistant response received'; return r;}
+        }
+
+        // Condition 2: existing assistant message got content (agent updating in-place)
+        for (let j=0;j<raw.length;j++){
+          const item=raw[j] as Record<string,Object>;
+          const info=item['info'] as Record<string,Object>;
+          const role=info?(info['role'] as string):'';
+          if(role==='assistant'){
+            const parts=item['parts'] as Object[];
+            if(parts&&parts.length>0){
+              r.hasAssistant=true; r.ok=true; r.message='assistant response received (in-place update)'; return r;
+            }
+          }
+        }
+
+        // Condition 3: any new part appeared at all (tool, step, reasoning, etc.)
+        if(raw.length>=beforeCount){
+          const s=this.inspectMessages(raw,0);
+          if(s.hasTool||s.hasPermission||s.hasError){
+            r.hasTool=s.hasTool; r.hasPermission=s.hasPermission; r.hasError=s.hasError;
+            if(s.hasError){r.ok=false; r.message=s.errorText.length>0?s.errorText:'Runtime 返回错误。'; return r;}
+            if(s.hasPermission){r.ok=true; r.message='Runtime 正在等待权限确认。'; return r;}
+            if(s.hasTool){r.ok=true; r.message='Runtime 已开始工具调用。'; return r;}
+          }
+        }
+      } catch(err){
+        r.ok=false; r.message=`轮询消息失败：${String(err)}`; return r;
+      }
+    }
+    r.timedOut=true; r.message='等待 assistant/tool/error/permission 超时。';
+    return r;
+  }
   private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult { const r = new ExecutionPollResult(); for(let i=beforeCount;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const role=info?(info['role'] as string):''; if(role==='assistant') r.hasAssistant=true; const parts=item['parts'] as Object[]; if(!parts) continue; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(this.isToolType(type)) r.hasTool=true; if(this.isPermissionType(type)) r.hasPermission=true; if(this.isErrorType(type)){r.hasError=true; if(r.errorText.length===0) r.errorText=text.length>0?text:`Runtime error part: ${type}`;} }} return r; }
   private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] { const out: ChatMessage[]=[]; for(let i=0;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const roleStr=info?((info['role'] as string)??''):''; const id=info?((info['id'] as string)??''):''; const parts=(item['parts'] as Object[])??[]; const msg=new ChatMessage(); msg.id=id.length>0?id:`msg_${Date.now()}_${i}`; msg.sessionId=sessionId; msg.role=roleStr==='assistant'?MessageRole.Assistant:MessageRole.User; msg.timestamp=Date.now(); msg.status=MessageStatus.Complete; msg.isStreaming=false; const textParts:string[]=[]; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(type==='text'&&text.length>0) textParts.push(text); else if(this.isErrorType(type)){ msg.isError=true; msg.status=MessageStatus.Error; textParts.push(text.length>0?text:`Runtime error: ${type}`); } else if(this.isToolType(type)){ const tool=new ToolCall(); tool.id=((part['id'] as string)??(part['callID'] as string)??''); tool.name=((part['tool'] as string)??(part['name'] as string)??type); tool.arguments=JSON.stringify(part['input']??part['args']??part['state']??''); tool.result=text; tool.status=type.includes('error')?'error':'complete'; msg.toolCalls.push(tool);} else if(text.length>0) textParts.push(text);} msg.content=textParts.join('\n\n'); if(msg.content.length===0&&msg.toolCalls.length>0) msg.content=`[${msg.toolCalls.length} tool call(s)]`; if(msg.content.length>0||msg.toolCalls.length>0) out.push(msg);} return out; }
   private extractArray(value:Object, key1:string, key2:string): Object[] { if(Array.isArray(value)) return value as Object[]; if(!value||typeof value!=='object') return []; const rec=value as Record<string,Object>; const c1=rec[key1]; if(Array.isArray(c1)) return c1 as Object[]; const c2=rec[key2]; if(Array.isArray(c2)) return c2 as Object[]; return []; }
