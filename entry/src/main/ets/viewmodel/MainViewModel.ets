@@ -54,6 +54,7 @@ export class MainViewModel {
       this.serverInfo.connected = true; this.serverInfo.healthOk = true;
       try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${String(e)}`); }
       await this.loadSessions(); await this.loadProviders();
+      await this.autoSelectModel();
       if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
       this.startHealthCheck();
     } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = String(err); Logger.error(`Connection failed: ${String(err)}`); }
@@ -71,6 +72,23 @@ export class MainViewModel {
     this.serverLogs = [];
     this.errorMessage = '';
     Logger.info('Auto-start: beginning built-in server startup');
+
+    // Pre-populate workspace from storage if not set in server config
+    if (this.storageService) {
+      try {
+        const workspace = await this.storageService.getString(Constants.KEY_WORKSPACE_PATH, '')
+        if (workspace.length > 0) {
+          const savedConfig = await localOpenCodeServerManager.loadLastConfig()
+          if (savedConfig.workspace.length === 0) {
+            savedConfig.workspace = workspace
+            await localOpenCodeServerManager.saveLastConfig(savedConfig)
+            Logger.info(`Auto-start: set workspace to ${workspace}`)
+          }
+        }
+      } catch (e) {
+        Logger.warn(`Auto-start: failed to pre-populate workspace: ${String(e)}`)
+      }
+    }
 
     let result: LocalServerStatus
     try {
@@ -321,6 +339,75 @@ export class MainViewModel {
   }
   async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${String(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
+
+  /**
+   * Auto-select a model from a connected provider.
+   * Called after connection is established to ensure selectedModel is usable.
+   */
+  async autoSelectModel(): Promise<void> {
+    try {
+      // Check if current model's provider is connected
+      if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
+        const currentProvider = this.selectedModel.split('/')[0]
+        const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+        const connected = providerData['connected']
+        const connectedList: string[] = []
+        if (Array.isArray(connected)) {
+          for (const item of connected) {
+            if (typeof item === 'string') connectedList.push(item)
+            else if (item && typeof item === 'object') {
+              const id = (item as Record<string, Object>)['id'] as string || ''
+              if (id.length > 0) connectedList.push(id)
+            }
+          }
+        }
+        if (connectedList.includes(currentProvider)) {
+          Logger.info(`autoSelectModel: current provider "${currentProvider}" is connected, keeping ${this.selectedModel}`)
+          return
+        }
+
+        // Current provider not connected — find a connected provider with models
+        Logger.warn(`autoSelectModel: current provider "${currentProvider}" not connected, searching for alternative`)
+
+        const all = providerData['all']
+        let fallbackModel = ''
+        if (Array.isArray(all)) {
+          for (const p of all) {
+            const prov = p as Record<string, Object>
+            const provId = prov['id'] as string || ''
+            if (connectedList.includes(provId)) {
+              const models = prov['models']
+              if (Array.isArray(models) && models.length > 0) {
+                const firstModel = models[0]
+                const modelId = typeof firstModel === 'string' ? firstModel : (firstModel as Record<string, Object>)['id'] as string || ''
+                if (modelId.length > 0) {
+                  fallbackModel = `${provId}/${modelId}`
+                  break
+                }
+              } else if (models && typeof models === 'object') {
+                const keys = Object.keys(models as Record<string, Object>)
+                if (keys.length > 0) {
+                  fallbackModel = `${provId}/${keys[0]}`
+                  break
+                }
+              }
+            }
+          }
+        }
+
+        if (fallbackModel.length > 0) {
+          this.selectedModel = fallbackModel
+          Logger.info(`autoSelectModel: switched to ${fallbackModel}`)
+          await this.saveServerConfig()
+          await this.syncModelToRuntime()
+        } else {
+          Logger.warn('autoSelectModel: no connected provider with models found')
+        }
+      }
+    } catch (e) {
+      Logger.warn(`autoSelectModel failed: ${String(e)}`)
+    }
+  }
 
   async diagnoseRuntime(): Promise<string> {
     const out: string[] = []
