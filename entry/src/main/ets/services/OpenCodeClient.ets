@@ -84,7 +84,7 @@ export class OpenCodeClient {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw e
+      throw new Error(String(e))
     } finally {
       req.destroy()
     }
@@ -120,7 +120,7 @@ export class OpenCodeClient {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw e
+      throw new Error(String(e))
     } finally {
       req.destroy()
     }

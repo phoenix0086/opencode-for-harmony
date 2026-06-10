@@ -363,7 +363,7 @@ export class ProviderConnectionService {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw e
+      throw new Error(String(e))
     } finally {
       req.destroy()
     }
