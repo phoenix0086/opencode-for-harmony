@@ -86,9 +86,11 @@ struct Index {
   }
 
   aboutToDisappear(): void {
-    // Gracefully shut down the built-in server when the page is destroyed
-    this.viewModel.shutdown();
-    Logger.info('Index page destroyed, server shut down');
+    // 不要在页面消失时自动关闭 Runtime。
+    // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
+    // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
+    // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
+    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
   }
 
   /**
@@ -598,6 +600,90 @@ struct Index {
     .padding(32)
   }
 
+  /**
+   * Runtime 未连接 / 启动失败时显示的修复卡片 (Chat 页专用)
+   * 给出明确原因 + 可操作按钮 + 错误日志
+   */
+  @Builder
+  RuntimeDisconnectedCard() {
+    Column() {
+      Text(this.viewModel.connectionStatus === ConnectionStatus.StartFailed
+        ? 'Runtime 启动失败'
+        : 'Runtime 未连接')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .margin({ bottom: 8 })
+
+      Text(this.viewModel.serverStatusMessage.length > 0
+        ? this.viewModel.serverStatusMessage
+        : this.viewModel.errorMessage.length > 0
+          ? this.viewModel.errorMessage
+          : '本地 OpenCode Runtime 未连接，请先启动或手动连接。')
+        .fontSize(14)
+        .fontColor('#AAAAAA')
+        .textAlign(TextAlign.Center)
+        .margin({ bottom: 16 })
+
+      Row() {
+        Button('打开设置')
+          .layoutWeight(1)
+          .height(40)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .fontSize(14)
+          .onClick(() => {
+            this.showSettings = true
+          })
+
+        Button('重新启动 / 连接')
+          .layoutWeight(1)
+          .height(40)
+          .backgroundColor('#007DFF')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .fontSize(14)
+          .margin({ left: 8 })
+          .onClick(() => {
+            this.viewModel.autoStartAndConnect()
+          })
+      }
+      .width('100%')
+
+      if (this.viewModel.serverLogs.length > 0) {
+        Column() {
+          Text('启动日志')
+            .fontSize(12)
+            .fontColor('#888888')
+            .fontWeight(FontWeight.Medium)
+            .margin({ bottom: 6 })
+          Text(this.viewModel.serverLogs.slice(-12).join('\n'))
+            .fontSize(11)
+            .fontColor('#9E9E9E')
+            .fontFamily('monospace')
+            .maxLines(12)
+            .textAlign(TextAlign.Start)
+            .width('100%')
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor('#0F0F0F')
+        .borderRadius(8)
+        .margin({ top: 16 })
+        .alignItems(HorizontalAlign.Start)
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .padding(24)
+    .backgroundColor('#1A1A1A')
+    .borderRadius(12)
+    .margin({ left: 16, right: 16, top: 16, bottom: 16 })
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+  }
+
   @Builder
   ChatContent() {
     Column() {
@@ -625,42 +711,47 @@ struct Index {
 
       Divider().color('#2D2D2D').width('100%')
 
-      // Message list
-      List() {
-        ForEach(this.viewModel.messages, (msg: ChatMessage) => {
-          ListItem() {
-            Row() {
-              if (msg.role === 'assistant') {
-                Column() {
-                  Text('AI')
-                    .fontSize(12)
-                    .fontColor('#007DFF')
-                    .margin({ bottom: 4 })
-                  Text(msg.content)
-                    .fontSize(14)
-                    .fontColor('#E0E0E0')
-                    .margin({ left: 0 })
+      // Message list — 当 Runtime 未连接时改为显示"启动失败"修复卡片
+      if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+        this.RuntimeDisconnectedCard()
+      } else {
+        // Message list
+        List() {
+          ForEach(this.viewModel.messages, (msg: ChatMessage) => {
+            ListItem() {
+              Row() {
+                if (msg.role === 'assistant') {
+                  Column() {
+                    Text('AI')
+                      .fontSize(12)
+                      .fontColor('#007DFF')
+                      .margin({ bottom: 4 })
+                    Text(msg.content)
+                      .fontSize(14)
+                      .fontColor('#E0E0E0')
+                      .margin({ left: 0 })
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                } else {
+                  Blank()
+                  Column() {
+                    Text(msg.content)
+                      .fontSize(14)
+                      .fontColor('#FFFFFF')
+                      .textAlign(TextAlign.End)
+                  }
+                  .alignItems(HorizontalAlign.End)
                 }
-                .alignItems(HorizontalAlign.Start)
-              } else {
-                Blank()
-                Column() {
-                  Text(msg.content)
-                    .fontSize(14)
-                    .fontColor('#FFFFFF')
-                    .textAlign(TextAlign.End)
-                }
-                .alignItems(HorizontalAlign.End)
               }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
             }
-            .width('100%')
-            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-          }
-        }, (msg: ChatMessage) => msg.id)
+          }, (msg: ChatMessage) => msg.id)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .divider({ strokeWidth: 0 })
       }
-      .layoutWeight(1)
-      .width('100%')
-      .divider({ strokeWidth: 0 })
 
       Divider().color('#2D2D2D').width('100%')
 
@@ -700,10 +791,17 @@ struct Index {
   }
 
   private sendInput(): void {
-    if (this.inputText.length > 0) {
-      this.viewModel.sendMessage(this.inputText);
-      this.inputText = '';
+    if (this.inputText.length === 0) return
+
+    // 未连接时直接提示,不再悄悄调用 sendMessage 然后被 sendMessage 内部 push 一条 AI 错误消息
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.viewModel.errorMessage = '本地 Runtime 未连接。请先启动或连接 Runtime。'
+      this.viewModel.serverStatusMessage = this.viewModel.errorMessage
+      return
     }
+
+    this.viewModel.sendMessage(this.inputText)
+    this.inputText = ''
   }
 
   @Builder

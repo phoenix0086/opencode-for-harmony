@@ -203,6 +203,22 @@ export struct ServerSettingsPage {
       Text('远程 Runtime：高级模式，不会启动本地进程，只检测并连接远程地址。')
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.WARNING)
+        .margin({ bottom: Theme.sp.md })
+
+      Text('如果自动启动失败，可在终端手动执行下面命令后再点"检测并连接"：')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .margin({ bottom: Theme.sp.sm })
+
+      Text(`opencode serve --port ${this.config.port} --hostname ${this.config.host}`)
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.ACCENT)
+        .fontFamily(Theme.FONT_MONO)
+        .padding(Theme.sp.md)
+        .backgroundColor(Theme.INPUT_BG)
+        .borderRadius(Theme.rd.md)
+        .width('100%')
+        .margin({ bottom: Theme.sp.md })
     }
     .width('100%')
     .padding(Theme.sp.xl)

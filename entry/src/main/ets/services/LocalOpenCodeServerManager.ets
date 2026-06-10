@@ -34,6 +34,10 @@ export class LocalOpenCodeServerManager {
   /** Diagnostic messages from the last init/extract attempt */
   diagLogs: string[] = []
 
+  /** Last error from extractBundledBinary(). Surfaced in user-visible logs
+   *  when findOpencodeBinary() can't locate the binary. */
+  private binaryExtractError: string = ''
+
   /**
    * Initialize with app context. Call once during app startup.
    * Extracts the bundled opencode binary from rawfile to filesDir
@@ -73,6 +77,7 @@ export class LocalOpenCodeServerManager {
     } catch (e) {
       const msg = `[step2] rawfile read FAILED: ${String(e)}`
       log(msg)
+      this.binaryExtractError = String(e)
       return
     }
 
@@ -272,8 +277,14 @@ export class LocalOpenCodeServerManager {
 
     if (command.length === 0) {
       status.status = 'error'
-      status.message = '找不到 opencode 可执行文件。二进制可能未成功提取到 filesDir。'
+      status.message = '找不到 opencode 可执行文件。请确认 rawfile/opencode 已随包内置，或在终端手动启动 Runtime。'
       status.logs.push('[error] opencode binary not found')
+
+      if (this.binaryExtractError.length > 0) {
+        status.logs.push(`[error] bundled binary extract failed: ${this.binaryExtractError}`)
+      }
+
+      status.logs.push('[hint] manual command: opencode serve --port 4096 --hostname 127.0.0.1')
       return status
     }
 
