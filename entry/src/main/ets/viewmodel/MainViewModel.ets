@@ -72,76 +72,97 @@ export class MainViewModel {
     this.errorMessage = '';
     Logger.info('Auto-start: beginning built-in server startup');
 
+    let result: LocalServerStatus
     try {
-      const result: LocalServerStatus = await localOpenCodeServerManager.autoStart(
+      result = await localOpenCodeServerManager.autoStart(
         (status: LocalServerStatus) => {
           this.serverStatusMessage = status.message;
           this.serverLogs = status.logs;
           Logger.info(`Auto-start progress: ${status.status} - ${status.message}`);
         }
       );
+    } catch (e) {
+      // 外层兜底: 任何 autoStart 内部抛出的异常(包括 TypeError: processStart of undefined,
+      // 老的 HAP 没有 dev-pc 短路)都被这里接住
+      const msg = `autoStart 抛出异常: ${String(e)}`
+      Logger.error(msg)
+      this.serverStatusMessage = msg
+      this.errorMessage = msg
+      this.serverLogs = [`[fatal] ${String(e)}`]
 
-      if (result.status === 'running') {
-        // Server is healthy and activated, now connect
-        this.serverStatusMessage = 'Runtime 已就绪，正在连接...';
-        this.serverLogs = result.logs;
-
-        // 同步实际启动成功的 Runtime 地址
-        // 因为本机模式可能返回 127.0.0.1，dev-pc 模式可能返回局域网 IP
-        // 启动成功的 baseUrl 才是真正可用的，httpService/wsService 要重新指向
-        this.serverInfo.url = result.baseUrl;
-        this.httpService.setServer(this.serverInfo);
-        this.wsService.setServer(this.serverInfo);
-
-        Logger.info(`Auto-start: server running at ${result.baseUrl}, connecting...`);
-        await this.connect();
-
-        const finalStatus: string = this.connectionStatus as string;
-        if (finalStatus === (ConnectionStatus.Connected as string)) {
-          this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
-        }
-      } else {
-        // Server start failed (or manual_required)
-        this.serverStatusMessage = result.message;
-        this.serverLogs = result.logs;
-        this.errorMessage = result.message;
-        Logger.warn(`Auto-start: ${result.status} - ${result.message}`);
-
-        if (result.status === 'manual_required') {
-          // dev-pc / remote 模式需要用户在开发电脑启动 server
-          // 不要标 StartFailed (那是真出错),用 Disconnected 让卡片显示 "Runtime 未连接"
-          this.connectionStatus = ConnectionStatus.Disconnected;
-        } else {
-          this.connectionStatus = ConnectionStatus.StartFailed;
-          Logger.error(`Auto-start failed: ${result.message}`);
-        }
-
-        // fallback：如果用户已经手动启动了 opencode serve，则尝试直接连接
-        // 比如终端跑了 `opencode serve --port 4096 --hostname 0.0.0.0`
-        // health check 通了就当 Connected 走，不要卡死在 StartFailed
-        try {
-          const healthy: boolean = await this.httpService.checkHealth();
-          if (healthy) {
-            Logger.info('Auto-start failed, but manual Runtime is healthy. Connecting...');
-            this.serverStatusMessage = '手动检测健康通过，正在连接...';
-            await this.connect();
-
-            const finalStatus: string = this.connectionStatus as string;
-            if (finalStatus === (ConnectionStatus.Connected as string)) {
-              this.serverStatusMessage = '手动启动 Runtime 已连接';
-            } else {
-              this.serverStatusMessage = '检测健康通过，但连接失败';
-            }
+      // 异常时也试一次 health check,因为 Runtime 可能是 manual 启动的
+      try {
+        const healthy: boolean = await this.httpService.checkHealth()
+        if (healthy) {
+          Logger.info('autoStart crashed but Runtime is healthy, connecting anyway...')
+          this.serverStatusMessage = '检测到手动启动的 Runtime, 正在连接...'
+          await this.connect()
+          if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
+            this.serverStatusMessage = '手动启动 Runtime 已连接 (autoStart 异常后恢复)'
           }
-        } catch (e) {
-          Logger.warn(`Manual Runtime fallback failed: ${String(e)}`);
+          return
         }
+      } catch (_) {}
+
+      this.connectionStatus = ConnectionStatus.StartFailed
+      return
+    }
+
+    if (result.status === 'running') {
+      // Server is healthy and activated, now connect
+      this.serverStatusMessage = 'Runtime 已就绪，正在连接...';
+      this.serverLogs = result.logs;
+
+      // 同步实际启动成功的 Runtime 地址
+      // 因为本机模式可能返回 127.0.0.1，dev-pc 模式可能返回局域网 IP
+      // 启动成功的 baseUrl 才是真正可用的，httpService/wsService 要重新指向
+      this.serverInfo.url = result.baseUrl;
+      this.httpService.setServer(this.serverInfo);
+      this.wsService.setServer(this.serverInfo);
+
+      Logger.info(`Auto-start: server running at ${result.baseUrl}, connecting...`);
+      await this.connect();
+
+      const finalStatus: string = this.connectionStatus as string;
+      if (finalStatus === (ConnectionStatus.Connected as string)) {
+        this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
       }
-    } catch (err) {
-      this.connectionStatus = ConnectionStatus.StartFailed;
-      this.serverStatusMessage = `自动启动异常：${String(err)}`;
-      this.errorMessage = String(err);
-      Logger.error(`Auto-start exception: ${String(err)}`);
+    } else {
+      // Server start failed (or manual_required)
+      this.serverStatusMessage = result.message;
+      this.serverLogs = result.logs;
+      this.errorMessage = result.message;
+      Logger.warn(`Auto-start: ${result.status} - ${result.message}`);
+
+      if (result.status === 'manual_required') {
+        // dev-pc / remote 模式需要用户在开发电脑启动 server
+        // 不要标 StartFailed (那是真出错),用 Disconnected 让卡片显示 "Runtime 未连接"
+        this.connectionStatus = ConnectionStatus.Disconnected;
+      } else {
+        this.connectionStatus = ConnectionStatus.StartFailed;
+        Logger.error(`Auto-start failed: ${result.message}`);
+      }
+
+      // fallback：如果用户已经手动启动了 opencode serve，则尝试直接连接
+      // 比如终端跑了 `opencode serve --port 4096 --hostname 0.0.0.0`
+      // health check 通了就当 Connected 走，不要卡死在 StartFailed
+      try {
+        const healthy: boolean = await this.httpService.checkHealth();
+        if (healthy) {
+          Logger.info('Auto-start failed, but manual Runtime is healthy. Connecting...');
+          this.serverStatusMessage = '手动检测健康通过，正在连接...';
+          await this.connect();
+
+          const finalStatus: string = this.connectionStatus as string;
+          if (finalStatus === (ConnectionStatus.Connected as string)) {
+            this.serverStatusMessage = '手动启动 Runtime 已连接';
+          } else {
+            this.serverStatusMessage = '检测健康通过，但连接失败';
+          }
+        }
+      } catch (e) {
+        Logger.warn(`Manual Runtime fallback failed: ${String(e)}`);
+      }
     }
   }
 
