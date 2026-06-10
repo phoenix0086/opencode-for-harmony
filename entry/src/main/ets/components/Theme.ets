@@ -136,10 +136,10 @@ const CatppuccinMocha: ThemePalette = (() => {
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
+  p.ACTIVE_BG = '#313244'
   p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#1e1e2e'
-  p.ACTIVE_BG = '#313244'
   p.SELECTION = '#45475a'
   p.SCROLLBAR = '#45475a'
   // Activity Bar
@@ -193,10 +193,10 @@ const TokyoNight: ThemePalette = (() => {
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
+  p.ACTIVE_BG = '#292e42'
   p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#1a1b26'
-  p.ACTIVE_BG = '#292e42'
   p.SELECTION = '#3b4261'
   p.SCROLLBAR = '#3b4261'
   // Activity Bar
@@ -250,10 +250,10 @@ const GruvboxDark: ThemePalette = (() => {
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
+  p.ACTIVE_BG = '#3c3836'
   p.BTN_BG = p.ACTIVE_BG
   // Interactive
   p.HOVER = '#282828'
-  p.ACTIVE_BG = '#3c3836'
   p.SELECTION = '#504945'
   p.SCROLLBAR = '#504945'
   // Activity Bar

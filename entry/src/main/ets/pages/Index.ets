@@ -61,7 +61,7 @@ struct Index {
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
 
-  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+  private context: common.UIAbilityContext = this.getContext() as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
@@ -70,10 +70,12 @@ struct Index {
       await this.viewModel.init(storage);
       this.initialized = true;
       Logger.info('Index page initialized, starting auto-connect...');
-      // Auto-start the built-in server and connect
-      await this.viewModel.autoStartAndConnect();
-      // Load recent projects from storage
-      await this.loadRecentProjects()
+      // 修复 W6: autoStartAndConnect 和 loadRecentProjects 互不依赖,
+      // 改为 Promise.all 并行,首屏更流畅
+      await Promise.all([
+        this.viewModel.autoStartAndConnect(),
+        this.loadRecentProjects()
+      ])
     }
   }
 
@@ -127,15 +129,26 @@ struct Index {
    * 打开一个项目:记录到 recents + 切到 Chat 视图
    */
   async openProject(directory: string): Promise<void> {
+    // 修复 W5: directory 为空时直接返回,避免写入空路径污染 storage
+    if (directory.length === 0) {
+      Logger.warn('openProject: empty directory, ignored')
+      return
+    }
     try {
       const storage = new StorageService(this.context);
       await storage.init();
       await storage.setString(Constants.KEY_WORKSPACE_PATH, directory)
 
       // 追加到 recents (去重,前置)
+      // 修复 C3: JSON.parse 已加 try/catch,此处补 Array.isArray 防御性校验,
+      // 防止 storage 数据损坏为非数组时崩溃
       const raw = await storage.getString('recents', '[]')
       let list: Array<Record<string, Object>> = []
       try { list = JSON.parse(raw) as Array<Record<string, Object>> } catch { list = [] }
+      if (!Array.isArray(list)) {
+        Logger.warn('openProject: recents is not an array, resetting')
+        list = []
+      }
       list = list.filter(x => (x['directory'] as string) !== directory)
       const entry: Record<string, Object> = {}
       entry['id'] = directory

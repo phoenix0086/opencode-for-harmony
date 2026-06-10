@@ -24,13 +24,21 @@ export class StorageService {
   private store: preferences.Preferences | null = null
 
   async init(context: Context): Promise<void> {
-    this.store = await preferences.getPreferences(context, STORE_NAME)
+    try {
+      this.store = await preferences.getPreferences(context, STORE_NAME)
+    } catch (e) {
+      return
+    }
   }
 
   async saveRunners(runners: Runner[]): Promise<void> {
     if (this.store === null) return
-    await this.store.put(RUNNERS_KEY, JSON.stringify(runners))
-    await this.store.flush()
+    try {
+      await this.store.put(RUNNERS_KEY, JSON.stringify(runners))
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async loadRunners(): Promise<Runner[]> {
@@ -45,19 +53,31 @@ export class StorageService {
 
   async setActiveRunnerId(id: string): Promise<void> {
     if (this.store === null) return
-    await this.store.put(ACTIVE_RUNNER_KEY, id)
-    await this.store.flush()
+    try {
+      await this.store.put(ACTIVE_RUNNER_KEY, id)
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async getActiveRunnerId(): Promise<string> {
     if (this.store === null) return ''
-    return (await this.store.get(ACTIVE_RUNNER_KEY, '')) as string
+    try {
+      return (await this.store.get(ACTIVE_RUNNER_KEY, '')) as string
+    } catch (e) {
+      return ''
+    }
   }
 
   async saveProviders(providers: CNProvider[]): Promise<void> {
     if (this.store === null) return
-    await this.store.put(PROVIDERS_KEY, JSON.stringify(providers))
-    await this.store.flush()
+    try {
+      await this.store.put(PROVIDERS_KEY, JSON.stringify(providers))
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async loadProviders(): Promise<CNProvider[]> {
@@ -72,41 +92,61 @@ export class StorageService {
 
   async saveServerUrl(url: string): Promise<void> {
     if (this.store === null) return
-    await this.store.put(SERVER_URL_KEY, url)
-    await this.store.flush()
+    try {
+      await this.store.put(SERVER_URL_KEY, url)
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async getServerUrl(): Promise<string> {
     if (this.store === null) return 'http://127.0.0.1:4096'
-    return (await this.store.get(SERVER_URL_KEY, 'http://127.0.0.1:4096')) as string
+    try {
+      return (await this.store.get(SERVER_URL_KEY, 'http://127.0.0.1:4096')) as string
+    } catch (e) {
+      return 'http://127.0.0.1:4096'
+    }
   }
 
   async saveWorkspacePath(path: string): Promise<void> {
     if (this.store === null) return
-    await this.store.put(WORKSPACE_KEY, path)
-    await this.store.flush()
+    try {
+      await this.store.put(WORKSPACE_KEY, path)
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async getWorkspacePath(): Promise<string> {
     if (this.store === null) return ''
-    return (await this.store.get(WORKSPACE_KEY, '')) as string
+    try {
+      return (await this.store.get(WORKSPACE_KEY, '')) as string
+    } catch (e) {
+      return ''
+    }
   }
 
   async addRecentWorkspace(path: string): Promise<void> {
     if (this.store === null) return
-    const raw = await this.store.get(RECENT_WORKSPACES_KEY, '[]') as string
-    let list: string[] = []
     try {
-      list = JSON.parse(raw) as string[]
-    } catch {
-      list = []
+      const raw = (await this.store.get(RECENT_WORKSPACES_KEY, '[]')) as string
+      let list: string[] = []
+      try {
+        list = JSON.parse(raw) as string[]
+      } catch (e) {
+        list = []
+      }
+      const newList: string[] = [path]
+      for (const p of list) {
+        if (p !== path && newList.length < 20) newList.push(p)
+      }
+      await this.store.put(RECENT_WORKSPACES_KEY, JSON.stringify(newList))
+      await this.store.flush()
+    } catch (e) {
+      return
     }
-    const newList: string[] = [path]
-    for (const p of list) {
-      if (p !== path && newList.length < 20) newList.push(p)
-    }
-    await this.store.put(RECENT_WORKSPACES_KEY, JSON.stringify(newList))
-    await this.store.flush()
   }
 
   async getRecentWorkspaces(): Promise<string[]> {
@@ -121,8 +161,12 @@ export class StorageService {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     if (this.store === null) return
-    await this.store.put(SETTINGS_KEY, JSON.stringify(settings))
-    await this.store.flush()
+    try {
+      await this.store.put(SETTINGS_KEY, JSON.stringify(settings))
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async loadSettings(): Promise<AppSettings> {
@@ -145,32 +189,40 @@ export class StorageService {
 
   async getLocalServerConfig(): Promise<Record<string, Object> | null> {
     if (this.store === null) return null
-    const raw = (await this.store.get(LOCAL_SERVER_CONFIG_KEY, '')) as string
-    if (!raw || raw.length === 0) return null
     try {
+      const raw = (await this.store.get(LOCAL_SERVER_CONFIG_KEY, '')) as string
+      if (!raw || raw.length === 0) return null
       return JSON.parse(raw) as Record<string, Object>
-    } catch {
+    } catch (e) {
       return null
     }
   }
 
   async setLocalServerConfig(config: Record<string, Object>): Promise<void> {
     if (this.store === null) return
-    await this.store.put(LOCAL_SERVER_CONFIG_KEY, JSON.stringify(config))
-    await this.store.flush()
+    try {
+      await this.store.put(LOCAL_SERVER_CONFIG_KEY, JSON.stringify(config))
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 
   async clearAll(): Promise<void> {
     if (this.store === null) return
-    await this.store.delete(RUNNERS_KEY)
-    await this.store.delete(ACTIVE_RUNNER_KEY)
-    await this.store.delete(PROVIDERS_KEY)
-    await this.store.delete(SERVER_URL_KEY)
-    await this.store.delete(WORKSPACE_KEY)
-    await this.store.delete(RECENT_WORKSPACES_KEY)
-    await this.store.delete(SETTINGS_KEY)
-    await this.store.delete(LOCAL_SERVER_CONFIG_KEY)
-    await this.store.flush()
+    try {
+      await this.store.delete(RUNNERS_KEY)
+      await this.store.delete(ACTIVE_RUNNER_KEY)
+      await this.store.delete(PROVIDERS_KEY)
+      await this.store.delete(SERVER_URL_KEY)
+      await this.store.delete(WORKSPACE_KEY)
+      await this.store.delete(RECENT_WORKSPACES_KEY)
+      await this.store.delete(SETTINGS_KEY)
+      await this.store.delete(LOCAL_SERVER_CONFIG_KEY)
+      await this.store.flush()
+    } catch (e) {
+      return
+    }
   }
 }
 

@@ -12,10 +12,9 @@ import { TestConnectionResult } from '../services/ProviderConnectionService'
  * No default providers — start with an empty list.
  */
 @Component
-@Entry
 export struct ProviderPage {
   @StorageProp('themeId') themeId: string = 'catppuccin'
-  @Prop activeRunner: Runner | null = null
+  activeRunner: Runner | null = null
 
   @State providers: CNProvider[] = []
   @State isInitialized: boolean = false

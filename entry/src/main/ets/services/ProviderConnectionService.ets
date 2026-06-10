@@ -359,9 +359,12 @@ export class ProviderConnectionService {
       readTimeout: timeoutMs,
       extraData: body
     }
-    const resp = await req.request(url, options)
-    req.destroy()
-    return resp
+    try {
+      const resp = await req.request(url, options)
+      return resp
+    } finally {
+      req.destroy()
+    }
   }
 
   private mergeCustomHeaders(target: Record<string, string>, customHeaders: ProviderHeaderInput[]): void {

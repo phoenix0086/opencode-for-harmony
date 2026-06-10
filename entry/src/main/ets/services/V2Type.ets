@@ -111,8 +111,13 @@ export class V2Response {
 
 /**
  * 服务端不支持 v2 端点时抛出。UI 层捕获后显示 "server not supported" 消息。
+ *
+ * 修复 S4: 加 readonly kind 字段,作为 instanceof 跨模块导入的可靠替代。
+ * ArkTS 的 instanceof 在跨 module 边界时不可靠,用 `e.kind === 'UnsupportedV2Endpoint'`
+ * 更稳。保留 extends Error 兼容既有 try/catch。
  */
 export class UnsupportedV2Endpoint extends Error {
+  readonly kind: string = 'UnsupportedV2Endpoint'
   endpoint: string
   statusCode: number
   constructor(endpoint: string, statusCode: number = 404) {
@@ -121,4 +126,16 @@ export class UnsupportedV2Endpoint extends Error {
     this.statusCode = statusCode
     this.name = 'UnsupportedV2Endpoint'
   }
+}
+
+/**
+ * 类型守卫: e 是否为 UnsupportedV2Endpoint,优先用 kind 字段检测,
+ * instanceof 作 fallback (兼容旧调用方)
+ */
+export function isUnsupportedV2(e: Object): boolean {
+  if (e === null || e === undefined) return false
+  const obj: Record<string, Object> = e as Record<string, Object>
+  if (obj['kind'] === 'UnsupportedV2Endpoint') return true
+  if (e instanceof UnsupportedV2Endpoint) return true
+  return false
 }

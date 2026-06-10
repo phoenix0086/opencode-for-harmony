@@ -80,9 +80,12 @@ export class OpenCodeClient {
     if (body) {
       options.extraData = body
     }
-    const resp = await req.request(url, options)
-    req.destroy()
-    return resp
+    try {
+      const resp = await req.request(url, options)
+      return resp
+    } finally {
+      req.destroy()
+    }
   }
 
   public async doGet(path: string): Promise<http.HttpResponse> {
@@ -111,9 +114,12 @@ export class OpenCodeClient {
     if (body) {
       options.extraData = body
     }
-    const resp = await req.request(url, options)
-    req.destroy()
-    return resp
+    try {
+      const resp = await req.request(url, options)
+      return resp
+    } finally {
+      req.destroy()
+    }
   }
 
   private async doPut(path: string, body?: string): Promise<http.HttpResponse> {

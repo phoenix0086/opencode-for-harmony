@@ -652,6 +652,17 @@ export class V2StreamPoller {
   }
 
   /**
+   * 显式重置 sinceSeq 起点。调用此方法后下一次 start() 会从 0 开始拉。
+   * 用于"切换 PTY session 后想从头读"的场景。
+   */
+  reset(): void {
+    this.sinceSeq = 0
+    this.consecutiveFailures = 0
+    this.currentIntervalMs = this.intervalMs
+    this.transientError = false
+  }
+
+  /**
    * 标记为「暂时性」错误,触发退避。指数退避:500ms -> 1s -> 2s -> ... -> 30s 上限。
    * 10 次连续失败后停止,需要外部 restart。
    */

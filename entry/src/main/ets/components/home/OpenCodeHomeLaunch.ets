@@ -64,26 +64,32 @@ export struct OpenCodeHomeLaunch {
   onOpenModels: () => void = () => {}
   onOpenProject: (directory: string) => void = () => {}
 
-  private serverLabel(): string {
-    if (this.serverName.length > 0) return this.serverName
-    if (this.activeRunner !== null) {
-      return `${this.activeRunner.protocol}://${this.activeRunner.host}:${this.activeRunner.port}`
-    }
-    return 'Local Server'
-  }
-
-  private serverDotColor(): string {
-    if (!this.isServerReady) return '#5a5a5a'
-    if (this.isConnected) return '#3dd24a'
-    return '#d24a3d'
-  }
-
+  // 修复 W2: 删死代码 serverLabel/serverDotColor,CenterPane 不用了,
+  // LocalServerButton 也已删。保留 serverName/isServerReady/isConnected
+  // props 供未来 Server Status 弹层复用。
   private sessionCount(): string {
     return `${this.sessions.length}`
   }
 
-  // 把 "~" 简写 home 替换前缀，对应 opencode home.tsx 的 worktree.replace(homedir(), "~")
+  // 把 home 目录简写为 "~",例如 "/Users/foo/code" -> "~/code"
+  // 修复 W1: 之前是空实现,长路径会溢出
   private shortenPath(path: string): string {
+    if (path.length === 0) return ''
+    // ArkTS 没有 process.env / os.homedir(),硬编码常见 home 前缀
+    const homePrefixes: string[] = ['/Users/', '/home/']
+    for (const prefix of homePrefixes) {
+      const idx = path.indexOf(prefix)
+      if (idx === 0) {
+        // 找到下一个 "/" 之后替换为 "~"
+        const rest = path.substring(prefix.length)
+        const slashIdx = rest.indexOf('/')
+        if (slashIdx > 0) {
+          return '~' + rest.substring(slashIdx)
+        }
+        // 整段就是 home 本身
+        return '~'
+      }
+    }
     return path
   }
 
@@ -229,17 +235,16 @@ export struct OpenCodeHomeLaunch {
   @Builder
   CenterPane() {
     Column() {
-      // 上半部：居中 Logo + Local Server 状态
+      // 上半部:居中 Logo (用户要求移除 Local Server 状态按钮)
       Column() {
         this.OpenCodeLogo()
-        this.LocalServerButton()
       }
       .layoutWeight(1)
       .width('100%')
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
 
-      // 下半部：最近项目
+      // 下半部:最近项目
       Column() {
         this.RecentProjectsSection()
       }
@@ -250,6 +255,8 @@ export struct OpenCodeHomeLaunch {
     .height('100%')
     .backgroundColor('#111111')
   }
+
+  // 修复 W2: 删 LocalServerButton,CenterPane 顶部只留 Logo
 
   @Builder
   OpenCodeLogo() {
@@ -275,27 +282,6 @@ export struct OpenCodeHomeLaunch {
       .textAlign(TextAlign.Center)
       .height(120)
       .width('100%')
-  }
-
-  @Builder
-  LocalServerButton() {
-    Row() {
-      Circle()
-        .width(8)
-        .height(8)
-        .fill(this.serverDotColor())
-
-      Text(this.serverLabel())
-        .fontSize(14)
-        .fontColor('#a8a8a8')
-        .margin({ left: 10 })
-    }
-    .height(36)
-    .padding({ left: 14, right: 14 })
-    .borderRadius(18)
-    .backgroundColor('#1a1a1a')
-    .margin({ top: 24 })
-    .onClick(() => this.onOpenServerStatus())
   }
 
   @Builder
@@ -368,7 +354,12 @@ export struct OpenCodeHomeLaunch {
         .borderRadius(6)
         .backgroundColor(index === 0 ? '#1a1a1a' : 'transparent')
         .onClick(() => this.onOpenProject(project.directory))
-      }, (project: ProjectEntry, index: number) => project.id + '_' + index)
+      // 修复 S1: 单一稳定的 key (project.directory),不再用 id+index 复合 key,
+      // 避免顺序变化时触发不必要的重渲染。fallback 到 index 防止空 id 崩溃
+      }, (project: ProjectEntry, index: number) => {
+        if (project.directory.length > 0) return project.directory
+        return `idx_${index}`
+      })
     }
     .width('100%')
     .margin({ top: 8 })
