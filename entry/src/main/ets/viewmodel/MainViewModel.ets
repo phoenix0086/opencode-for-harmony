@@ -520,7 +520,77 @@ export class MainViewModel {
     return r;
   }
   private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult { const r = new ExecutionPollResult(); for(let i=beforeCount;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const role=info?(info['role'] as string):''; if(role==='assistant') r.hasAssistant=true; const parts=item['parts'] as Object[]; if(!parts) continue; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(this.isToolType(type)) r.hasTool=true; if(this.isPermissionType(type)) r.hasPermission=true; if(this.isErrorType(type)){r.hasError=true; if(r.errorText.length===0) r.errorText=text.length>0?text:`Runtime error part: ${type}`;} }} return r; }
-  private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] { const out: ChatMessage[]=[]; for(let i=0;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const roleStr=info?((info['role'] as string)??''):''; const id=info?((info['id'] as string)??''):''; const parts=(item['parts'] as Object[])??[]; const msg=new ChatMessage(); msg.id=id.length>0?id:`msg_${Date.now()}_${i}`; msg.sessionId=sessionId; msg.role=roleStr==='assistant'?MessageRole.Assistant:MessageRole.User; msg.timestamp=Date.now(); msg.status=MessageStatus.Complete; msg.isStreaming=false; const textParts:string[]=[]; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(type==='text'&&text.length>0) textParts.push(text); else if(this.isErrorType(type)){ msg.isError=true; msg.status=MessageStatus.Error; textParts.push(text.length>0?text:`Runtime error: ${type}`); } else if(this.isToolType(type)){ const tool=new ToolCall(); tool.id=((part['id'] as string)??(part['callID'] as string)??''); tool.name=((part['tool'] as string)??(part['name'] as string)??type); tool.arguments=JSON.stringify(part['input']??part['args']??part['state']??''); tool.result=text; tool.status=type.includes('error')?'error':'complete'; msg.toolCalls.push(tool);} else if(text.length>0) textParts.push(text);} msg.content=textParts.join('\n\n'); if(msg.content.length===0&&msg.toolCalls.length>0) msg.content=`[${msg.toolCalls.length} tool call(s)]`; if(msg.content.length>0||msg.toolCalls.length>0) out.push(msg);} return out; }
+  private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] {
+    const out: ChatMessage[] = []
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i] as Record<string, Object>
+      const info = item['info'] as Record<string, Object>
+
+      // Support role from info or item level
+      let roleStr = ''
+      if (info) roleStr = (info['role'] as string) ?? ''
+      if (roleStr.length === 0) roleStr = (item['role'] as string) ?? ''
+
+      const id = info ? ((info['id'] as string) ?? '') : ''
+      const parts = (item['parts'] as Object[]) ?? []
+
+      const msg = new ChatMessage()
+      msg.id = id.length > 0 ? id : `msg_${Date.now()}_${i}`
+      msg.sessionId = sessionId
+      msg.role = roleStr === 'assistant' ? MessageRole.Assistant : MessageRole.User
+      msg.timestamp = Date.now()
+      msg.status = MessageStatus.Complete
+      msg.isStreaming = false
+
+      const textParts: string[] = []
+
+      // Extract from parts
+      for (const pa of parts) {
+        const part = pa as Record<string, Object>
+        const type = (part['type'] as string) ?? ''
+        const text = this.extractPartText(part)
+
+        if (type === 'text' && text.length > 0) {
+          textParts.push(text)
+        } else if (this.isErrorType(type)) {
+          msg.isError = true
+          msg.status = MessageStatus.Error
+          textParts.push(text.length > 0 ? text : `Runtime error: ${type}`)
+        } else if (this.isToolType(type)) {
+          const tool = new ToolCall()
+          tool.id = ((part['id'] as string) ?? (part['callID'] as string) ?? '')
+          tool.name = ((part['tool'] as string) ?? (part['name'] as string) ?? type)
+          tool.arguments = JSON.stringify(part['input'] ?? part['args'] ?? part['state'] ?? '')
+          tool.result = text
+          tool.status = type.includes('error') ? 'error' : 'complete'
+          msg.toolCalls.push(tool)
+        } else if (text.length > 0) {
+          textParts.push(text)
+        }
+      }
+
+      // Support direct content/error at item level
+      const directContent = item['content']
+      if (typeof directContent === 'string' && directContent.length > 0) {
+        textParts.push(directContent)
+      }
+      const directError = item['error']
+      if (typeof directError === 'string' && directError.length > 0) {
+        msg.isError = true
+        msg.status = MessageStatus.Error
+        textParts.push(directError)
+      }
+
+      msg.content = textParts.join('\n\n')
+      if (msg.content.length === 0 && msg.toolCalls.length > 0) {
+        msg.content = `[${msg.toolCalls.length} tool call(s)]`
+      }
+      if (msg.content.length > 0 || msg.toolCalls.length > 0) {
+        out.push(msg)
+      }
+    }
+    return out
+  }
   private extractArray(value:Object, key1:string, key2:string): Object[] { if(Array.isArray(value)) return value as Object[]; if(!value||typeof value!=='object') return []; const rec=value as Record<string,Object>; const c1=rec[key1]; if(Array.isArray(c1)) return c1 as Object[]; const c2=rec[key2]; if(Array.isArray(c2)) return c2 as Object[]; return []; }
   private extractStringArray(value:Object|undefined): string[] { if(!value||!Array.isArray(value)) return []; return value as string[]; }
   private extractConnectedProviderIds(value: Object | undefined): string[] {
@@ -550,7 +620,23 @@ export class MainViewModel {
   private isToolType(type:string): boolean { return type==='tool-invocation'||type==='tool'||type==='step-start'||type==='step-finish'||type==='tool-call'||type==='tool-result'; }
   private isPermissionType(type:string): boolean { return type==='permission'||type==='permission-request'||type==='tool-permission'; }
   private isErrorType(type:string): boolean { return type==='error'||type==='tool-error'||type==='provider-error'; }
-  private extractPartText(part: Record<string,Object>): string { const direct=part['text']; if(typeof direct==='string'&&direct.length>0) return direct; const content=part['content']; if(typeof content==='string'&&content.length>0) return content; const state=part['state'] as Record<string,Object>; if(state){ const m=state['message']; if(typeof m==='string'&&m.length>0) return m; const e=state['error']; if(typeof e==='string'&&e.length>0) return e; const o=state['output']; if(typeof o==='string'&&o.length>0) return o; const rr=state['result']; if(typeof rr==='string'&&rr.length>0) return rr;} return ''; }
+  private extractPartText(part: Record<string,Object>): string {
+    // Check direct string fields
+    const keys = ['text', 'content', 'message', 'error', 'output', 'result']
+    for (const key of keys) {
+      const value = part[key]
+      if (typeof value === 'string' && value.length > 0) return value
+    }
+    // Check nested state object
+    const state = part['state'] as Record<string,Object>
+    if (state) {
+      for (const key of keys) {
+        const value = state[key]
+        if (typeof value === 'string' && value.length > 0) return value
+      }
+    }
+    return ''
+  }
   private sessionMessagesPath(sessionId:string): string { return `/session/${sessionId}/message`; }
   private sessionPromptAsyncPath(sessionId:string): string { return `/session/${sessionId}/prompt_async`; }
   private sessionAbortPath(sessionId:string): string { return `/session/${sessionId}/abort`; }
