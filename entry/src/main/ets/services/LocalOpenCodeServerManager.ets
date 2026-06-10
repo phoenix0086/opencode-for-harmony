@@ -2,6 +2,7 @@ import { Runner, RunnerConfig, createRunner, runnerBaseUrl } from '../models/Run
 import { storageService } from './StorageService'
 import { OpenCodeClient } from './OpenCodeClient'
 import { ProcessBridge } from './ProcessBridge'
+import { fileIo } from '@kit.CoreFileKit'
 
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
@@ -26,6 +27,46 @@ export class LocalServerConfig {
 
 export class LocalOpenCodeServerManager {
   managedPid: number = -1
+  private filesDir: string = ''
+  private cachedBinaryPath: string = ''
+
+  /**
+   * Initialize with app context. Call once during app startup.
+   * Extracts the bundled opencode binary from rawfile to filesDir
+   * so the native ProcessBridge can execute it.
+   */
+  async init(context: Context): Promise<void> {
+    this.filesDir = context.filesDir
+    await this.extractBundledBinary(context)
+  }
+
+  private async extractBundledBinary(context: Context): Promise<void> {
+    const targetPath = `${this.filesDir}/opencode`
+    try {
+      // Skip if already extracted (avoids re-reading rawfile on every launch)
+      try {
+        fileIo.statSync(targetPath)
+        this.cachedBinaryPath = targetPath
+        return
+      } catch (e) {
+        // File doesn't exist yet — extract from rawfile
+      }
+
+      const data: Uint8Array = context.resourceManager.getRawFileContentSync('opencode')
+      if (data.byteLength === 0) return
+
+      const file = fileIo.openSync(targetPath, fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
+      fileIo.writeSync(file.fd, data.buffer as ArrayBuffer)
+      fileIo.closeSync(file)
+
+      // chmod 755 (rwxr-xr-x) so the native fork+exec can run it
+      fileIo.chmodSync(targetPath, 0o755)
+      this.cachedBinaryPath = targetPath
+    } catch (e) {
+      // Binary not bundled or extraction failed — findOpencodeBinary() will
+      // fall back to PATH lookup
+    }
+  }
 
   createDefaultConfig(): LocalServerConfig {
     return new LocalServerConfig()
@@ -361,9 +402,16 @@ export class LocalOpenCodeServerManager {
   }
 
   private findOpencodeBinary(): string {
-    // Priority: bundled binary > common install paths > PATH fallback
-    // V3: bundled binary would be at context.filesDir/opencode
-    // V2: relies on PATH for now
+    // Priority: bundled binary (extracted to filesDir) > PATH fallback
+    if (this.cachedBinaryPath.length > 0) return this.cachedBinaryPath
+    const bundled = `${this.filesDir}/opencode`
+    try {
+      fileIo.statSync(bundled)
+      this.cachedBinaryPath = bundled
+      return bundled
+    } catch (e) {
+      // not found
+    }
     return 'opencode'
   }
 }

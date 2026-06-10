@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
 import { initStorageService } from '../services/StorageService';
+import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
@@ -68,6 +69,8 @@ struct Index {
     if (!this.initialized) {
       // Initialize the services/ StorageService singleton (used by ProviderRegistry)
       await initStorageService(this.context);
+      // Extract bundled opencode binary from rawfile to filesDir
+      await localOpenCodeServerManager.init(this.context);
       const storage = new StorageService(this.context);
       await storage.init();
       await this.viewModel.init(storage);
