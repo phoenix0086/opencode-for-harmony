@@ -16,6 +16,8 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, 'OpenCode', 'EntryAbility onCreate');
     this.storageService = new StorageService(this.context);
+    // Store context in AppStorage so pages can access it without deprecated getContext()
+    AppStorage.setOrCreate<Context>('appContext', this.context);
   }
 
   onDestroy(): void {

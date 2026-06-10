@@ -141,6 +141,29 @@ static napi_value NapiProcessStopAll(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
+static napi_value NapiProcessChmod(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    if (argc < 2) {
+        napi_value result;
+        napi_get_boolean(env, false, &result);
+        return result;
+    }
+
+    std::string path = GetStringArg(env, args[0]);
+
+    int32_t mode = 0;
+    napi_get_value_int32(env, args[1], &mode);
+
+    bool ok = ProcessManager::instance().chmodFile(path, mode);
+
+    napi_value result;
+    napi_get_boolean(env, ok, &result);
+    return result;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         {"processStart", nullptr, NapiProcessStart, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -150,6 +173,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"processDrainLogs", nullptr, NapiProcessDrainLogs, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"processSetLogCallback", nullptr, NapiProcessSetLogCallback, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"processStopAll", nullptr, NapiProcessStopAll, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"processChmod", nullptr, NapiProcessChmod, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;

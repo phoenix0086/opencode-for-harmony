@@ -25,6 +25,7 @@ public:
     bool isRunning(int pid);
     int getExitCode(int pid);
     void stopAll();
+    bool chmodFile(const std::string& path, int mode);
     std::vector<int> getManagedPids();
 
     // Thread-safe log queue. ArkTS should poll/drain logs instead of receiving

@@ -5,8 +5,6 @@
     "pages/ServerConfig",
     "pages/Session",
     "pages/WebViewPage",
-    "pages/SettingsPage",
-    "pages/ProviderPage",
     "pages/ModelPage"
   ]
 }

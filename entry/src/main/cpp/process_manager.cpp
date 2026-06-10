@@ -4,6 +4,7 @@
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <cstring>
 #include <cerrno>
 #include <hilog/log.h>
@@ -161,6 +162,15 @@ std::vector<std::string> ProcessManager::drainLogs(int pid) {
     if (it == logLines_.end()) return out;
     out.swap(it->second);
     return out;
+}
+
+bool ProcessManager::chmodFile(const std::string& path, int mode) {
+    int ret = chmod(path.c_str(), static_cast<mode_t>(mode));
+    if (ret != 0) {
+        OH_LOG_ERROR(LOG_APP, "chmod(%{public}s, %o) failed: %{public}s", path.c_str(), mode, strerror(errno));
+        return false;
+    }
+    return true;
 }
 
 void ProcessManager::appendLog(int pid, const std::string& line) {

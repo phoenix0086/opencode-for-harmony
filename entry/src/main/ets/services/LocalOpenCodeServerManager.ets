@@ -59,8 +59,9 @@ export class LocalOpenCodeServerManager {
       fileIo.writeSync(file.fd, data.buffer as ArrayBuffer)
       fileIo.closeSync(file)
 
-      // chmod 755 (rwxr-xr-x) so the native fork+exec can run it
-      fileIo.chmodSync(targetPath, 0o755)
+      // chmod 755 (rwxr-xr-x) so the native fork+exec can run it.
+      // CoreFileKit has no chmodSync; delegate to native POSIX chmod instead.
+      ProcessBridge.chmodFile(targetPath, 0o755)
       this.cachedBinaryPath = targetPath
     } catch (e) {
       // Binary not bundled or extraction failed — findOpencodeBinary() will

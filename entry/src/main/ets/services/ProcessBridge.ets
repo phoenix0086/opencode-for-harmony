@@ -36,4 +36,13 @@ export class ProcessBridge {
   static stopAll(): void {
     nativeModule.processStopAll()
   }
+
+  /**
+   * Set file permissions via native POSIX chmod (avoids CoreFileKit chmodSync absence).
+   * @param path  absolute file path
+   * @param mode  octal permission bits, e.g. 0o755
+   */
+  static chmodFile(path: string, mode: number): boolean {
+    return nativeModule.processChmod(path, mode) as boolean
+  }
 }
