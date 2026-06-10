@@ -24,6 +24,7 @@ export class LocalServerConfig {
   protocol: 'http' | 'https' = 'http'
   token: string = ''
   mode: string = 'local' // local | dev-pc | remote
+  workspace: string = '' // project working directory
 }
 
 export class LocalOpenCodeServerManager {
@@ -143,6 +144,9 @@ export class LocalOpenCodeServerManager {
     if (typeof raw['mode'] === 'string' && (raw['mode'] as string).length > 0) {
       cfg.mode = raw['mode'] as string
     }
+    if (typeof raw['workspace'] === 'string' && (raw['workspace'] as string).length > 0) {
+      cfg.workspace = raw['workspace'] as string
+    }
     return cfg
   }
 
@@ -153,6 +157,7 @@ export class LocalOpenCodeServerManager {
     out['protocol'] = config.protocol
     out['token'] = config.token
     out['mode'] = config.mode
+    out['workspace'] = config.workspace
     await storageService.setLocalServerConfig(out)
   }
 
@@ -304,7 +309,19 @@ export class LocalOpenCodeServerManager {
     const args = ['serve', '--port', `${config.port}`, '--hostname', hostname]
     status.logs.push(`[cmd] ${command} ${args.join(' ')}`)
 
-    const pid = ProcessBridge.startProcess(command, args)
+    // Use workspace as working directory if available
+    const cwd = config.workspace.length > 0 ? config.workspace : ''
+    if (cwd.length > 0) {
+      status.logs.push(`[info] cwd: ${cwd}`)
+    }
+
+    // Pass token as environment variable if available
+    const env: Record<string, string> = {}
+    if (config.token.length > 0) {
+      env['OPENCODE_SERVER_PASSWORD'] = config.token
+    }
+
+    const pid = ProcessBridge.startProcessEx(command, args, cwd, env)
 
     if (pid <= 0) {
       status.status = 'error'

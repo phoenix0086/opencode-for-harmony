@@ -52,6 +52,62 @@ static napi_value NapiProcessStart(napi_env env, napi_callback_info info) {
     return result;
 }
 
+static napi_value NapiProcessStartEx(napi_env env, napi_callback_info info) {
+    // processStartEx(command, args, cwd, envObj) -> pid
+    size_t argc = 4;
+    napi_value args[4];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+    if (argc < 2) {
+        napi_value result;
+        napi_create_int32(env, -1, &result);
+        return result;
+    }
+
+    std::string command = GetStringArg(env, args[0]);
+
+    uint32_t arrLen = 0;
+    napi_get_array_length(env, args[1], &arrLen);
+    std::vector<std::string> cmdArgs;
+    for (uint32_t i = 0; i < arrLen; i++) {
+        napi_value elem;
+        napi_get_element(env, args[1], i, &elem);
+        cmdArgs.push_back(GetStringArg(env, elem));
+    }
+
+    std::string cwd;
+    if (argc >= 3) {
+        cwd = GetStringArg(env, args[2]);
+    }
+
+    std::map<std::string, std::string> envMap;
+    if (argc >= 4) {
+        napi_valuetype type;
+        napi_typeof(env, args[3], &type);
+        if (type == napi_object) {
+            napi_value names;
+            napi_get_property_names(env, args[3], &names);
+            uint32_t numKeys = 0;
+            napi_get_array_length(env, names, &numKeys);
+            for (uint32_t i = 0; i < numKeys; i++) {
+                napi_value key;
+                napi_get_element(env, names, i, &key);
+                std::string keyStr = GetStringArg(env, key);
+                napi_value val;
+                napi_get_named_property(env, args[3], keyStr.c_str(), &val);
+                std::string valStr = GetStringArg(env, val);
+                envMap[keyStr] = valStr;
+            }
+        }
+    }
+
+    int pid = ProcessManager::instance().startProcessEx(command, cmdArgs, cwd, envMap, nullptr);
+
+    napi_value result;
+    napi_create_int32(env, pid, &result);
+    return result;
+}
+
 static napi_value NapiProcessStop(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value args[1];
@@ -167,6 +223,7 @@ static napi_value NapiProcessChmod(napi_env env, napi_callback_info info) {
 static napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         {"processStart", nullptr, NapiProcessStart, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"processStartEx", nullptr, NapiProcessStartEx, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"processStop", nullptr, NapiProcessStop, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"processIsRunning", nullptr, NapiProcessIsRunning, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"processExitCode", nullptr, NapiProcessExitCode, nullptr, nullptr, nullptr, napi_default, nullptr},

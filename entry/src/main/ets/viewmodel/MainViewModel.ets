@@ -253,10 +253,43 @@ export class MainViewModel {
         return
       }
 
-      // Read config for debug
+      // Read config for debug + check provider connectivity
       try {
         const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
-        Logger.info(`Runtime config before prompt: model=${config['model']}, providers=${JSON.stringify(config['provider'] ? Object.keys(config['provider'] as Record<string, Object>) : [])}`);
+        const runtimeModel = config['model'] as string || ''
+        Logger.info(`Runtime config before prompt: model=${runtimeModel}`)
+
+        // Check if the provider for the configured model is connected
+        if (runtimeModel.length > 0 && runtimeModel.includes('/')) {
+          const providerId = runtimeModel.split('/')[0]
+          try {
+            const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER);
+            const connected = providerData['connected']
+            const connectedList: string[] = []
+            if (Array.isArray(connected)) {
+              for (const item of connected) {
+                if (typeof item === 'string') connectedList.push(item)
+                else if (item && typeof item === 'object') {
+                  const id = (item as Record<string, Object>)['id'] as string || ''
+                  if (id.length > 0) connectedList.push(id)
+                }
+              }
+            }
+            if (connectedList.length > 0 && !connectedList.includes(providerId)) {
+              const disabled = config['disabled_providers']
+              const isDisabled = Array.isArray(disabled) && (disabled as Object[]).includes(providerId as Object)
+              const hint = isDisabled
+                ? `Provider "${providerId}" 已被禁用。请在 OpenCode 配置中启用该 provider，或切换到已连接的 provider 的模型。`
+                : `Provider "${providerId}" 未连接。当前已连接：${connectedList.join(', ')}。请连接该 provider 或切换模型。`
+              assistantMsg.setError(`模型 ${runtimeModel} 的 provider 不可用。\n${hint}`)
+              this.messages = [...this.messages]
+              this.errorMessage = `Provider ${providerId} not connected`
+              return
+            }
+          } catch (providerErr) {
+            Logger.warn(`Failed to check provider status: ${String(providerErr)}`)
+          }
+        }
       } catch (configErr) {
         Logger.warn(`Failed to read Runtime config: ${String(configErr)}`);
       }

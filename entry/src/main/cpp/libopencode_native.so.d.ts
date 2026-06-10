@@ -12,6 +12,16 @@ declare namespace libopencode_native {
   function processStart(command: string, args: string[]): number;
 
   /**
+   * Fork+exec with working directory and environment variables.
+   * @param command  absolute path to the executable
+   * @param args     command-line arguments (argv[1..])
+   * @param cwd      working directory (empty string = inherit parent)
+   * @param env      environment variables to set (merged with parent env)
+   * @returns child PID on success, -1 on failure
+   */
+  function processStartEx(command: string, args: string[], cwd: string, env?: Record<string, string>): number;
+
+  /**
    * Send SIGTERM (then SIGKILL after timeout) to a managed process.
    */
   function processStop(pid: number): boolean;

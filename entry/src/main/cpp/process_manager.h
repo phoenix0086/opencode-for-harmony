@@ -11,6 +11,7 @@ struct ProcessInfo {
     bool running = false;
     int exitCode = -1;
     std::string command;
+    std::string cwd;
 };
 
 class ProcessManager {
@@ -20,6 +21,12 @@ public:
     int startProcess(const std::string& command,
                      const std::vector<std::string>& args,
                      std::function<void(const std::string& line)> logCallback = nullptr);
+
+    int startProcessEx(const std::string& command,
+                       const std::vector<std::string>& args,
+                       const std::string& cwd,
+                       const std::map<std::string, std::string>& env,
+                       std::function<void(const std::string& line)> logCallback = nullptr);
 
     bool stopProcess(int pid);
     bool isRunning(int pid);

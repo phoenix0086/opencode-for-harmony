@@ -5,6 +5,21 @@ export class ProcessBridge {
     return nativeModule.processStart(command, args) as number
   }
 
+  /**
+   * Start a process with working directory and environment variables.
+   * @param command  absolute path to the executable
+   * @param args     command-line arguments
+   * @param cwd      working directory (empty string = inherit parent)
+   * @param env      environment variables (merged with parent env)
+   * @returns child PID on success, -1 on failure
+   */
+  static startProcessEx(command: string, args: string[], cwd: string, env?: Record<string, string>): number {
+    if (env && Object.keys(env).length > 0) {
+      return nativeModule.processStartEx(command, args, cwd, env) as number
+    }
+    return nativeModule.processStartEx(command, args, cwd) as number
+  }
+
   static stopProcess(pid: number): boolean {
     return nativeModule.processStop(pid) as boolean
   }
