@@ -399,6 +399,7 @@ export struct AppShell {
             RuntimePage({
               activeRunner: this.activeRunner,
               isConnected: this.isConnected,
+              serverUrl: this.serverUrl,
               onRunnerActivated: (runner: Runner) => {
                 this.onRunnerActivated(runner)
               },

@@ -9,6 +9,7 @@ import { RuntimeLogPanel } from '../components/runtime/RuntimeLogPanel'
 export struct RuntimePage {
   @Prop activeRunner: Runner | null = null
   @Prop isConnected: boolean = false
+  @Prop serverUrl: string = ''
   onRunnerActivated: (runner: Runner) => void = () => {}
   onReconnect: () => void = () => {}
 
@@ -24,6 +25,25 @@ export struct RuntimePage {
 
   aboutToAppear(): void {
     this.config = localOpenCodeRuntimeService.defaultConfig()
+
+    // Sync with actual connected server URL if available
+    if (this.serverUrl.length > 0) {
+      try {
+        const url = new URL(this.serverUrl)
+        this.config.host = url.hostname
+        this.config.port = Number(url.port) || 4096
+        this.config.protocol = url.protocol === 'https:' ? 'https' : 'http'
+      } catch (e) {
+        // Fallback: try to parse manually
+        const match = this.serverUrl.match(/^(https?):\/\/([^:]+):(\d+)/)
+        if (match) {
+          this.config.protocol = match[1] as 'http' | 'https'
+          this.config.host = match[2]
+          this.config.port = Number(match[3])
+        }
+      }
+    }
+
     this.state.command = localOpenCodeRuntimeService.command(this.config)
     this.state.baseUrl = `${this.config.protocol}://${this.config.host}:${this.config.port}`
     this.logs = ['[info] Runtime page ready.']

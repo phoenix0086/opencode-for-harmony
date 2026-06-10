@@ -177,7 +177,14 @@ export class OpenCodeClient {
     } catch (e) {
       const r = new HealthResult()
       r.ok = false
-      r.error = String(e)
+      // ArkTS: String(e) may return "[object Object]" for some error types
+      if (typeof e === 'string') {
+        r.error = e
+      } else if (e instanceof Error) {
+        r.error = e.message
+      } else {
+        try { r.error = JSON.stringify(e) } catch { r.error = String(e) }
+      }
       return r
     }
   }
