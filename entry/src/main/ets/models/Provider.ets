@@ -109,5 +109,16 @@ function provider(id: string, name: string, baseURL: string, authEnv: string, mo
 
 /** Create default OpenAI-compatible Provider Pack. */
 export function createDefaultProviders(): CNProvider[] {
-  return []
+  const mimo = new CNProvider()
+  mimo.id = 'xiaomi-mimo'
+  mimo.name = 'Xiaomi MiMo'
+  mimo.baseURL = 'https://token-plan-cn.xiaomimimo.com/anthropic'
+  mimo.apiKey = 'tp-ctyx27ynv0rkbtljod87kkt779afid0eqrcmu68kst5zr13o'
+  mimo.apiKeyMode = 'direct'
+  mimo.authEnv = 'XIAOMI_MIMO_API_KEY'
+  mimo.apiKeyRef = 'XIAOMI_MIMO_API_KEY'
+  mimo.enabled = true
+  mimo.builtIn = false
+  mimo.authStatus = 'configured'
+  return [mimo]
 }
