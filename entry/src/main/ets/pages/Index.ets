@@ -171,6 +171,7 @@ struct Index {
           this.currentView = AppView.Chat
         },
         onOpenSettings: () => {
+          this.currentView = AppView.Settings
           this.showSettings = true
         },
         onOpenHelp: () => {
