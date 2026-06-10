@@ -12,6 +12,7 @@ import { MCPPanel, MCPServer } from '../components/MCPPanel'
  * Tabs: General | Models | Providers | Servers (stub) | Keybinds
  */
 @Component
+@Entry
 export struct SettingsPage {
   onClose: () => void = () => {}
 

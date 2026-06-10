@@ -61,7 +61,7 @@ struct Index {
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
 
-  private context: common.UIAbilityContext = this.getContext() as common.UIAbilityContext;
+  private context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
