@@ -12,6 +12,7 @@ export struct RuntimePage {
   @Prop serverUrl: string = ''
   onRunnerActivated: (runner: Runner) => void = () => {}
   onReconnect: () => void = () => {}
+  onDiagnose: () => Promise<string> = async () => { return '' }
 
   @State config: RuntimeConfig = new RuntimeConfig()
   @State state: RuntimeState = new RuntimeState()
@@ -91,6 +92,45 @@ export struct RuntimePage {
         this.ExtensionStatusCard()
 
         this.HelpPanel()
+
+        // Diagnostic button
+        Column() {
+          Text('诊断')
+            .fontSize(Theme.fs.lg)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Theme.TEXT_PRIMARY)
+            .margin({ bottom: Theme.sp.lg })
+
+          Text('点击后会检查 Runtime 的 health、config、provider、session 状态，结果显示在下方日志面板。')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_SECONDARY)
+            .margin({ bottom: Theme.sp.lg })
+
+          Text('诊断 Runtime')
+            .fontSize(Theme.fs.sm)
+            .fontColor(Theme.TEXT_INVERSE)
+            .backgroundColor(Theme.ACCENT)
+            .borderRadius(Theme.rd.md)
+            .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
+            .onClick(async () => {
+              this.logs.push('[info] running diagnostics...')
+              const result = await this.onDiagnose()
+              const lines = result.split('\n')
+              for (const line of lines) {
+                this.logs.push(line)
+              }
+              this.logs.push('[info] diagnostics complete.')
+            })
+        }
+        .width('100%')
+        .padding(Theme.sp.xl)
+        .backgroundColor(Theme.SIDEBAR)
+        .borderRadius(Theme.rd.lg)
+        .borderWidth(1)
+        .borderColor(Theme.BORDER)
+        .margin({ bottom: Theme.sp.xxl })
+        .alignItems(HorizontalAlign.Start)
+
         RuntimeLogPanel({ logs: this.logs })
       }
       .width('100%')

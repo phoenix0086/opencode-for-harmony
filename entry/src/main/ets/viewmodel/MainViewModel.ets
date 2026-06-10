@@ -227,32 +227,56 @@ export class MainViewModel {
   async sendMessage(content: string): Promise<void> {
     const text = content.trim(); if (text.length === 0 || this.isGenerating) return;
     if (this.connectionStatus !== ConnectionStatus.Connected) { this.messages = [...this.messages, ChatMessage.createErrorMessage('本地 Runtime 未连接。')]; return; }
+
+    // Pre-check: selectedModel must be set
+    if (this.selectedModel.length === 0) {
+      const err = ChatMessage.createErrorMessage('未设置模型。请先到 Models 页面选择 providerId/modelId。');
+      this.messages = [...this.messages, err];
+      this.errorMessage = '未设置模型';
+      return;
+    }
+
     let sessionId = this.currentSessionId; if (sessionId.length === 0) { sessionId = await this.createSession(); if (sessionId.length === 0) { this.messages = [...this.messages, ChatMessage.createErrorMessage('创建 session 失败。')]; return; } }
     const userMsg = ChatMessage.createUserMessage(text); userMsg.sessionId = sessionId;
     const assistantMsg = ChatMessage.createAssistantMessage('等待 Runtime 响应...'); assistantMsg.sessionId = sessionId;
     this.messages = [...this.messages, userMsg, assistantMsg]; this.isGenerating = true; this.errorMessage = '';
     try {
-      await this.syncModelToRuntime();
+      // Sync model to Runtime — must not fail silently
+      try {
+        await this.syncModelToRuntime();
+        Logger.info(`Runtime model synced: ${this.selectedModel}`);
+      } catch (syncErr) {
+        const msg = `同步 Runtime model 失败：${String(syncErr)}`
+        assistantMsg.setError(msg)
+        this.messages = [...this.messages]
+        this.errorMessage = msg
+        return
+      }
+
+      // Read config for debug
+      try {
+        const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
+        Logger.info(`Runtime config before prompt: model=${config['model']}, providers=${JSON.stringify(config['provider'] ? Object.keys(config['provider'] as Record<string, Object>) : [])}`);
+      } catch (configErr) {
+        Logger.warn(`Failed to read Runtime config: ${String(configErr)}`);
+      }
+
       const before = await this.getRawMessages(sessionId); const beforeCount = before.length;
       const req = new PromptAsyncRequest(); const part = new TextPromptPart(); part.text = text; req.parts = [part];
       let promptSent = false
+      let promptError = ''
       try {
         await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req);
         promptSent = true
+        Logger.info(`prompt_async sent session=${sessionId}`)
       } catch (promptErr) {
-        Logger.error(`prompt_async failed: ${String(promptErr)}`)
-        // Fallback: try sync message endpoint
-        try {
-          await this.httpService.post<Object>(this.sessionMessagesPath(sessionId), req);
-          promptSent = true
-        } catch (syncErr) {
-          Logger.error(`sync prompt also failed: ${String(syncErr)}`)
-        }
+        promptError = String(promptErr)
+        Logger.error(`prompt_async failed: ${promptError}`)
       }
       if (!promptSent) {
-        assistantMsg.setError('发送消息失败，请检查 Runtime 连接和模型配置。')
+        assistantMsg.setError(`prompt_async 发送失败：${promptError}`)
         this.messages = [...this.messages]
-        this.errorMessage = 'prompt 发送失败'
+        this.errorMessage = promptError
         return
       }
       await this.loadMessages(sessionId);
@@ -264,6 +288,56 @@ export class MainViewModel {
   }
   async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${String(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
+
+  async diagnoseRuntime(): Promise<string> {
+    const out: string[] = []
+    out.push(`=== Runtime 诊断 ===`)
+    out.push(`App selectedModel: ${this.selectedModel}`)
+    out.push(`App serverUrl: ${this.serverInfo.url}`)
+    out.push(`Connection: ${this.connectionStatus}`)
+    out.push('')
+
+    try {
+      const health = await this.httpService.get<Record<string, Object>>(Constants.API_HEALTH);
+      out.push(`[health] ${JSON.stringify(health)}`)
+    } catch (e) {
+      out.push(`[health error] ${String(e)}`)
+    }
+
+    try {
+      const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
+      out.push(`[config.model] ${config['model']}`)
+      const disabled = config['disabled_providers']
+      if (disabled) out.push(`[config.disabled_providers] ${JSON.stringify(disabled)}`)
+      const providers = config['provider']
+      if (providers) out.push(`[config.provider keys] ${Object.keys(providers as Record<string, Object>)}`)
+    } catch (e) {
+      out.push(`[config error] ${String(e)}`)
+    }
+
+    try {
+      const provider = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER);
+      const connected = provider['connected']
+      out.push(`[provider.connected] ${JSON.stringify(connected)}`)
+      const all = provider['all']
+      if (Array.isArray(all)) {
+        const ids = (all as Object[]).map((p: Object) => (p as Record<string, Object>)['id'] as string)
+        out.push(`[provider.all ids] ${JSON.stringify(ids)}`)
+      }
+    } catch (e) {
+      out.push(`[provider error] ${String(e)}`)
+    }
+
+    try {
+      const sessions = await this.httpService.get<Object>(Constants.API_SESSION);
+      const arr = this.extractArray(sessions, 'sessions', 'data')
+      out.push(`[sessions count] ${arr.length}`)
+    } catch (e) {
+      out.push(`[session error] ${String(e)}`)
+    }
+
+    return out.join('\n')
+  }
   async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const old = this.currentSessionId; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${String(err)}`; } finally { if (old.length > 0) this.currentSessionId = old; } }
 
   private async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
@@ -313,7 +387,16 @@ export class MainViewModel {
         r.ok=false; r.message=`轮询消息失败：${String(err)}`; return r;
       }
     }
-    r.timedOut=true; r.message='等待 assistant/tool/error/permission 超时。';
+    r.timedOut=true;
+    // On timeout, include raw messages preview for debugging
+    let rawText = '';
+    try {
+      const raw = await this.getRawMessages(sessionId);
+      rawText = JSON.stringify(raw).slice(0, 2000);
+    } catch (e) {
+      rawText = `读取 raw messages 失败：${String(e)}`;
+    }
+    r.message = `等待 assistant/tool/error/permission 超时。\n当前模型：${this.selectedModel}\nmessageCount=${r.messageCount}\n\nRaw messages preview:\n${rawText}`;
     return r;
   }
   private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult { const r = new ExecutionPollResult(); for(let i=beforeCount;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const role=info?(info['role'] as string):''; if(role==='assistant') r.hasAssistant=true; const parts=item['parts'] as Object[]; if(!parts) continue; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(this.isToolType(type)) r.hasTool=true; if(this.isPermissionType(type)) r.hasPermission=true; if(this.isErrorType(type)){r.hasError=true; if(r.errorText.length===0) r.errorText=text.length>0?text:`Runtime error part: ${type}`;} }} return r; }

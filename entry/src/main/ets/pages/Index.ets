@@ -850,12 +850,14 @@ struct Index {
       isConnected: this.viewModel.connectionStatus === ConnectionStatus.Connected,
       serverUrl: this.viewModel.serverInfo.url,
       onRunnerActivated: (runner: Runner) => {
-        // Runner activated from Runtime page — update server info and connect
         this.viewModel.serverInfo.url = `${runner.protocol}://${runner.host}:${runner.port}`
         this.viewModel.connect()
       },
       onReconnect: () => {
         this.viewModel.connect()
+      },
+      onDiagnose: async () => {
+        return await this.viewModel.diagnoseRuntime()
       }
     })
   }
