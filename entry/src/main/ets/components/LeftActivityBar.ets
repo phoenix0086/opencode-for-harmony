@@ -214,14 +214,25 @@ export struct LeftActivityBar {
   }
 
   private getConnectionColor(): string {
+    // 6 个 connectionStatus 状态分别上色:
+    //   connected   -> 绿 (online)
+    //   connecting  -> 黄 (...)
+    //   autostarting-> 黄
+    //   startfailed -> 红 (Start Failed) - 比 offline 重点,提示用户要修
+    //   error       -> 红
+    //   disconnected/其它 -> 灰
     if (this.connectionStatus === 'connected') return Theme.SUCCESS
-    if (this.connectionStatus === 'connecting') return Theme.WARNING
-    return Theme.DANGER
+    if (this.connectionStatus === 'connecting' || this.connectionStatus === 'autostarting') return Theme.WARNING
+    if (this.connectionStatus === 'startfailed' || this.connectionStatus === 'error') return Theme.DANGER
+    return Theme.TEXT_MUTED
   }
 
   private getConnectionLabel(): string {
     if (this.connectionStatus === 'connected') return 'online'
     if (this.connectionStatus === 'connecting') return '...'
+    if (this.connectionStatus === 'autostarting') return 'start'
+    if (this.connectionStatus === 'startfailed') return 'failed'
+    if (this.connectionStatus === 'error') return 'error'
     return 'offline'
   }
 }
