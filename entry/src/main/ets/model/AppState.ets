@@ -19,7 +19,8 @@ export enum AppView {
   Provider = 'provider',
   Models = 'models',
   Settings = 'settings',
-  WebView = 'webview'
+  WebView = 'webview',
+  Runtime = 'runtime'
 }
 
 export class SessionInfo {

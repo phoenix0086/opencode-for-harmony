@@ -10,6 +10,8 @@ import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
 import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
+import { RuntimePage } from './RuntimePage';
+import { Runner } from '../models/Runner';
 import { ProjectEntry } from '../components/DirectoryPicker';
 import { DirectoryPicker } from '../components/DirectoryPicker';
 
@@ -315,6 +317,7 @@ struct Index {
             this.NavItem(AppView.Models, $r('app.media.settings'), 'Models')
             this.NavItem(AppView.Files, $r('app.media.globe'), 'Files')
             this.NavItem(AppView.Terminal, $r('app.media.terminal'), 'Terminal')
+            this.NavItem(AppView.Runtime, $r('app.media.server'), 'Runtime')
             this.NavItem(AppView.WebView, $r('app.media.globe'), 'Web UI')
           }
           .width('100%')
@@ -403,6 +406,8 @@ struct Index {
           this.WebViewContent()
         } else if (this.currentView === AppView.Terminal) {
           this.TerminalContent()
+        } else if (this.currentView === AppView.Runtime) {
+          this.RuntimeContent()
         } else if (this.currentView === AppView.Files) {
           this.FilesContent()
         }
@@ -836,6 +841,22 @@ struct Index {
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  RuntimeContent() {
+    RuntimePage({
+      activeRunner: null,
+      isConnected: this.viewModel.connectionStatus === ConnectionStatus.Connected,
+      onRunnerActivated: (runner: Runner) => {
+        // Runner activated from Runtime page — update server info and connect
+        this.viewModel.serverInfo.url = `${runner.protocol}://${runner.host}:${runner.port}`
+        this.viewModel.connect()
+      },
+      onReconnect: () => {
+        this.viewModel.connect()
+      }
+    })
   }
 
   @Builder
