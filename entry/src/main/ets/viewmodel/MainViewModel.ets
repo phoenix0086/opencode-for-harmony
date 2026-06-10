@@ -123,7 +123,15 @@ export class MainViewModel {
           const healthy: boolean = await this.httpService.checkHealth();
           if (healthy) {
             Logger.info('Auto-start failed, but manual Runtime is healthy. Connecting...');
+            this.serverStatusMessage = '手动检测健康通过，正在连接...';
             await this.connect();
+
+            const finalStatus: string = this.connectionStatus as string;
+            if (finalStatus === (ConnectionStatus.Connected as string)) {
+              this.serverStatusMessage = '手动启动 Runtime 已连接';
+            } else {
+              this.serverStatusMessage = '检测健康通过，但连接失败';
+            }
           }
         } catch (e) {
           Logger.warn(`Manual Runtime fallback failed: ${String(e)}`);

@@ -105,6 +105,7 @@ export class LocalOpenCodeServerManager {
     } catch (e) {
       const msg = `[step4] chmod FAILED: ${String(e)}`
       log(msg)
+      this.binaryExtractError = String(e)
     }
 
     // Step 5: verify
@@ -115,6 +116,7 @@ export class LocalOpenCodeServerManager {
     } catch (e) {
       const msg = `[step5] verify FAILED: ${String(e)}`
       log(msg)
+      this.binaryExtractError = String(e)
     }
   }
 

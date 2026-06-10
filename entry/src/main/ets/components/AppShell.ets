@@ -157,7 +157,7 @@ export struct AppShell {
     for (const s of this.sessions) {
       const tab = new SessionTab()
       tab.id = s.id
-      tab.title = s.title.length > 0 ? s.title : 'untitled'
+      tab.title = s.title.length > 0 ? formatServerTitle(s.title) : 'untitled'
       tab.isActive = s.id === this.activeSessionId
       tabs.push(tab)
     }

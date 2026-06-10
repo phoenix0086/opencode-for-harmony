@@ -210,7 +210,9 @@ export struct ServerSettingsPage {
         .fontColor(Theme.TEXT_SECONDARY)
         .margin({ bottom: Theme.sp.sm })
 
-      Text(`opencode serve --port ${this.config.port} --hostname ${this.config.host}`)
+      // 注意：dev-pc / remote 模式 hostname 必须是 0.0.0.0（开发电脑监听）
+      // 不是 this.config.host（那是连接目标 IP，不能用来 bind）
+      Text(localOpenCodeServerManager.getCommandForConfig(this.config))
         .fontSize(Theme.fs.sm)
         .fontColor(Theme.ACCENT)
         .fontFamily(Theme.FONT_MONO)

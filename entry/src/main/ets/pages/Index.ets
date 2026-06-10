@@ -609,7 +609,9 @@ struct Index {
     Column() {
       Text(this.viewModel.connectionStatus === ConnectionStatus.StartFailed
         ? 'Runtime 启动失败'
-        : 'Runtime 未连接')
+        : this.viewModel.connectionStatus === ConnectionStatus.AutoStarting
+          ? '正在启动 Runtime...'
+          : 'Runtime 未连接')
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor('#FFFFFF')
