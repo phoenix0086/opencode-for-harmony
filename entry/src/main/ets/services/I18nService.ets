@@ -105,6 +105,10 @@ export class I18nStrings {
 
 export class I18nService {
   private currentLocale: Locale = 'zh-CN'
+  // 修复 W4: 标注此数组仅在主线程 (UI 线程) 访问。ArkTS 是单线程模型,
+  // UI 组件在 build/lifecycle 阶段调 subscribe,在 setLocale() 同步触发回调。
+  // 切勿在 Worker/TaskPool 中调用,会引发并发问题。setLocale 内部不做锁,
+  // 依赖于单线程假设。
   private listeners: Array<(locale: Locale) => void> = []
   private strings: Map<string, I18nStrings> = new Map()
 

@@ -112,8 +112,13 @@ export struct ComposerBar {
       // Layout: [agent selector] [session title] [context usage] --- [shift+enter hint]
       Row() {
         // ── Agent selector (Sprint 3-B.14/15) ──
-        // Falls back to legacy build/plan toggle if v2 unavailable OR
-        // no agents prop passed (parent still on M14 wiring).
+        // 修复 W3: 条件渲染逻辑说明
+        // - agents.length > 0 → v2 server 有可用的 agent 列表,渲染 AgentSelector
+        // - agentUnsupported = true → v2 探测失败 (404/405),仍渲染 AgentSelector
+        //   以显示 "v2 agents unavailable" 占位,让用户知道是这个能力不支持
+        //   (vs. 没接好 props 时的静默 fallback)
+        // - 都不满足 → parent 没传 v2 props,显示 legacy build/plan 内联切换,
+        //   保持向后兼容 (M14 之前的老调用方)
         if (this.agents.length > 0 || this.agentUnsupported) {
           AgentSelector({
             agents: this.agents,
