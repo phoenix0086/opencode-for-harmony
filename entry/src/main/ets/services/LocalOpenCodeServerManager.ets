@@ -3,6 +3,7 @@ import { storageService } from './StorageService'
 import { OpenCodeClient } from './OpenCodeClient'
 import { ProcessBridge } from './ProcessBridge'
 import { fileIo } from '@kit.CoreFileKit'
+import { Logger } from '../utils/Logger'
 
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
@@ -30,6 +31,9 @@ export class LocalOpenCodeServerManager {
   private filesDir: string = ''
   private cachedBinaryPath: string = ''
 
+  /** Diagnostic messages from the last init/extract attempt */
+  diagLogs: string[] = []
+
   /**
    * Initialize with app context. Call once during app startup.
    * Extracts the bundled opencode binary from rawfile to filesDir
@@ -37,35 +41,75 @@ export class LocalOpenCodeServerManager {
    */
   async init(context: Context): Promise<void> {
     this.filesDir = context.filesDir
+    this.diagLogs = []
     await this.extractBundledBinary(context)
   }
 
   private async extractBundledBinary(context: Context): Promise<void> {
     const targetPath = `${this.filesDir}/opencode`
+    const log = (msg: string): void => {
+      this.diagLogs.push(msg)
+      Logger.info(`[Runtime-diag] ${msg}`)
+    }
+
+    log(`filesDir = ${this.filesDir}`)
+    log(`targetPath = ${targetPath}`)
+
+    // Step 1: check if already extracted
     try {
-      // Skip if already extracted (avoids re-reading rawfile on every launch)
-      try {
-        fileIo.statSync(targetPath)
-        this.cachedBinaryPath = targetPath
-        return
-      } catch (e) {
-        // File doesn't exist yet — extract from rawfile
-      }
+      const stat = fileIo.statSync(targetPath)
+      log(`[step1] binary already exists: size=${stat.size}, mode=${stat.mode}`)
+      this.cachedBinaryPath = targetPath
+      return
+    } catch (e) {
+      log(`[step1] binary not found in filesDir, will extract from rawfile`)
+    }
 
-      const data: Uint8Array = context.resourceManager.getRawFileContentSync('opencode')
-      if (data.byteLength === 0) return
+    // Step 2: read rawfile
+    let data: Uint8Array
+    try {
+      data = context.resourceManager.getRawFileContentSync('opencode')
+      log(`[step2] rawfile read OK: ${data.byteLength} bytes`)
+    } catch (e) {
+      const msg = `[step2] rawfile read FAILED: ${String(e)}`
+      log(msg)
+      return
+    }
 
+    if (data.byteLength === 0) {
+      log('[step2] rawfile is empty — no binary bundled')
+      return
+    }
+
+    // Step 3: write to filesDir
+    try {
       const file = fileIo.openSync(targetPath, fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
       fileIo.writeSync(file.fd, data.buffer as ArrayBuffer)
       fileIo.closeSync(file)
+      log(`[step3] write to filesDir OK`)
+    } catch (e) {
+      const msg = `[step3] write FAILED: ${String(e)}`
+      log(msg)
+      return
+    }
 
-      // chmod 755 (rwxr-xr-x) so the native fork+exec can run it.
-      // CoreFileKit has no chmodSync; delegate to native POSIX chmod instead.
-      ProcessBridge.chmodFile(targetPath, 0o755)
+    // Step 4: chmod 755
+    try {
+      const ok = ProcessBridge.chmodFile(targetPath, 0o755)
+      log(`[step4] chmod 755 result=${ok}`)
+    } catch (e) {
+      const msg = `[step4] chmod FAILED: ${String(e)}`
+      log(msg)
+    }
+
+    // Step 5: verify
+    try {
+      const stat = fileIo.statSync(targetPath)
+      log(`[step5] verify OK: size=${stat.size}, mode=${stat.mode}`)
       this.cachedBinaryPath = targetPath
     } catch (e) {
-      // Binary not bundled or extraction failed — findOpencodeBinary() will
-      // fall back to PATH lookup
+      const msg = `[step5] verify FAILED: ${String(e)}`
+      log(msg)
     }
   }
 
@@ -223,21 +267,36 @@ export class LocalOpenCodeServerManager {
     }
 
     const command = this.findOpencodeBinary()
+    status.logs.push(`[info] binary path: ${command || '(empty)'}`)
+    status.logs.push(`[info] cachedBinaryPath: ${this.cachedBinaryPath || '(empty)'}`)
+
     if (command.length === 0) {
       status.status = 'error'
-      status.message = '找不到 opencode 可执行文件。请确认已安装 opencode，或后续使用随包内置 Runtime。'
+      status.message = '找不到 opencode 可执行文件。二进制可能未成功提取到 filesDir。'
       status.logs.push('[error] opencode binary not found')
       return status
     }
 
     const hostname = config.mode === 'local' ? config.host : '0.0.0.0'
     const args = ['serve', '--port', `${config.port}`, '--hostname', hostname]
+    status.logs.push(`[cmd] ${command} ${args.join(' ')}`)
+
     const pid = ProcessBridge.startProcess(command, args)
 
     if (pid <= 0) {
       status.status = 'error'
-      status.message = 'Runtime 进程启动失败。可能是权限不足、opencode 未安装，或 Native Bridge 不可用。'
+      status.message = `Runtime fork 失败 (pid=${pid})。二进制文件可能无法在 HarmonyOS 上执行。`
       status.logs.push(`[error] startProcess returned pid=${pid}`)
+      return status
+    }
+
+    // Check if process died immediately (execvp failure → child exits with 127)
+    const exitCode = ProcessBridge.exitCode(pid)
+    if (exitCode >= 0) {
+      status.status = 'error'
+      status.message = `Runtime 进程立即退出 (exit=${exitCode})。二进制不兼容 HarmonyOS 或缺少动态链接器。`
+      status.logs.push(`[error] process exited immediately code=${exitCode}`)
+      status.logs.push(`[hint] binary may need /lib/ld-musl-aarch64.so.1 or similar dynamic linker`)
       return status
     }
 
@@ -245,7 +304,6 @@ export class LocalOpenCodeServerManager {
     status.status = 'starting'
     status.message = `本地 OpenCode Runtime 启动中 (pid=${pid})...`
     status.logs.push(`[ok] process started pid=${pid}`)
-    status.logs.push(`[cmd] ${command} ${args.join(' ')}`)
     return status
   }
 
@@ -293,10 +351,16 @@ export class LocalOpenCodeServerManager {
   async autoStart(onStatusChange?: (status: LocalServerStatus) => void): Promise<LocalServerStatus> {
     const config = await this.loadLastConfig()
 
+    // Prepend extraction diagnostics so failures are visible in the UI
+    const diagPrefix = this.diagLogs.length > 0
+      ? this.diagLogs.map(l => `[diag] ${l}`)
+      : ['[diag] no extraction diagnostics (init may not have run)']
+
     // Step 1: check if already running
     let healthStatus = await this.checkHealth(config)
     if (healthStatus.status === 'running') {
       await this.saveAndActivate(config)
+      healthStatus.logs = diagPrefix.concat(healthStatus.logs)
       healthStatus.logs.push('[auto] server already running, activated')
       if (onStatusChange) onStatusChange(healthStatus)
       return healthStatus
@@ -304,6 +368,7 @@ export class LocalOpenCodeServerManager {
 
     // Step 2: start the process
     const startStatus = this.startServerProcess(config)
+    startStatus.logs = diagPrefix.concat(startStatus.logs)
     if (onStatusChange) onStatusChange(startStatus)
 
     if (startStatus.status === 'error') {
