@@ -508,7 +508,14 @@ struct Index {
           this.FilesContent()
         } else if (this.currentView === AppView.Models) {
           // AI 设置：合并 Providers + Models
-          SettingsPage({ onClose: () => { this.currentView = AppView.Home } })
+          SettingsPage({
+            onClose: () => { this.currentView = AppView.Home },
+            onModelSelected: (modelRef: string) => {
+              this.viewModel.selectedModel = modelRef
+              this.viewModel.saveServerConfig()
+              this.viewModel.syncModelToRuntime()
+            }
+          })
         } else if (this.currentView === AppView.Settings) {
           this.SimpleSettingsContent()
         } else if (this.currentView === AppView.Provider) {

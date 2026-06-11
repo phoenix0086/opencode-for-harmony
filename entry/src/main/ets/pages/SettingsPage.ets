@@ -14,6 +14,7 @@ import { MCPPanel, MCPServer } from '../components/MCPPanel'
 @Component
 export struct SettingsPage {
   onClose: () => void = () => {}
+  onModelSelected: (modelRef: string) => void = () => {}
 
   // ══════════ State ══════════
   @State activeTab: string = 'providers'
@@ -544,6 +545,7 @@ export struct SettingsPage {
               .margin({ left: Theme.sp.md })
               .onClick(() => {
                 this.settings.defaultModel = `${p.id}/${m.id}`
+                this.onModelSelected(`${p.id}/${m.id}`)
               })
           }
           .width('100%')
@@ -620,6 +622,7 @@ export struct SettingsPage {
           })
           .borderRadius(Theme.rd.md)
           .backgroundColor(Theme.ACCENT_DIM)
+          .onClick(() => { this.onClose() })
       }
       .width('100%')
       .padding(Theme.sp.xl)
