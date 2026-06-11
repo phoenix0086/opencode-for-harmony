@@ -31,7 +31,9 @@ export struct SettingsPage {
 
   // ══════════ Lifecycle ══════════
   async aboutToAppear(): Promise<void> {
+    await providerRegistry.init()
     this.settings = await storageService.loadSettings()
+    this.providersVersion = this.providersVersion + 1
   }
 
   // ══════════ Root Build ══════════
@@ -576,7 +578,7 @@ export struct SettingsPage {
   ProvidersTab() {
     this.SectionHeader('PROVIDERS')
 
-    ForEach(providerRegistry.getAll(), (p: CNProvider) => {
+    ForEach(this.getAllProviders(), (p: CNProvider) => {
       Row() {
         // Provider brand icon
         ProviderIcon({ providerId: p.id, iconSize: 28 })
@@ -627,6 +629,16 @@ export struct SettingsPage {
       .borderColor(Theme.BORDER)
       .margin({ bottom: Theme.sp.lg })
     }, (p: CNProvider) => p.id)
+
+    if (this.getAllProviders().length === 0) {
+      Text('no providers configured')
+        .fontSize(Theme.fs.sm)
+        .fontColor(Theme.TEXT_MUTED)
+        .fontFamily(Theme.FONT_MONO)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .padding(Theme.sp.xxl)
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -838,7 +850,7 @@ export struct SettingsPage {
    * Only providers with at least one matching model are returned.
    */
   private getFilteredProviders(): CNProvider[] {
-    const providers = providerRegistry.getAll()
+    const providers = this.getAllProviders()
     // Touch providersVersion so this method reads as state-dependent
     // (ArkUI only re-runs the function when @State it reads changes).
     const _v = this.providersVersion
@@ -861,6 +873,11 @@ export struct SettingsPage {
       }
     }
     return result
+  }
+
+  private getAllProviders(): CNProvider[] {
+    const _v = this.providersVersion
+    return providerRegistry.getAll()
   }
 
   /**

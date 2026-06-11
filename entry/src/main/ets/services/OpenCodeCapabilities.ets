@@ -37,9 +37,14 @@ class ProbeResult {
 
 export class OpenCodeCapabilities {
   private baseUrl: string = '';
+  private authHeader: string = '';
 
   setBaseUrl(url: string): void {
     this.baseUrl = url.replace(/\/+$/, '');
+  }
+
+  setAuthHeader(header: string): void {
+    this.authHeader = header;
   }
 
   async detect(): Promise<CapabilityResult> {
@@ -66,9 +71,12 @@ export class OpenCodeCapabilities {
     try {
       const httpRequest = http.createHttp();
       try {
+        const hdrs: Record<string, string> = {};
+        hdrs['Accept'] = 'application/json';
+        if (this.authHeader.length > 0) { hdrs['Authorization'] = this.authHeader; }
         const response = await httpRequest.request(this.baseUrl + path, {
           method: http.RequestMethod.GET,
-          header: { 'Accept': 'application/json' },
+          header: hdrs,
           connectTimeout: 5000,
           readTimeout: 5000,
           expectDataType: http.HttpDataType.OBJECT

@@ -59,15 +59,16 @@ export class MainViewModel {
       this.httpService.setServer(this.serverInfo);
 
       // Detect server mode via adapter
-      this.apiAdapter.setBaseUrl(this.serverInfo.url);
+      this.apiAdapter.setBaseUrl(this.serverInfo.url, this.serverInfo.getAuthHeader());
       const caps = await this.apiAdapter.detectCapabilities();
       this.serverMode = caps.mode;
       Logger.info(`Server mode detected: ${this.serverMode}`);
 
-      const healthy = await this.httpService.checkHealth();
-      if (!healthy) {
+      // P0-1: Use adapter health (routes to /api/health or /global/health based on mode)
+      const healthResult = await this.apiAdapter.health();
+      if (healthResult['healthy'] !== true) {
         this.connectionStatus = ConnectionStatus.Error
-        this.errorMessage = '本地 Runtime 健康检查失败。'
+        this.errorMessage = `健康检查失败 (mode=${this.serverMode})。`
         this.serverInfo.connected = false
         this.serverInfo.healthOk = false
         return
@@ -146,8 +147,8 @@ export class MainViewModel {
 
       // 异常时也试一次 health check,因为 Runtime 可能是 manual 启动的
       try {
-        const healthy: boolean = await this.httpService.checkHealth()
-        if (healthy) {
+        const healthCheck = await this.apiAdapter.health()
+        if (healthCheck['healthy'] === true) {
           Logger.info('autoStart crashed but Runtime is healthy, connecting anyway...')
           this.serverStatusMessage = '检测到手动启动的 Runtime, 正在连接...'
           await this.connect()
@@ -201,8 +202,8 @@ export class MainViewModel {
       // 比如终端跑了 `opencode serve --port 4096 --hostname 0.0.0.0`
       // health check 通了就当 Connected 走，不要卡死在 StartFailed
       try {
-        const healthy: boolean = await this.httpService.checkHealth();
-        if (healthy) {
+        const healthCheck2 = await this.apiAdapter.health();
+        if (healthCheck2['healthy'] === true) {
           Logger.info('Auto-start failed, but manual Runtime is healthy. Connecting...');
           this.serverStatusMessage = '手动检测健康通过，正在连接...';
           await this.connect();
@@ -253,7 +254,7 @@ export class MainViewModel {
   }
   async loadProviders(): Promise<void> {
     try {
-      const result = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+      const result = await this.apiAdapter.listProviders()
       const connectedIds = this.extractConnectedProviderIds(result['connected'])
       const next: ProviderInfo[] = []
 
@@ -288,7 +289,16 @@ export class MainViewModel {
   async createSession(): Promise<string> {
     try {
       const body: Record<string, Object> = {};
-      body['model'] = this.selectedModel;
+      // P0-4: api-v2 needs { model: { id, providerID } }, legacy needs string
+      if (this.serverMode === 'api-v2' && this.selectedModel.includes('/')) {
+        const parts = this.selectedModel.split('/');
+        const modelObj: Record<string, Object> = {};
+        modelObj['providerID'] = parts[0];
+        modelObj['id'] = parts[1];
+        body['model'] = modelObj;
+      } else {
+        body['model'] = this.selectedModel;
+      }
       const session = await this.apiAdapter.createSession(body);
       if (session.id.length > 0) {
         this.currentSessionId = session.id;
@@ -375,12 +385,12 @@ export class MainViewModel {
       if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
         const providerId = this.selectedModel.split('/')[0]
         try {
-          const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+          const providerData = await this.apiAdapter.listProviders()
           const connectedList = this.extractConnectedProviderIds(providerData['connected'])
           if (connectedList.length > 0 && !connectedList.includes(providerId)) {
             let isDisabled = false
             try {
-              const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG)
+              const config = await this.apiAdapter.getConfig();
               const disabled = config['disabled_providers']
               isDisabled = Array.isArray(disabled) && (disabled as Object[]).some((d: Object) => {
                 return (typeof d === 'string' && d === providerId) ||
@@ -502,7 +512,7 @@ export class MainViewModel {
    */
   async autoSelectModel(): Promise<void> {
     try {
-      const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+      const providerData = await this.apiAdapter.listProviders()
       const connectedList = this.extractConnectedProviderIds(providerData['connected'])
 
       // Path A: selectedModel 为空 → 用 server 的 default 字段 (Runtime 端
@@ -686,7 +696,20 @@ export class MainViewModel {
   }
   async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const oldSid = this.currentSessionId; const oldMsgs = this.messages; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${errStr(err)}`; } finally { if (oldSid.length > 0) { this.currentSessionId = oldSid; this.messages = oldMsgs; } } }
 
-  async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
+  async syncModelToRuntime(): Promise<void> {
+    if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; }
+    // P0-3: api-v2 mode uses per-session model, skip global config patch
+    if (this.serverMode === 'api-v2') {
+      Logger.info(`syncModelToRuntime: skipped for api-v2 (model=${this.selectedModel})`)
+      await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel)
+      return
+    }
+    // Legacy: PATCH /config with model
+    const patchBody: Record<string, Object> = {};
+    patchBody['model'] = this.selectedModel;
+    await this.apiAdapter.patchConfig(patchBody);
+    await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel);
+  }
   private async getRawMessages(sessionId: string): Promise<Object[]> {
     return this.apiAdapter.listMessages(sessionId);
   }

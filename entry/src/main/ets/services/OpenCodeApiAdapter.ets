@@ -2,7 +2,6 @@ import { http } from '@kit.NetworkKit';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { OpenCodeCapabilities, ServerMode, CapabilityResult } from './OpenCodeCapabilities';
-import { ChatMessage } from '../model/ChatMessage';
 
 /**
  * Unified API adapter for OpenCode Runtime.
@@ -31,13 +30,18 @@ export class PromptResult {
 
 export class OpenCodeApiAdapter {
   private baseUrl: string = '';
+  private authHeader: string = '';
   private mode: ServerMode = 'unknown';
   private caps: CapabilityResult | null = null;
   private detector: OpenCodeCapabilities = new OpenCodeCapabilities();
 
-  setBaseUrl(url: string): void {
+  setBaseUrl(url: string, authHeader: string = ''): void {
     this.baseUrl = url.replace(/\/+$/, '');
+    this.authHeader = authHeader;
     this.detector.setBaseUrl(url);
+    if (authHeader.length > 0) {
+      this.detector.setAuthHeader(authHeader);
+    }
   }
 
   async detectCapabilities(): Promise<CapabilityResult> {
@@ -113,9 +117,9 @@ export class OpenCodeApiAdapter {
     if (this.mode === 'api-v2') {
       try {
         const body: Record<string, Object> = {};
-        body['prompt'] = input.text;
-        body['model'] = input.model;
-        body['agent'] = input.agent;
+        const prompt: Record<string, Object> = {};
+        prompt['text'] = input.text;
+        body['prompt'] = prompt;
         await this.post(`/api/session/${sessionId}/prompt`, body);
         result.ok = true;
         return result;
@@ -127,7 +131,11 @@ export class OpenCodeApiAdapter {
     // Legacy: prompt_async
     try {
       const body: Record<string, Object> = {};
-      body['text'] = input.text;
+      const textPart: Record<string, Object> = {};
+      textPart['type'] = 'text';
+      textPart['text'] = input.text;
+      body['agent'] = input.agent.length > 0 ? input.agent : 'build';
+      body['parts'] = [textPart];
       await this.post(`/session/${sessionId}/prompt_async`, body);
       result.ok = true;
       return result;
@@ -429,6 +437,9 @@ export class OpenCodeApiAdapter {
     const headers: Record<string, string> = {};
     headers['Content-Type'] = 'application/json';
     headers['Accept'] = 'application/json';
+    if (this.authHeader.length > 0) {
+      headers['Authorization'] = this.authHeader;
+    }
     if (extra !== undefined) {
       const keys = Object.keys(extra);
       for (let i = 0; i < keys.length; i++) {
