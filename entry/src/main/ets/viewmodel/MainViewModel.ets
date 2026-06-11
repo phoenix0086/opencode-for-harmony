@@ -355,65 +355,143 @@ export class MainViewModel {
   /**
    * Auto-select a model from a connected provider.
    * Called after connection is established to ensure selectedModel is usable.
+   *
+   * 修复：在 selectedModel 为空时（如首次启动、清数据）自动从 Runtime 的
+   * default 字段读取默认模型，避免 Chat 页面一直显示「未设置模型」。
    */
   async autoSelectModel(): Promise<void> {
     try {
-      if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
-        const currentProvider = this.selectedModel.split('/')[0]
-        const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
-        const connectedList = this.extractConnectedProviderIds(providerData['connected'])
+      const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
+      const connectedList = this.extractConnectedProviderIds(providerData['connected'])
 
-        if (connectedList.includes(currentProvider)) {
-          Logger.info(`autoSelectModel: current provider "${currentProvider}" is connected, keeping ${this.selectedModel}`)
-          return
+      // Path A: selectedModel 为空 → 用 server 的 default 字段 (Runtime 端
+      //         /config 同步出来的默认 provider/model)
+      if (this.selectedModel.length === 0 || !this.selectedModel.includes('/')) {
+        const chosen = this.pickModelFromServerDefaults(providerData, connectedList)
+        if (chosen.length > 0) {
+          this.selectedModel = chosen
+          Logger.info(`autoSelectModel: initial pick from server defaults = ${chosen}`)
+          await this.saveServerConfig()
+          try { await this.syncModelToRuntime() }
+          catch (syncErr) { Logger.error(`autoSelectModel: syncModelToRuntime failed: ${errStr(syncErr)}`) }
+        } else {
+          Logger.warn('autoSelectModel: no model found from server defaults')
         }
+        return
+      }
 
-        Logger.warn(`autoSelectModel: current provider "${currentProvider}" not connected, searching for alternative`)
+      // Path B: selectedModel 有值 → 检查 provider 是否仍 connected
+      const currentProvider = this.selectedModel.split('/')[0]
+      if (connectedList.includes(currentProvider)) {
+        Logger.info(`autoSelectModel: current provider "${currentProvider}" is connected, keeping ${this.selectedModel}`)
+        return
+      }
 
-        const all = providerData['all']
-        let fallbackModel = ''
-        if (Array.isArray(all)) {
-          const allArr = all as Object[]
-          for (let idx = 0; idx < allArr.length; idx++) {
-            const prov = allArr[idx] as Record<string, Object>
-            const provId = (prov['id'] as string) || ''
-            if (connectedList.includes(provId)) {
-              const models = prov['models']
-              if (Array.isArray(models) && models.length > 0) {
-                const modelsArr = models as Object[]
-                const firstModel = modelsArr[0] as Record<string, Object>
-                const modelId = typeof modelsArr[0] === 'string' ? (modelsArr[0] as string) : ((firstModel['id'] as string) || '')
-                if (modelId.length > 0) {
-                  fallbackModel = `${provId}/${modelId}`
-                  break
-                }
-              } else if (models && typeof models === 'object') {
-                const keys = Object.keys(models as Record<string, Object>)
-                if (keys.length > 0) {
-                  fallbackModel = `${provId}/${keys[0]}`
-                  break
-                }
+      Logger.warn(`autoSelectModel: current provider "${currentProvider}" not connected, searching for alternative`)
+
+      const all = providerData['all']
+      let fallbackModel = ''
+      if (Array.isArray(all)) {
+        const allArr = all as Object[]
+        for (let idx = 0; idx < allArr.length; idx++) {
+          const prov = allArr[idx] as Record<string, Object>
+          const provId = (prov['id'] as string) || ''
+          if (connectedList.includes(provId)) {
+            const models = prov['models']
+            if (Array.isArray(models) && models.length > 0) {
+              const modelsArr = models as Object[]
+              const firstModel = modelsArr[0] as Record<string, Object>
+              const modelId = typeof modelsArr[0] === 'string' ? (modelsArr[0] as string) : ((firstModel['id'] as string) || '')
+              if (modelId.length > 0) {
+                fallbackModel = `${provId}/${modelId}`
+                break
+              }
+            } else if (models && typeof models === 'object') {
+              const keys = Object.keys(models as Record<string, Object>)
+              if (keys.length > 0) {
+                fallbackModel = `${provId}/${keys[0]}`
+                break
               }
             }
           }
         }
+      }
 
-        if (fallbackModel.length > 0) {
-          this.selectedModel = fallbackModel
-          Logger.info(`autoSelectModel: switched to ${fallbackModel}`)
-          await this.saveServerConfig()
-          try {
-            await this.syncModelToRuntime()
-          } catch (syncErr) {
-            Logger.error(`autoSelectModel: syncModelToRuntime failed: ${errStr(syncErr)}`)
-          }
-        } else {
-          Logger.warn('autoSelectModel: no connected provider with models found')
+      if (fallbackModel.length > 0) {
+        this.selectedModel = fallbackModel
+        Logger.info(`autoSelectModel: switched to ${fallbackModel}`)
+        await this.saveServerConfig()
+        try {
+          await this.syncModelToRuntime()
+        } catch (syncErr) {
+          Logger.error(`autoSelectModel: syncModelToRuntime failed: ${errStr(syncErr)}`)
         }
+      } else {
+        Logger.warn('autoSelectModel: no connected provider with models found')
       }
     } catch (e) {
       Logger.warn(`autoSelectModel failed: ${errStr(e)}`)
     }
+  }
+
+  /**
+   * 从 /provider 端点响应里挑选一个可用的 model ref (providerId/modelId).
+   *
+   * 优先级:
+   *  1. server `default` 字段里 + 在 connected 列表里的 provider
+   *  2. 第一个 connected provider 的第一个 model
+   *  3. 第一个非空 model
+   *
+   * 找不到返回空字符串。
+   */
+  private pickModelFromServerDefaults(providerData: Record<string, Object>, connectedList: string[]): string {
+    // 1. server `default` 字段 (e.g. {"xiaomi-mimo": "mimo-v2.5-pro", ...})
+    const defaults = providerData['default']
+    if (defaults && typeof defaults === 'object') {
+      const map = defaults as Record<string, Object>
+      for (const provId of Object.keys(map)) {
+        if (connectedList.length > 0 && !connectedList.includes(provId)) continue
+        const modelId = (map[provId] as string) ?? ''
+        if (provId.length > 0 && modelId.length > 0) {
+          return `${provId}/${modelId}`
+        }
+      }
+    }
+    // 2. 第一个 connected provider 的第一个 model
+    const all = providerData['all']
+    if (Array.isArray(all)) {
+      for (const raw of all as Object[]) {
+        const prov = raw as Record<string, Object>
+        const provId = (prov['id'] as string) ?? ''
+        if (connectedList.length > 0 && !connectedList.includes(provId)) continue
+        const models = prov['models']
+        if (models && typeof models === 'object' && !Array.isArray(models)) {
+          const keys = Object.keys(models as Record<string, Object>)
+          if (keys.length > 0) return `${provId}/${keys[0]}`
+        } else if (Array.isArray(models) && (models as Object[]).length > 0) {
+          const first = (models as Object[])[0]
+          const modelId = typeof first === 'string' ? first : ((first as Record<string, Object>)['id'] as string) ?? ''
+          if (modelId.length > 0) return `${provId}/${modelId}`
+        }
+      }
+    }
+    // 3. 兜底：所有 provider 的第一个 model
+    if (Array.isArray(all)) {
+      for (const raw of all as Object[]) {
+        const prov = raw as Record<string, Object>
+        const provId = (prov['id'] as string) ?? ''
+        const models = prov['models']
+        if (models && typeof models === 'object' && !Array.isArray(models)) {
+          const keys = Object.keys(models as Record<string, Object>)
+          if (keys.length > 0) return `${provId}/${keys[0]}`
+        } else if (Array.isArray(models) && (models as Object[]).length > 0) {
+          const first = (models as Object[])[0]
+          const modelId = typeof first === 'string' ? first : ((first as Record<string, Object>)['id'] as string) ?? ''
+          if (modelId.length > 0) return `${provId}/${modelId}`
+        }
+      }
+    }
+    return ''
   }
 
   async diagnoseRuntime(): Promise<string> {
