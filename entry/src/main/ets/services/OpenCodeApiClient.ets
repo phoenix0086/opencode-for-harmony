@@ -51,20 +51,23 @@ export class OpenCodeApiClient {
 
   private async request(path: string, method: http.RequestMethod, body?: string, extraHeaders?: Record<string, string>): Promise<http.HttpResponse> {
     const req = http.createHttp()
-    const hdrs = this.headers()
-    if (extraHeaders) {
-      for (const k of Object.keys(extraHeaders)) hdrs[k] = extraHeaders[k]
+    try {
+      const hdrs = this.headers()
+      if (extraHeaders) {
+        for (const k of Object.keys(extraHeaders)) hdrs[k] = extraHeaders[k]
+      }
+      const options: http.HttpRequestOptions = {
+        method: method,
+        header: hdrs,
+        connectTimeout: 10000,
+        readTimeout: 60000,
+      }
+      if (body !== undefined) options.extraData = body
+      const resp = await req.request(this.appendDir(`${this.baseUrl}${path}`), options)
+      return resp
+    } finally {
+      req.destroy()
     }
-    const options: http.HttpRequestOptions = {
-      method: method,
-      header: hdrs,
-      connectTimeout: 10000,
-      readTimeout: 60000,
-    }
-    if (body !== undefined) options.extraData = body
-    const resp = await req.request(this.appendDir(`${this.baseUrl}${path}`), options)
-    req.destroy()
-    return resp
   }
 
   private async get(path: string): Promise<http.HttpResponse> {

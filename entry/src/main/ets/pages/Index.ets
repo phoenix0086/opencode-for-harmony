@@ -80,8 +80,9 @@ struct Index {
       this.initialized = true;
       Logger.info('Index page initialized, starting auto-connect...');
       // 修复 W6: autoStartAndConnect 和 loadRecentProjects 互不依赖,
-      // 改为 Promise.all 并行,首屏更流畅
-      await Promise.all([
+      // 改为 Promise.allSettled 并行,首屏更流畅。
+      // 使用 allSettled 而非 all，确保一个失败不影响另一个完成。
+      await Promise.allSettled([
         this.viewModel.autoStartAndConnect(),
         this.loadRecentProjects()
       ])
