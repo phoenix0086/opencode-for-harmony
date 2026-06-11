@@ -236,14 +236,19 @@ export class MainViewModel {
   async loadSessions(): Promise<void> {
     try {
       const sessions = await this.apiAdapter.listSessions();
-      this.sessions = sessions.map(s => SessionInfo.fromJson({
-        id: s.id,
-        name: s.name,
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-        model: s.model,
-        agent: s.agent
-      } as Record<string, Object>));
+      const mapped: SessionInfo[] = [];
+      for (let i = 0; i < sessions.length; i++) {
+        const s = sessions[i];
+        const rec: Record<string, Object> = {};
+        rec['id'] = s.id;
+        rec['name'] = s.name;
+        rec['createdAt'] = s.createdAt;
+        rec['updatedAt'] = s.updatedAt;
+        rec['model'] = s.model;
+        rec['agent'] = s.agent;
+        mapped.push(SessionInfo.fromJson(rec));
+      }
+      this.sessions = mapped;
     } catch (err) { Logger.error(`loadSessions failed: ${errStr(err)}`); }
   }
   async loadProviders(): Promise<void> {
@@ -282,10 +287,9 @@ export class MainViewModel {
   }
   async createSession(): Promise<string> {
     try {
-      const session = await this.apiAdapter.createSession({
-        model: this.selectedModel,
-        location: this.serverInfo.projectPath
-      });
+      const body: Record<string, Object> = {};
+      body['model'] = this.selectedModel;
+      const session = await this.apiAdapter.createSession(body);
       if (session.id.length > 0) {
         this.currentSessionId = session.id;
         await this.storageService?.setString(Constants.KEY_SESSION_ID, session.id);

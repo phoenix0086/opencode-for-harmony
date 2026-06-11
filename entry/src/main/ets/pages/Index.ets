@@ -10,6 +10,7 @@ import { ChatMessage, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
+import { SettingsPage } from './SettingsPage';
 import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
 import { RuntimePage } from './RuntimePage';
 import { Runner } from '../models/Runner';
@@ -507,7 +508,7 @@ struct Index {
           this.FilesContent()
         } else if (this.currentView === AppView.Models) {
           // AI 设置：合并 Providers + Models
-          SettingsPage({ viewModel: this.viewModel })
+          SettingsPage({ onClose: () => { this.currentView = AppView.Home } })
         } else if (this.currentView === AppView.Settings) {
           this.SimpleSettingsContent()
         } else if (this.currentView === AppView.Provider) {
@@ -842,7 +843,8 @@ struct Index {
         List() {
           ForEach(this.viewModel.messages, (msg: ChatMessage) => {
             ListItem() {
-              if (msg.isError) {
+              Column() {
+                if (msg.isError) {
                 // Error message
                 Column() {
                   Text('Error')
@@ -936,7 +938,8 @@ struct Index {
                 .alignItems(HorizontalAlign.End)
                 .padding({ left: 16, right: 16, top: 8, bottom: 8 })
               }
-            }
+              } // Column
+            } // ListItem
           }, (msg: ChatMessage) => msg.id)
         }
         .layoutWeight(1)

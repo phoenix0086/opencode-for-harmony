@@ -8,24 +8,25 @@ import { ChatMessage } from '../model/ChatMessage';
  * Unified API adapter for OpenCode Runtime.
  * Routes calls to /api/... (v2) or legacy endpoints based on detected server mode.
  */
-export interface SessionInfo {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  model?: string;
-  agent?: string;
+
+export class SessionInfo {
+  id: string = '';
+  name: string = '';
+  createdAt: string = '';
+  updatedAt: string = '';
+  model: string = '';
+  agent: string = '';
 }
 
-export interface PromptInput {
-  text: string;
-  model?: string;
-  agent?: string;
+export class PromptInput {
+  text: string = '';
+  model: string = '';
+  agent: string = '';
 }
 
-export interface PromptResult {
-  ok: boolean;
-  error?: string;
+export class PromptResult {
+  ok: boolean = false;
+  error: string = '';
 }
 
 export class OpenCodeApiAdapter {
@@ -64,53 +65,75 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listSessions(): Promise<SessionInfo[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/session');
-      return this.normalizeSessions(data.data ?? []);
+      const data = await this.get('/api/session');
+      const arr = this.extractArray(data, 'data');
+      return this.normalizeSessions(arr);
     }
-    const arr = await this.get<Object[]>('/session');
-    return this.normalizeSessions(arr ?? []);
+    const arr = await this.get('/session');
+    return this.normalizeSessions(this.asArray(arr));
   }
 
-  async createSession(input?: { model?: string; agent?: string; location?: string }): Promise<SessionInfo> {
+  async createSession(input?: Record<string, Object>): Promise<SessionInfo> {
+    const body = input ?? {};
     if (this.mode === 'api-v2') {
-      const data = await this.post<{ data: Record<string, Object> }>('/api/session', input ?? {});
-      return this.normalizeSession(data.data ?? {});
+      const data = await this.post('/api/session', body);
+      return this.normalizeSession(this.extractObj(data, 'data'));
     }
-    const data = await this.post<Record<string, Object>>('/session', input ?? {});
+    const data = await this.post('/session', body);
     return this.normalizeSession(data);
   }
 
   async getSession(sessionId: string): Promise<SessionInfo> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Record<string, Object> }>(`/api/session/${sessionId}`);
-      return this.normalizeSession(data.data ?? {});
+      const data = await this.get(`/api/session/${sessionId}`);
+      return this.normalizeSession(this.extractObj(data, 'data'));
     }
-    const data = await this.get<Record<string, Object>>(`/session/${sessionId}`);
+    const data = await this.get(`/session/${sessionId}`);
     return this.normalizeSession(data);
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    try {
+      if (this.mode === 'api-v2') {
+        await this.delete(`/api/session/${sessionId}`);
+      } else {
+        await this.delete(`/session/${sessionId}`);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ══════════════════════════════════════════════════════════
   //  Prompt
   // ══════════════════════════════════════════════════════════
   async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
+    const result = new PromptResult();
     if (this.mode === 'api-v2') {
       try {
-        await this.post(`/api/session/${sessionId}/prompt`, {
-          prompt: input.text,
-          model: input.model,
-          agent: input.agent
-        });
-        return { ok: true };
+        const body: Record<string, Object> = {};
+        body['prompt'] = input.text;
+        body['model'] = input.model;
+        body['agent'] = input.agent;
+        await this.post(`/api/session/${sessionId}/prompt`, body);
+        result.ok = true;
+        return result;
       } catch (e) {
-        return { ok: false, error: errStr(e) };
+        result.error = errStr(e);
+        return result;
       }
     }
     // Legacy: prompt_async
     try {
-      await this.post(`/session/${sessionId}/prompt_async`, { text: input.text });
-      return { ok: true };
+      const body: Record<string, Object> = {};
+      body['text'] = input.text;
+      await this.post(`/session/${sessionId}/prompt_async`, body);
+      result.ok = true;
+      return result;
     } catch (e) {
-      return { ok: false, error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
@@ -121,7 +144,6 @@ export class OpenCodeApiAdapter {
     if (this.mode === 'api-v2') {
       return this.post(`/api/session/${sessionId}/wait`, {});
     }
-    // Legacy: no wait endpoint, return empty
     return {};
   }
 
@@ -130,10 +152,11 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listMessages(sessionId: string): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>(`/api/session/${sessionId}/message`);
-      return data.data ?? [];
+      const data = await this.get(`/api/session/${sessionId}/message`);
+      return this.extractArray(data, 'data');
     }
-    return this.get<Object[]>(`/session/${sessionId}/message`);
+    const data = await this.get(`/session/${sessionId}/message`);
+    return this.asArray(data);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -141,8 +164,8 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async getSessionContext(sessionId: string): Promise<Record<string, Object>> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Record<string, Object> }>(`/api/session/${sessionId}/context`);
-      return data.data ?? {};
+      const data = await this.get(`/api/session/${sessionId}/context`);
+      return this.extractObj(data, 'data');
     }
     return {};
   }
@@ -152,10 +175,10 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listProviders(): Promise<Record<string, Object>> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Record<string, Object> }>('/api/provider');
-      return data.data ?? {};
+      const data = await this.get('/api/provider');
+      return this.extractObj(data, 'data');
     }
-    return this.get<Record<string, Object>>('/provider');
+    return this.get('/provider');
   }
 
   // ══════════════════════════════════════════════════════════
@@ -163,8 +186,8 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listModels(): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/model');
-      return data.data ?? [];
+      const data = await this.get('/api/model');
+      return this.extractArray(data, 'data');
     }
     return [];
   }
@@ -174,10 +197,10 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async getConfig(): Promise<Record<string, Object>> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Record<string, Object> }>('/api/config');
-      return data.data ?? {};
+      const data = await this.get('/api/config');
+      return this.extractObj(data, 'data');
     }
-    return this.get<Record<string, Object>>('/config');
+    return this.get('/config');
   }
 
   async patchConfig(body: Record<string, Object>): Promise<void> {
@@ -192,12 +215,18 @@ export class OpenCodeApiAdapter {
   //  Files
   // ══════════════════════════════════════════════════════════
   async listFiles(path: string): Promise<Object[]> {
-    if (this.mode === 'api-v2' && this.caps?.capabilities.fs) {
-      const data = await this.get<{ data: Object[] }>(`/api/fs/list?path=${encodeURIComponent(path)}`);
-      return data.data ?? [];
+    if (this.mode === 'api-v2' && this.caps !== null && this.caps.capabilities.fs) {
+      const data = await this.get(`/api/fs/list?path=${encodeURIComponent(path)}`);
+      return this.extractArray(data, 'data');
     }
-    // Legacy fallback
-    return this.get<Object[]>(`/file?path=${encodeURIComponent(path)}`);
+    const data = await this.get(`/file?path=${encodeURIComponent(path)}`);
+    return this.asArray(data);
+  }
+
+  async findFiles(query: string): Promise<Object[]> {
+    if (this.mode !== 'api-v2') return [];
+    const data = await this.get(`/api/fs/find?query=${encodeURIComponent(query)}`);
+    return this.extractArray(data, 'data');
   }
 
   // ══════════════════════════════════════════════════════════
@@ -205,16 +234,17 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listPermissionRequests(): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/permission/request');
-      return data.data ?? [];
+      const data = await this.get('/api/permission/request');
+      return this.extractArray(data, 'data');
     }
-    return this.get<Object[]>('/permission');
+    const data = await this.get('/permission');
+    return this.asArray(data);
   }
 
   async listSavedPermissions(): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/permission/saved');
-      return data.data ?? [];
+      const data = await this.get('/api/permission/saved');
+      return this.extractArray(data, 'data');
     }
     return [];
   }
@@ -231,18 +261,20 @@ export class OpenCodeApiAdapter {
 
   async listSessionPermissions(sessionId: string): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>(`/api/session/${sessionId}/permission`);
-      return data.data ?? [];
+      const data = await this.get(`/api/session/${sessionId}/permission`);
+      return this.extractArray(data, 'data');
     }
     return [];
   }
 
   async replyPermission(sessionId: string, requestId: string, reply: string): Promise<boolean> {
     try {
+      const body: Record<string, Object> = {};
+      body['reply'] = reply;
       if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/permission/${requestId}/reply`, { reply });
+        await this.post(`/api/session/${sessionId}/permission/${requestId}/reply`, body);
       } else {
-        await this.post(`/permission/${requestId}/reply`, { reply });
+        await this.post(`/permission/${requestId}/reply`, body);
       }
       return true;
     } catch (e) {
@@ -256,11 +288,12 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listQuestions(sessionId: string): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>(`/api/session/${sessionId}/question`);
-      return data.data ?? [];
+      const data = await this.get(`/api/session/${sessionId}/question`);
+      return this.extractArray(data, 'data');
     }
     try {
-      return this.get<Object[]>(`/question?sessionID=${sessionId}`);
+      const data = await this.get(`/question?sessionID=${sessionId}`);
+      return this.asArray(data);
     } catch (_) {
       return [];
     }
@@ -268,10 +301,12 @@ export class OpenCodeApiAdapter {
 
   async replyQuestion(sessionId: string, requestId: string, optionIDs: string[]): Promise<boolean> {
     try {
+      const body: Record<string, Object> = {};
+      body['optionIDs'] = optionIDs;
       if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/question/${requestId}/reply`, { optionIDs });
+        await this.post(`/api/session/${sessionId}/question/${requestId}/reply`, body);
       } else {
-        await this.post(`/question/${requestId}/reply`, { optionIDs });
+        await this.post(`/question/${requestId}/reply`, body);
       }
       return true;
     } catch (e) {
@@ -283,7 +318,7 @@ export class OpenCodeApiAdapter {
   async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
     if (this.mode !== 'api-v2') return false;
     try {
-      await this.post(`/api/session/${sessionId}/question/${requestId}/reject`);
+      await this.post(`/api/session/${sessionId}/question/${requestId}/reject`, {});
       return true;
     } catch (e) {
       Logger.error(`rejectQuestion failed: ${errStr(e)}`);
@@ -296,18 +331,28 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async listCommands(): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/command');
-      return data.data ?? [];
+      const data = await this.get('/api/command');
+      return this.extractArray(data, 'data');
     }
-    try { return this.get<Object[]>('/command'); } catch (_) { return []; }
+    try {
+      const data = await this.get('/command');
+      return this.asArray(data);
+    } catch (_) {
+      return [];
+    }
   }
 
   async listSkills(): Promise<Object[]> {
     if (this.mode === 'api-v2') {
-      const data = await this.get<{ data: Object[] }>('/api/skill');
-      return data.data ?? [];
+      const data = await this.get('/api/skill');
+      return this.extractArray(data, 'data');
     }
-    try { return this.get<Object[]>('/skill'); } catch (_) { return []; }
+    try {
+      const data = await this.get('/skill');
+      return this.asArray(data);
+    } catch (_) {
+      return [];
+    }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -316,9 +361,9 @@ export class OpenCodeApiAdapter {
   async abortSession(sessionId: string): Promise<boolean> {
     try {
       if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/abort`);
+        await this.post(`/api/session/${sessionId}/abort`, {});
       } else {
-        await this.post(`/session/${sessionId}/abort`);
+        await this.post(`/session/${sessionId}/abort`, {});
       }
       return true;
     } catch (_) {
@@ -337,25 +382,25 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   //  HTTP helpers
   // ══════════════════════════════════════════════════════════
-  private async get<T>(path: string): Promise<T> {
-    return this.request<T>(path, http.RequestMethod.GET);
+  private async get(path: string): Promise<Record<string, Object>> {
+    return this.request(path, http.RequestMethod.GET);
   }
 
-  private async post<T>(path: string, body?: Object): Promise<T> {
-    return this.request<T>(path, http.RequestMethod.POST, body);
+  private async post(path: string, body?: Record<string, Object>): Promise<Record<string, Object>> {
+    return this.request(path, http.RequestMethod.POST, body);
   }
 
-  private async patch<T>(path: string, body?: Object): Promise<T> {
+  private async patch(path: string, body?: Record<string, Object>): Promise<Record<string, Object>> {
     const headers: Record<string, string> = {};
     headers['X-HTTP-Method-Override'] = 'PATCH';
-    return this.request<T>(path, http.RequestMethod.POST, body, headers);
+    return this.request(path, http.RequestMethod.POST, body, headers);
   }
 
-  private async delete<T>(path: string): Promise<T> {
-    return this.request<T>(path, http.RequestMethod.DELETE);
+  private async delete(path: string): Promise<Record<string, Object>> {
+    return this.request(path, http.RequestMethod.DELETE);
   }
 
-  private async request<T>(path: string, method: http.RequestMethod, body?: Object, extraHeaders?: Record<string, string>): Promise<T> {
+  private async request(path: string, method: http.RequestMethod, body?: Record<string, Object>, extraHeaders?: Record<string, string>): Promise<Record<string, Object>> {
     const url = this.baseUrl + path;
     const httpRequest = http.createHttp();
     try {
@@ -369,7 +414,7 @@ export class OpenCodeApiAdapter {
       if (body !== undefined) options.extraData = JSON.stringify(body);
       const response = await httpRequest.request(url, options);
       if (response.responseCode >= 200 && response.responseCode < 300) {
-        return this.parseResult<T>(response.result);
+        return this.parseResult(response.result);
       }
       throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
     } catch (err) {
@@ -384,33 +429,69 @@ export class OpenCodeApiAdapter {
     const headers: Record<string, string> = {};
     headers['Content-Type'] = 'application/json';
     headers['Accept'] = 'application/json';
-    if (extra) for (const key of Object.keys(extra)) headers[key] = extra[key];
+    if (extra !== undefined) {
+      const keys = Object.keys(extra);
+      for (let i = 0; i < keys.length; i++) {
+        headers[keys[i]] = extra[keys[i]];
+      }
+    }
     return headers;
   }
 
-  private parseResult<T>(result: Object | string | ArrayBuffer | undefined | null): T {
-    if (result === undefined || result === null) return undefined as T;
+  private parseResult(result: Object | string | ArrayBuffer | undefined | null): Record<string, Object> {
+    if (result === undefined || result === null) return {};
     if (typeof result === 'string') {
-      if (result.length === 0) return undefined as T;
-      try { return JSON.parse(result) as T; } catch (e) { return result as T; }
+      if (result.length === 0) return {};
+      try { return JSON.parse(result) as Record<string, Object>; } catch (e) { return {}; }
     }
-    return result as T;
+    return result as Record<string, Object>;
   }
 
   // ══════════════════════════════════════════════════════════
   //  Normalization
   // ══════════════════════════════════════════════════════════
   private normalizeSessions(raw: Object[]): SessionInfo[] {
-    return raw.map(item => this.normalizeSession(item as Record<string, Object>));
+    const result: SessionInfo[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      result.push(this.normalizeSession(raw[i] as Record<string, Object>));
+    }
+    return result;
   }
 
   private normalizeSession(item: Record<string, Object>): SessionInfo {
-    const id = (item['id'] as string) ?? (item['sessionId'] as string) ?? '';
-    const name = (item['name'] as string) ?? (item['title'] as string) ?? 'New Session';
-    const createdAt = (item['createdAt'] as string) ?? (item['created_at'] as string) ?? '';
-    const updatedAt = (item['updatedAt'] as string) ?? (item['updated_at'] as string) ?? '';
-    const model = (item['model'] as string) ?? '';
-    const agent = (item['agent'] as string) ?? '';
-    return { id, name, createdAt, updatedAt, model, agent };
+    const s = new SessionInfo();
+    s.id = (item['id'] as string) ?? (item['sessionId'] as string) ?? '';
+    s.name = (item['name'] as string) ?? (item['title'] as string) ?? 'New Session';
+    s.createdAt = (item['createdAt'] as string) ?? (item['created_at'] as string) ?? '';
+    s.updatedAt = (item['updatedAt'] as string) ?? (item['updated_at'] as string) ?? '';
+    s.model = (item['model'] as string) ?? '';
+    s.agent = (item['agent'] as string) ?? '';
+    return s;
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Helpers
+  // ══════════════════════════════════════════════════════════
+  private extractArray(data: Record<string, Object>, key: string): Object[] {
+    const val = data[key];
+    if (Array.isArray(val)) return val as Object[];
+    return [];
+  }
+
+  private extractObj(data: Record<string, Object>, key: string): Record<string, Object> {
+    const val = data[key];
+    if (val !== undefined && val !== null && typeof val === 'object') return val as Record<string, Object>;
+    return {};
+  }
+
+  private asArray(data: Record<string, Object>): Object[] {
+    if (Array.isArray(data)) return data as Object[];
+    // Try common keys
+    const keys = ['data', 'items', 'sessions', 'messages', 'providers', 'models'];
+    for (let i = 0; i < keys.length; i++) {
+      const val = data[keys[i]];
+      if (Array.isArray(val)) return val as Object[];
+    }
+    return [];
   }
 }
