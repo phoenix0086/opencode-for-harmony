@@ -178,6 +178,136 @@ struct Index {
   }
 
   @Builder
+  SimpleSettingsContent() {
+    Column() {
+      Text('Settings')
+        .fontSize(26)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .margin({ left: 32, top: 28, bottom: 24 })
+
+      Scroll() {
+        Column() {
+          this.SettingsSectionTitle('通用')
+
+          this.SettingsRowText('语言', '更改 OpenCode 的显示语言', this.settingLanguage)
+
+          this.SettingsRowSwitch('自动接受权限', '权限请求将被自动批准', this.settingAutoAllow, (value: boolean) => {
+            this.settingAutoAllow = value
+          })
+
+          this.SettingsSectionTitle('外观')
+
+          this.SettingsRowText('配色方案', '选择系统、浅色或深色主题', this.settingColorScheme)
+
+          this.SettingsRowText('主题', '当前主题', this.settingThemeName)
+
+          this.SettingsSectionTitle('权限与执行')
+
+          this.SettingsRowSwitch('显示会话进度条', '当智能体正在工作时显示动画进度', this.settingShowProgress, (value: boolean) => {
+            this.settingShowProgress = value
+          })
+
+          this.SettingsSectionTitle('高级')
+
+          this.AdvancedEntry('Runtime 状态', '查看 Runtime、检测连接、手动启动说明', () => {
+            this.showSettings = false
+            this.currentView = AppView.Runtime
+          })
+
+          this.AdvancedEntry('Web UI', '打开 Runtime 自带 Web UI，仅用于调试', () => {
+            this.showSettings = false
+            this.currentView = AppView.WebView
+          })
+
+          this.AdvancedEntry('Terminal', '开发调试入口，普通使用不需要', () => {
+            this.showSettings = false
+            this.currentView = AppView.Terminal
+          })
+        }
+        .width('100%')
+        .padding({ left: 32, right: 32, bottom: 40 })
+      }
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#111111')
+  }
+
+  @Builder
+  SettingsSectionTitle(title: string) {
+    Text(title)
+      .fontSize(18)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ top: 22, bottom: 8 })
+  }
+
+  @Builder
+  SettingsRowText(title: string, desc: string, value: string) {
+    Row() {
+      Column() {
+        Text(title).fontSize(15).fontColor('#FFFFFF')
+        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Text(value)
+        .fontSize(13)
+        .fontColor('#CCCCCC')
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor('#2D2D2D')
+        .borderRadius(8)
+    }
+    .height(64)
+    .borderColor('#252525')
+    .borderWidth({ bottom: 1 })
+  }
+
+  @Builder
+  SettingsRowSwitch(title: string, desc: string, value: boolean, onChange: (value: boolean) => void) {
+    Row() {
+      Column() {
+        Text(title).fontSize(15).fontColor('#FFFFFF')
+        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Toggle({ type: ToggleType.Switch, isOn: value })
+        .onChange(onChange)
+    }
+    .height(64)
+    .borderColor('#252525')
+    .borderWidth({ bottom: 1 })
+  }
+
+  @Builder
+  AdvancedEntry(title: string, desc: string, onClick: () => void) {
+    Row() {
+      Column() {
+        Text(title).fontSize(15).fontColor('#FFFFFF')
+        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Text('打开')
+        .fontSize(13)
+        .fontColor('#FFFFFF')
+        .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+        .backgroundColor('#2D2D2D')
+        .borderRadius(8)
+    }
+    .height(68)
+    .onClick(onClick)
+    .borderColor('#252525')
+    .borderWidth({ bottom: 1 })
+  }
+
+  @Builder
   FullScreenHome() {
     Stack() {
       OpenCodeHomeLaunch({
@@ -286,16 +416,12 @@ struct Index {
             .color('#404040')
             .width('100%')
 
-          // Nav items
+          // Nav items — simplified menu v21
           Column() {
-            this.NavItem(AppView.Home, $r('app.media.home'), 'Home')
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
-            this.NavItem(AppView.Provider, $r('app.media.server'), 'Provider')
-            this.NavItem(AppView.Models, $r('app.media.settings'), 'Models')
-            this.NavItem(AppView.Files, $r('app.media.globe'), 'Files')
-            this.NavItem(AppView.Terminal, $r('app.media.terminal'), 'Terminal')
-            this.NavItem(AppView.Runtime, $r('app.media.server'), 'Runtime')
-            this.NavItem(AppView.WebView, $r('app.media.globe'), 'Web UI')
+            this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
+            this.NavItem(AppView.Models, $r('app.media.settings'), 'AI 设置')
+            this.NavItem(AppView.Settings, $r('app.media.settings'), 'Settings')
           }
           .width('100%')
           .layoutWeight(1)
@@ -375,18 +501,21 @@ struct Index {
           this.HomeContent()
         } else if (this.currentView === AppView.Chat) {
           this.ChatContent()
+        } else if (this.currentView === AppView.Files) {
+          this.FilesContent()
+        } else if (this.currentView === AppView.Models) {
+          // AI 设置：合并 Providers + Models
+          SettingsPage({ viewModel: this.viewModel })
+        } else if (this.currentView === AppView.Settings) {
+          this.SimpleSettingsContent()
         } else if (this.currentView === AppView.Provider) {
           ProviderPage({ activeRunner: null })
-        } else if (this.currentView === AppView.Models) {
-          this.ModelsContent()
         } else if (this.currentView === AppView.WebView) {
           this.WebViewContent()
         } else if (this.currentView === AppView.Terminal) {
           this.TerminalContent()
         } else if (this.currentView === AppView.Runtime) {
           this.RuntimeContent()
-        } else if (this.currentView === AppView.Files) {
-          this.FilesContent()
         }
       }
       .layoutWeight(1)

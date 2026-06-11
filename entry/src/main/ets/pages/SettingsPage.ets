@@ -6,17 +6,17 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import { MCPPanel, MCPServer } from '../components/MCPPanel'
 
 /**
- * Settings Page — OpenCode Desktop-style tabbed settings dialog (M16)
+ * Settings Page — AI 设置 (v21)
  *
- * Layout: left sidebar with 5 navigation tabs, right scrollable content panel.
- * Tabs: General | Models | Providers | Servers (stub) | Keybinds
+ * 合并 Providers + Models 到 AI 设置页。
+ * 只保留 Providers 和 Models 两个标签，隐藏 General/Servers/Keybinds。
  */
 @Component
 export struct SettingsPage {
   onClose: () => void = () => {}
 
   // ══════════ State ══════════
-  @State activeTab: string = 'general'
+  @State activeTab: string = 'providers'
   @State settings: AppSettings = new AppSettings()
   @State statusMsg: string = ''
   @State showClearConfirm: boolean = false
@@ -74,11 +74,8 @@ export struct SettingsPage {
         Column() {
           ForEach(
             [
-              { id: 'general', label: 'General', icon: 'G' },
-              { id: 'models', label: 'Models', icon: 'M' },
               { id: 'providers', label: 'Providers', icon: 'P' },
-              { id: 'servers', label: 'Server', icon: 'S' },
-              { id: 'keybinds', label: 'Keybinds', icon: 'K' }
+              { id: 'models', label: 'Models', icon: 'M' }
             ],
             (tab) => {
               Row() {
@@ -124,16 +121,10 @@ export struct SettingsPage {
         Column() {
           Scroll() {
             Column() {
-              if (this.activeTab === 'general') {
-                this.GeneralTab()
+              if (this.activeTab === 'providers') {
+                this.ProvidersTab()
               } else if (this.activeTab === 'models') {
                 this.ModelsTab()
-              } else if (this.activeTab === 'providers') {
-                this.ProvidersTab()
-              } else if (this.activeTab === 'servers') {
-                this.ServersTab()
-              } else if (this.activeTab === 'keybinds') {
-                this.KeybindsTab()
               }
             }
             .padding(Theme.sp.xxl)
