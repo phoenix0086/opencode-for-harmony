@@ -1,4 +1,4 @@
-# OpenCode Harmony — Smoke Matrix (M21)
+# OpenCode Harmony — Smoke Matrix (M21-M23)
 
 This document tracks the runtime API parity between the Harmony client and the
 OpenCode Runtime, divided into three tiers:
@@ -38,7 +38,17 @@ Server mode is detected by probing `/api/health` first, falling back to
 | `GET /api/config` / `GET /config`                     |   ✓    |   ✓    | Working         |
 | `PATCH /api/config` / `PATCH /config`                 |   ✓    |   ✓    | X-HTTP-Method-Override |
 | `GET /api/fs/list` / `GET /file`                      |   ✓    |   ✓    | Working         |
-| `POST /api/session/:id/abort`                         |   ✓    |   -    | Not wired (M21) |
+| `POST /api/session/:id/abort`                         |   ✓    |   ✓    | Adapter ready (M23) |
+| `GET /api/permission/request` / `GET /permission`     |   ✓    |   ✓    | Adapter ready (M23) |
+| `GET /api/permission/saved`                           |   ✓    |   -    | Adapter ready (M23) |
+| `DELETE /api/permission/saved/:id`                    |   ✓    |   -    | Adapter ready (M23) |
+| `POST /api/session/:id/permission/:rid/reply`         |   ✓    |   ✓    | Adapter ready (M23) |
+| `GET /api/session/:id/question`                       |   ✓    |   ✓    | Adapter ready (M23) |
+| `POST /api/session/:id/question/:rid/reply`           |   ✓    |   ✓    | Adapter ready (M23) |
+| `POST /api/session/:id/question/:rid/reject`          |   ✓    |   -    | Adapter ready (M23) |
+| `GET /api/command` / `GET /command`                   |   ✓    |   ✓    | Adapter ready (M23) |
+| `GET /api/skill` / `GET /skill`                       |   ✓    |   ✓    | Adapter ready (M23) |
+| `GET /api/event` / `GET /event`                       |   ✓    |   ✓    | URL ready (M23) |
 
 ## Capability Flags
 
