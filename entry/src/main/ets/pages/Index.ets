@@ -6,7 +6,7 @@ import { storageService as storageSingleton, initStorageService } from '../servi
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
-import { ChatMessage } from '../model/ChatMessage';
+import { ChatMessage, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
@@ -804,20 +804,28 @@ struct Index {
     Column() {
       // Chat header
       Row() {
-        Text(this.viewModel.currentSessionId.length > 0 ? 'Session' : 'New Chat')
+        Text(this.viewModel.currentSessionId.length > 0 ? `Session ${this.viewModel.serverMode}` : 'New Chat')
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .fontColor('#FFFFFF')
         Blank()
+        if (this.viewModel.isGenerating) {
+          Button('Stop')
+            .fontSize(13)
+            .height(32)
+            .backgroundColor('#FF5252')
+            .fontColor('#FFFFFF')
+            .borderRadius(6)
+            .onClick(() => { this.viewModel.stopGeneration() })
+        }
         Button('New Session')
           .fontSize(13)
           .height(32)
           .backgroundColor('#2D2D2D')
           .fontColor('#FFFFFF')
           .borderRadius(6)
-          .onClick(() => {
-            this.viewModel.currentSessionId = '';
-          })
+          .margin({ left: 8 })
+          .onClick(() => { this.viewModel.currentSessionId = '' })
       }
       .width('100%')
       .height(Constants.TITLE_BAR_HEIGHT)
@@ -834,32 +842,100 @@ struct Index {
         List() {
           ForEach(this.viewModel.messages, (msg: ChatMessage) => {
             ListItem() {
-              Row() {
-                if (msg.role === 'assistant') {
+              if (msg.isError) {
+                // Error message
+                Column() {
+                  Text('Error')
+                    .fontSize(12)
+                    .fontColor('#FF5252')
+                    .fontWeight(FontWeight.Bold)
+                    .margin({ bottom: 4 })
+                  Text(msg.content)
+                    .fontSize(13)
+                    .fontColor('#FF8A80')
+                    .fontFamily('monospace')
+                }
+                .width('100%')
+                .padding(12)
+                .backgroundColor('#1A0000')
+                .borderRadius(8)
+                .borderWidth(1)
+                .borderColor('#FF525240')
+                .margin({ left: 16, right: 16, top: 4, bottom: 4 })
+              } else if (msg.role === 'assistant') {
+                // Assistant message
+                Row() {
                   Column() {
-                    Text('AI')
-                      .fontSize(12)
-                      .fontColor('#007DFF')
-                      .margin({ bottom: 4 })
-                    Text(msg.content)
-                      .fontSize(14)
-                      .fontColor('#E0E0E0')
-                      .margin({ left: 0 })
+                    Row() {
+                      Text('AI')
+                        .fontSize(12)
+                        .fontColor('#007DFF')
+                        .margin({ bottom: 4 })
+                      if (msg.isStreaming) {
+                        Text(' (streaming...)')
+                          .fontSize(11)
+                          .fontColor('#666666')
+                          .margin({ bottom: 4, left: 4 })
+                      }
+                    }
+                    // Tool calls
+                    if (msg.toolCalls.length > 0) {
+                      ForEach(msg.toolCalls, (tool: ToolCall) => {
+                        Row() {
+                          Text(tool.name)
+                            .fontSize(12)
+                            .fontColor('#007DFF')
+                            .fontFamily('monospace')
+                            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                            .backgroundColor('#007DFF15')
+                            .borderRadius(4)
+                          if (tool.status === 'error') {
+                            Text('error')
+                              .fontSize(11)
+                              .fontColor('#FF5252')
+                              .margin({ left: 6 })
+                          } else if (tool.status === 'complete') {
+                            Text('done')
+                              .fontSize(11)
+                              .fontColor('#3DDC84')
+                              .margin({ left: 6 })
+                          }
+                        }
+                        .margin({ bottom: 4 })
+                      }, (tool: ToolCall) => tool.id)
+                    }
+                    if (msg.content.length > 0) {
+                      Text(msg.content)
+                        .fontSize(14)
+                        .fontColor('#E0E0E0')
+                    }
                   }
                   .alignItems(HorizontalAlign.Start)
-                } else {
-                  Blank()
-                  Column() {
-                    Text(msg.content)
-                      .fontSize(14)
-                      .fontColor('#FFFFFF')
-                      .textAlign(TextAlign.End)
-                  }
-                  .alignItems(HorizontalAlign.End)
+                  .layoutWeight(1)
                 }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              } else if (msg.role === 'system') {
+                // System message
+                Text(msg.content)
+                  .fontSize(12)
+                  .fontColor('#666666')
+                  .fontStyle(FontStyle.Italic)
+                  .textAlign(TextAlign.Center)
+                  .width('100%')
+                  .padding({ left: 32, right: 32, top: 4, bottom: 4 })
+              } else {
+                // User message
+                Blank()
+                Column() {
+                  Text(msg.content)
+                    .fontSize(14)
+                    .fontColor('#FFFFFF')
+                    .textAlign(TextAlign.End)
+                }
+                .alignItems(HorizontalAlign.End)
+                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
               }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
             }
           }, (msg: ChatMessage) => msg.id)
         }
@@ -879,12 +955,8 @@ struct Index {
           .borderRadius(8)
           .fontColor('#FFFFFF')
           .placeholderColor('#666666')
-          .onChange((value: string) => {
-            this.inputText = value;
-          })
-          .onSubmit(() => {
-            this.sendInput();
-          })
+          .onChange((value: string) => { this.inputText = value })
+          .onSubmit(() => { this.sendInput() })
         Button('Send')
           .height(40)
           .width(72)
@@ -892,9 +964,8 @@ struct Index {
           .borderRadius(8)
           .fontColor('#FFFFFF')
           .margin({ left: 8 })
-          .onClick(() => {
-            this.sendInput();
-          })
+          .enabled(!this.viewModel.isGenerating)
+          .onClick(() => { this.sendInput() })
       }
       .width('100%')
       .height(56)
