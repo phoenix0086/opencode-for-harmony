@@ -14,11 +14,19 @@ export struct BasicToolCard {
   @Prop step: number = 0
   @State expanded: boolean = false
   @State cardOpacity: number = 0
+  private appearTimer: number = -1
 
   aboutToAppear(): void {
-    setTimeout(() => {
+    this.appearTimer = setTimeout(() => {
       this.cardOpacity = 1
     }, 50)
+  }
+
+  aboutToDisappear(): void {
+    if (this.appearTimer >= 0) {
+      clearTimeout(this.appearTimer)
+      this.appearTimer = -1
+    }
   }
 
   build() {

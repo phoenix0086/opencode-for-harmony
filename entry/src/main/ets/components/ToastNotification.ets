@@ -21,6 +21,14 @@ struct ToastItem {
   @Prop type: string = 'info'
   onDismiss: () => void = () => {}
   @State visible: boolean = false
+  private appearTimer: number = -1
+
+  aboutToDisappear(): void {
+    if (this.appearTimer >= 0) {
+      clearTimeout(this.appearTimer)
+      this.appearTimer = -1
+    }
+  }
 
   build() {
     Row() {
@@ -83,7 +91,7 @@ struct ToastItem {
     .opacity(this.visible ? 1 : 0)
     .animation({ duration: 300, curve: Curve.EaseOut })
     .onAppear(() => {
-      setTimeout(() => {
+      this.appearTimer = setTimeout(() => {
         this.visible = true
       }, 50)
     })
