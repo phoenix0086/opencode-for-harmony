@@ -1,6 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
-import { MainViewModel } from '../viewmodel/MainViewModel';
+import { MainViewModel, PendingPermission } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
@@ -942,6 +942,80 @@ struct Index {
         .layoutWeight(1)
         .width('100%')
         .divider({ strokeWidth: 0 })
+      }
+
+      // Permission dock — show pending permission requests
+      if (this.viewModel.pendingPermissions.length > 0) {
+        Column() {
+          ForEach(this.viewModel.pendingPermissions, (perm: PendingPermission) => {
+            Column() {
+              Row() {
+                Text('🔒 权限请求')
+                  .fontSize(13)
+                  .fontColor('#FFB300')
+                  .fontWeight(FontWeight.Bold)
+                Blank()
+                Text(perm.riskLevel.length > 0 ? perm.riskLevel : 'permission')
+                  .fontSize(11)
+                  .fontColor('#888888')
+                  .fontFamily('monospace')
+              }
+              .width('100%')
+              .margin({ bottom: 6 })
+
+              Text(perm.title)
+                .fontSize(14)
+                .fontColor('#FFFFFF')
+                .width('100%')
+                .margin({ bottom: 4 })
+
+              if (perm.description.length > 0) {
+                Text(perm.description)
+                  .fontSize(12)
+                  .fontColor('#AAAAAA')
+                  .width('100%')
+                  .margin({ bottom: 8 })
+              }
+
+              Row() {
+                Button('允许')
+                  .fontSize(13)
+                  .height(32)
+                  .backgroundColor('#3DDC84')
+                  .fontColor('#000000')
+                  .borderRadius(6)
+                  .onClick(() => { this.viewModel.approvePermission(perm.id, false) })
+
+                Button('永久允许')
+                  .fontSize(13)
+                  .height(32)
+                  .backgroundColor('#2D2D2D')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .margin({ left: 8 })
+                  .onClick(() => { this.viewModel.approvePermission(perm.id, true) })
+
+                Button('拒绝')
+                  .fontSize(13)
+                  .height(32)
+                  .backgroundColor('#FF5252')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .margin({ left: 8 })
+                  .onClick(() => { this.viewModel.rejectPermission(perm.id) })
+              }
+              .width('100%')
+            }
+            .width('100%')
+            .padding(12)
+            .backgroundColor('#1A1A00')
+            .borderRadius(8)
+            .borderWidth(1)
+            .borderColor('#FFB30040')
+            .margin({ left: 16, right: 16, bottom: 8 })
+          }, (perm: PendingPermission) => perm.id)
+        }
+        .width('100%')
       }
 
       Divider().color('#2D2D2D').width('100%')

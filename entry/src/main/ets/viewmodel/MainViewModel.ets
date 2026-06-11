@@ -28,6 +28,7 @@ export class MainViewModel {
   serverStatusMessage: string = '';
   serverLogs: string[] = [];
   serverMode: ServerMode = 'unknown';
+  pendingPermissions: PendingPermission[] = [] // 待审批的权限请求
   private healthTimer: number = -1;
   private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
   private activeTurnId: string = '' // 当前轮次 ID，防止上一轮迟到的 assistant 被当成本轮回复
@@ -453,6 +454,11 @@ export class MainViewModel {
         e.sessionId = sessionId
         this.messages = [...this.messages, e]
         this.errorMessage = e.content
+      }
+
+      // Check for pending permission requests
+      if (poll.hasPermission || poll.ok) {
+        await this.checkAndLoadPermissions()
       }
 
       await this.loadSessions()
@@ -935,4 +941,88 @@ export class MainViewModel {
   private stopHealthCheck(): void { if(this.healthTimer>=0){ clearInterval(this.healthTimer); this.healthTimer=-1; } }
 
   // Safe error-to-string is provided by the imported errStr() from utils/ErrorUtil
+
+  // ══════════ Permission Handling ══════════
+
+  /**
+   * Load pending permission requests from the server.
+   * Call this after sendMessage detects a permission block.
+   */
+  async loadPendingPermissions(): Promise<void> {
+    try {
+      const raw = await this.apiAdapter.listPermissionRequests()
+      this.pendingPermissions = raw.map((item: Object) => {
+        const r = item as Record<string, Object>
+        const p = new PendingPermission()
+        p.id = (r['id'] as string) || ''
+        p.sessionID = (r['sessionID'] as string) || this.currentSessionId
+        p.type = (r['type'] as string) || ''
+        p.title = (r['title'] as string) || (r['description'] as string) || 'Permission Request'
+        p.description = (r['description'] as string) || ''
+        p.riskLevel = (r['riskLevel'] as string) || ''
+        return p
+      })
+    } catch (e) {
+      Logger.warn(`loadPendingPermissions failed: ${errStr(e)}`)
+    }
+  }
+
+  /**
+   * Approve a permission request (once or always).
+   */
+  async approvePermission(requestId: string, always: boolean = false): Promise<void> {
+    const reply = always ? 'always' : 'once'
+    const sessionId = this.currentSessionId
+    try {
+      await this.apiAdapter.replyPermission(sessionId, requestId, reply)
+      // Remove from pending list
+      this.pendingPermissions = this.pendingPermissions.filter(p => p.id !== requestId)
+      // Add system message
+      this.messages = [...this.messages, ChatMessage.createSystemMessage(
+        `权限已${always ? '永久' : '一次性'}批准`
+      )]
+      // Reload messages to get the agent's continued response
+      await this.loadMessages(sessionId)
+    } catch (e) {
+      Logger.error(`approvePermission failed: ${errStr(e)}`)
+      this.messages = [...this.messages, ChatMessage.createErrorMessage(
+        `权限批准失败：${errStr(e)}`
+      )]
+    }
+  }
+
+  /**
+   * Reject a permission request.
+   */
+  async rejectPermission(requestId: string): Promise<void> {
+    const sessionId = this.currentSessionId
+    try {
+      await this.apiAdapter.replyPermission(sessionId, requestId, 'deny')
+      this.pendingPermissions = this.pendingPermissions.filter(p => p.id !== requestId)
+      this.messages = [...this.messages, ChatMessage.createSystemMessage('权限已拒绝')]
+      await this.loadMessages(sessionId)
+    } catch (e) {
+      Logger.error(`rejectPermission failed: ${errStr(e)}`)
+    }
+  }
+
+  /**
+   * Auto-check for pending permissions after sendMessage detects one.
+   */
+  private async checkAndLoadPermissions(): Promise<void> {
+    await this.loadPendingPermissions()
+    if (this.pendingPermissions.length > 0) {
+      Logger.info(`Found ${this.pendingPermissions.length} pending permission(s)`)
+    }
+  }
+}
+
+/** Pending permission request model */
+export class PendingPermission {
+  id: string = ''
+  sessionID: string = ''
+  type: string = ''
+  title: string = ''
+  description: string = ''
+  riskLevel: string = ''
 }
