@@ -38,17 +38,40 @@ Server mode is detected by probing `/api/health` first, falling back to
 | `GET /api/config` / `GET /config`                     |   ✓    |   ✓    | Working         |
 | `PATCH /api/config` / `PATCH /config`                 |   ✓    |   ✓    | X-HTTP-Method-Override |
 | `GET /api/fs/list` / `GET /file`                      |   ✓    |   ✓    | Working         |
-| `POST /api/session/:id/abort`                         |   ✓    |   ✓    | Adapter ready (M23) |
-| `GET /api/permission/request` / `GET /permission`     |   ✓    |   ✓    | Adapter ready (M23) |
-| `GET /api/permission/saved`                           |   ✓    |   -    | Adapter ready (M23) |
-| `DELETE /api/permission/saved/:id`                    |   ✓    |   -    | Adapter ready (M23) |
-| `POST /api/session/:id/permission/:rid/reply`         |   ✓    |   ✓    | Adapter ready (M23) |
-| `GET /api/session/:id/question`                       |   ✓    |   ✓    | Adapter ready (M23) |
-| `POST /api/session/:id/question/:rid/reply`           |   ✓    |   ✓    | Adapter ready (M23) |
-| `POST /api/session/:id/question/:rid/reject`          |   ✓    |   -    | Adapter ready (M23) |
-| `GET /api/command` / `GET /command`                   |   ✓    |   ✓    | Adapter ready (M23) |
-| `GET /api/skill` / `GET /skill`                       |   ✓    |   ✓    | Adapter ready (M23) |
+| `POST /api/session/:id/abort`                         |   ✓    |   ✓    | Adapter (M23)   |
+| `GET /api/permission/request`                         |   ✓    |   ✓    | Adapter + UI (M23) |
+| `GET /api/permission/saved`                           |   ✓    |   -    | Adapter (M23)   |
+| `DELETE /api/permission/saved/:id`                    |   ✓    |   -    | Adapter (M23)   |
+| `POST /api/session/:id/permission/:rid/reply`         |   ✓    |   ✓    | Adapter + UI (M23) |
+| `GET /api/session/:id/question`                       |   ✓    |   ✓    | Adapter + UI (M23) |
+| `POST /api/session/:id/question/:rid/reply`           |   ✓    |   ✓    | Adapter + UI (M23) |
+| `POST /api/session/:id/question/:rid/reject`          |   ✓    |   -    | Adapter + UI (M23) |
+| `GET /api/command` / `GET /command`                   |   ✓    |   ✓    | Adapter (M23)   |
+| `GET /api/skill` / `GET /skill`                       |   ✓    |   ✓    | Adapter (M23)   |
 | `GET /api/event` / `GET /event`                       |   ✓    |   ✓    | URL ready (M23) |
+
+## Chat UI Features (M22-M23)
+
+| Feature | Status | Notes |
+| ------- | ------ | ----- |
+| Error messages | ✅ Done | Red background, monospace |
+| Tool call display | ✅ Done | Tool name + status badge |
+| System messages | ✅ Done | Centered, italic |
+| Streaming indicator | ✅ Done | "(streaming...)" |
+| Stop button | ✅ Done | Appears when generating |
+| Server mode badge | ✅ Done | api-v2/legacy in header |
+| Permission dock | ✅ Done | Allow/Always/Reject |
+| Question dock | ✅ Done | Options + Reject |
+| Turn alignment | ✅ Done | activeTurnId prevents stale polls |
+| Send lock | ✅ Done | Prevents concurrent sends |
+
+## Dead Code (M25 cleanup)
+
+| File | Status | Action |
+| ---- | ------ | ------ |
+| `LocalRuntimeManager.ets` | Dead code | Delete |
+| `LocalOpenCodeRuntimeService.ets` | Only RuntimePage | Migrate to ServerManager |
+| `LocalProcessBridge.ets` | Only RuntimeService | Delete after migration |
 
 ## Capability Flags
 
