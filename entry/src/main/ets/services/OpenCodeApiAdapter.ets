@@ -201,6 +201,140 @@ export class OpenCodeApiAdapter {
   }
 
   // ══════════════════════════════════════════════════════════
+  //  Permissions
+  // ══════════════════════════════════════════════════════════
+  async listPermissionRequests(): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>('/api/permission/request');
+      return data.data ?? [];
+    }
+    return this.get<Object[]>('/permission');
+  }
+
+  async listSavedPermissions(): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>('/api/permission/saved');
+      return data.data ?? [];
+    }
+    return [];
+  }
+
+  async deleteSavedPermission(id: string): Promise<boolean> {
+    if (this.mode !== 'api-v2') return false;
+    try {
+      await this.delete(`/api/permission/saved/${id}`);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async listSessionPermissions(sessionId: string): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>(`/api/session/${sessionId}/permission`);
+      return data.data ?? [];
+    }
+    return [];
+  }
+
+  async replyPermission(sessionId: string, requestId: string, reply: string): Promise<boolean> {
+    try {
+      if (this.mode === 'api-v2') {
+        await this.post(`/api/session/${sessionId}/permission/${requestId}/reply`, { reply });
+      } else {
+        await this.post(`/permission/${requestId}/reply`, { reply });
+      }
+      return true;
+    } catch (e) {
+      Logger.error(`replyPermission failed: ${errStr(e)}`);
+      return false;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Questions
+  // ══════════════════════════════════════════════════════════
+  async listQuestions(sessionId: string): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>(`/api/session/${sessionId}/question`);
+      return data.data ?? [];
+    }
+    try {
+      return this.get<Object[]>(`/question?sessionID=${sessionId}`);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async replyQuestion(sessionId: string, requestId: string, optionIDs: string[]): Promise<boolean> {
+    try {
+      if (this.mode === 'api-v2') {
+        await this.post(`/api/session/${sessionId}/question/${requestId}/reply`, { optionIDs });
+      } else {
+        await this.post(`/question/${requestId}/reply`, { optionIDs });
+      }
+      return true;
+    } catch (e) {
+      Logger.error(`replyQuestion failed: ${errStr(e)}`);
+      return false;
+    }
+  }
+
+  async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
+    if (this.mode !== 'api-v2') return false;
+    try {
+      await this.post(`/api/session/${sessionId}/question/${requestId}/reject`);
+      return true;
+    } catch (e) {
+      Logger.error(`rejectQuestion failed: ${errStr(e)}`);
+      return false;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Commands & Skills
+  // ══════════════════════════════════════════════════════════
+  async listCommands(): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>('/api/command');
+      return data.data ?? [];
+    }
+    try { return this.get<Object[]>('/command'); } catch (_) { return []; }
+  }
+
+  async listSkills(): Promise<Object[]> {
+    if (this.mode === 'api-v2') {
+      const data = await this.get<{ data: Object[] }>('/api/skill');
+      return data.data ?? [];
+    }
+    try { return this.get<Object[]>('/skill'); } catch (_) { return []; }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Abort
+  // ══════════════════════════════════════════════════════════
+  async abortSession(sessionId: string): Promise<boolean> {
+    try {
+      if (this.mode === 'api-v2') {
+        await this.post(`/api/session/${sessionId}/abort`);
+      } else {
+        await this.post(`/session/${sessionId}/abort`);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Event Stream URL
+  // ══════════════════════════════════════════════════════════
+  getEventUrl(): string {
+    if (this.mode === 'api-v2') return `${this.baseUrl}/api/event`;
+    return `${this.baseUrl}/event`;
+  }
+
+  // ══════════════════════════════════════════════════════════
   //  HTTP helpers
   // ══════════════════════════════════════════════════════════
   private async get<T>(path: string): Promise<T> {
@@ -215,6 +349,10 @@ export class OpenCodeApiAdapter {
     const headers: Record<string, string> = {};
     headers['X-HTTP-Method-Override'] = 'PATCH';
     return this.request<T>(path, http.RequestMethod.POST, body, headers);
+  }
+
+  private async delete<T>(path: string): Promise<T> {
+    return this.request<T>(path, http.RequestMethod.DELETE);
   }
 
   private async request<T>(path: string, method: http.RequestMethod, body?: Object, extraHeaders?: Record<string, string>): Promise<T> {

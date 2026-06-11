@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode Harmony - Chat Page Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0a0f;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+  }
+
+  .screen-label {
+    font-size: 14px;
+    color: #6c7086;
+    margin-bottom: -32px;
+    font-weight: 500;
+  }
+
+  /* Main App Container */
+  .app-frame {
+    width: 1200px;
+    height: 800px;
+    background: #1e1e2e;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    border: 1px solid #313244;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  }
+
+  /* Activity Bar */
+  .activity-bar {
+    width: 48px;
+    background: #11111b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+    border-right: 1px solid #313244;
+  }
+
+  .activity-item {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .activity-item.active {
+    color: #89b4fa;
+    background: #1e1e2e;
+  }
+
+  .activity-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    background: #89b4fa;
+    border-radius: 0 2px 2px 0;
+  }
+
+  .activity-divider {
+    width: 24px;
+    height: 1px;
+    background: #313244;
+    margin: 8px 0;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 240px;
+    background: #181825;
+    border-right: 1px solid #313244;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #313244;
+  }
+
+  .sidebar-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px;
+  }
+
+  .sidebar-action {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #89b4fa;
+    font-size: 18px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .workspace-label {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .workspace-label span {
+    color: #89b4fa;
+  }
+
+  .session-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 8px;
+  }
+
+  .session-item {
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 2px;
+  }
+
+  .session-item:hover {
+    background: #1e1e2e;
+  }
+
+  .session-item.active {
+    background: #313244;
+  }
+
+  .session-title {
+    font-size: 13px;
+    color: #cdd6f4;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-meta {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 2px;
+  }
+
+  .sidebar-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #313244;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .connection-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #a6e3a1;
+  }
+
+  .connection-text {
+    font-size: 12px;
+    color: #a6e3a1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Main Content */
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #1e1e2e;
+  }
+
+  /* Top Bar */
+  .top-bar {
+    height: 48px;
+    background: #181825;
+    border-bottom: 1px solid #313244;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    justify-content: space-between;
+  }
+
+  .top-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .session-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #cdd6f4;
+  }
+
+  .model-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #1e3a5f;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #89b4fa;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+  }
+
+  .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #313244;
+    border-radius: 6px;
+    color: #cdd6f4;
+    font-size: 13px;
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn-stop {
+    padding: 6px 14px;
+    background: #3a1a25;
+    border: 1px solid #f38ba8;
+    color: #f38ba8;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* Chat Area */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .message {
+    display: flex;
+    gap: 12px;
+    max-width: 85%;
+  }
+
+  .message.user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+  }
+
+  .message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .message.user .message-avatar {
+    background: #1e3a5f;
+    color: #89b4fa;
+  }
+
+  .message.assistant .message-avatar {
+    background: #313244;
+    color: #cdd6f4;
+  }
+
+  .message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .message-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .message-author {
+    font-size: 12px;
+    font-weight: 600;
+    color: #a6adc8;
+  }
+
+  .message-time {
+    font-size: 11px;
+    color: #6c7086;
+  }
+
+  .message-bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #cdd6f4;
+  }
+
+  .message.user .message-bubble {
+    background: #1e3a5f;
+    border: 1px solid #89b4fa;
+    border-radius: 12px 12px 4px 12px;
+  }
+
+  .message.assistant .message-bubble {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 12px 12px 12px 4px;
+  }
+
+  /* Code Block in Message */
+  .code-block {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  .code-header {
+    background: #181825;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .code-lang {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .code-copy {
+    font-size: 11px;
+    color: #89b4fa;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .code-content {
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #cdd6f4;
+  }
+
+  .kw { color: #cba6f7; }
+  .fn { color: #89b4fa; }
+  .str { color: #a6e3a1; }
+  .cm { color: #6c7086; }
+
+  /* Composer */
+  .composer {
+    background: #181825;
+    border-top: 1px solid #313244;
+    padding: 16px 80px;
+  }
+
+  .composer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .mode-toggle {
+    display: flex;
+    background: #11111b;
+    border-radius: 6px;
+    padding: 2px;
+  }
+
+  .mode-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+  }
+
+  .mode-btn.active {
+    background: #313244;
+    color: #cdd6f4;
+    font-weight: 600;
+  }
+
+  .mode-btn:not(.active) {
+    background: transparent;
+    color: #6c7086;
+  }
+
+  .context-usage {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .composer-input-area {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+  }
+
+  .composer-input {
+    flex: 1;
+    background: #11111b;
+    border: 1px solid #45475a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #cdd6f4;
+    font-size: 14px;
+    font-family: inherit;
+    min-height: 52px;
+    outline: none;
+    resize: none;
+  }
+
+  .composer-input:focus {
+    border-color: #89b4fa;
+  }
+
+  .send-btn {
+    width: 40px;
+    height: 40px;
+    background: #89b4fa;
+    border: none;
+    border-radius: 8px;
+    color: #1e1e2e;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Status Bar */
+  .status-bar {
+    height: 28px;
+    background: #11111b;
+    border-top: 1px solid #313244;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    justify-content: space-between;
+  }
+
+  .status-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .status-item {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* Right Panel */
+  .right-panel {
+    width: 300px;
+    background: #181825;
+    border-left: 1px solid #313244;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #313244;
+    font-size: 11px;
+    font-weight: 700;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-tabs {
+    display: flex;
+    border-bottom: 1px solid #313244;
+  }
+
+  .panel-tab {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #6c7086;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+
+  .panel-tab.active {
+    color: #89b4fa;
+    border-bottom-color: #89b4fa;
+  }
+
+  .panel-content {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+  }
+
+  .tool-entry {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  .tool-entry-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .tool-entry-icon {
+    width: 24px;
+    height: 24px;
+    background: #1e3a5f;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #89b4fa;
+    font-size: 11px;
+  }
+
+  .tool-entry-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #cdd6f4;
+  }
+
+  .tool-entry-desc {
+    font-size: 12px;
+    color: #a6adc8;
+    line-height: 1.4;
+  }
+
+  /* Empty State */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .empty-icon {
+    width: 64px;
+    height: 64px;
+    background: #313244;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: #6c7086;
+  }
+
+  .empty-title {
+    font-size: 18px;
+    color: #a6adc8;
+    font-weight: 500;
+  }
+
+  .empty-subtitle {
+    font-size: 14px;
+    color: #6c7086;
+  }
+
+  /* Disconnected Card */
+  .disconnected-card {
+    background: #3a3520;
+    border: 1px solid #f9e2af;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .disconnected-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f9e2af;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .disconnected-text {
+    font-size: 13px;
+    color: #a6adc8;
+    line-height: 1.5;
+  }
+
+  .disconnected-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  .btn-sm {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+  }
+
+  .btn-accent {
+    background: #1e3a5f;
+    color: #89b4fa;
+    border: 1px solid #89b4fa;
+  }
+
+  .btn-secondary-sm {
+    background: #313244;
+    color: #cdd6f4;
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-label">1. Chat Page — Main Interface (Connected State)</div>
+<div class="app-frame">
+  <!-- Activity Bar -->
+  <div class="activity-bar">
+    <div class="activity-item active">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+    <div class="activity-divider"></div>
+    <div class="activity-item">P</div>
+    <div class="activity-item">R</div>
+    <div class="activity-item">S</div>
+    <div class="activity-divider"></div>
+    <div class="activity-item">M</div>
+    <div style="flex:1"></div>
+    <div class="activity-item">#</div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">SESSIONS</div>
+      <div class="sidebar-action">+</div>
+    </div>
+    <div class="workspace-label">
+      <span>~/</span>opencode-for-harmony
+    </div>
+    <div class="session-list">
+      <div class="session-item active">
+        <div class="session-title">API Integration Help</div>
+        <div class="session-meta">2 min ago · 12 msgs</div>
+      </div>
+      <div class="session-item">
+        <div class="session-title">Bug Fix #234</div>
+        <div class="session-meta">1 hr ago · 8 msgs</div>
+      </div>
+      <div class="session-item">
+        <div class="session-title">Refactor Theme System</div>
+        <div class="session-meta">3 hr ago · 24 msgs</div>
+      </div>
+      <div class="session-item">
+        <div class="session-title">New Feature Planning</div>
+        <div class="session-meta">Yesterday · 15 msgs</div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="connection-dot"></div>
+      <div class="connection-text">Runtime Connected</div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="session-name">API Integration Help</div>
+        <div class="model-badge">anthropic/claude-3.5-sonnet</div>
+      </div>
+      <div class="top-bar-right">
+        <button class="btn-stop">Stop</button>
+        <button class="btn-icon">+</button>
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="chat-area">
+      <div class="message user">
+        <div class="message-avatar">U</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-author">You</span>
+            <span class="message-time">10:23</span>
+          </div>
+          <div class="message-bubble">
+            Hi! Can you help me integrate the Xiaomi MiMo API with OpenCode Runtime?
+          </div>
+        </div>
+      </div>
+
+      <div class="message assistant">
+        <div class="message-avatar">AI</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-author">Assistant</span>
+            <span class="message-time">10:23</span>
+          </div>
+          <div class="message-bubble">
+            Sure! I can help you set up the Xiaomi MiMo integration. Here's the configuration you need:
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">typescript</span>
+                <span class="code-copy">Copy</span>
+              </div>
+              <div class="code-content">
+                <span class="kw">const</span> provider = {<br>
+                &nbsp;&nbsp;id: <span class="str">'xiaomi-mimo'</span>,<br>
+                &nbsp;&nbsp;name: <span class="str">'Xiaomi MiMo'</span>,<br>
+                &nbsp;&nbsp;baseURL: <span class="str">'https://token-plan-cn.xiaomimimo.com/v1'</span>,<br>
+                &nbsp;&nbsp;apiKey: process.env.<span class="str">XIAOMI_MIMO_API_KEY</span><br>
+                };
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="message user">
+        <div class="message-avatar">U</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-author">You</span>
+            <span class="message-time">10:25</span>
+          </div>
+          <div class="message-bubble">
+            Thanks! What models are available?
+          </div>
+        </div>
+      </div>
+
+      <div class="message assistant">
+        <div class="message-avatar">AI</div>
+        <div class="message-content">
+          <div class="message-header">
+            <span class="message-author">Assistant</span>
+            <span class="message-time">10:25</span>
+          </div>
+          <div class="message-bubble">
+            MiMo offers these models:<br><br>
+            • <strong>mimo-v2.5-pro</strong> — Best for complex coding tasks<br>
+            • <strong>mimo-v2.5</strong> — Balanced performance and speed<br><br>
+            Both support 128K context window and function calling.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Composer -->
+    <div class="composer">
+      <div class="composer-toolbar">
+        <div class="mode-toggle">
+          <button class="mode-btn active">Build</button>
+          <button class="mode-btn">Plan</button>
+        </div>
+        <div class="context-usage">Context: 2,847 / 128,000 tokens</div>
+      </div>
+      <div class="composer-input-area">
+        <textarea class="composer-input" placeholder="Type a message..."></textarea>
+        <button class="send-btn">↑</button>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item">Ready</span>
+        <span class="status-item">|</span>
+        <span class="status-item">4 tools available</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item">v2.1.0</span>
+        <span class="status-item">192.168.1.72:4096</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel -->
+  <div class="right-panel">
+    <div class="panel-header">
+      <span>TOOLS</span>
+      <span style="color: #6c7086; cursor: pointer;">×</span>
+    </div>
+    <div class="panel-tabs">
+      <div class="panel-tab active">Timeline</div>
+      <div class="panel-tab">Diff</div>
+      <div class="panel-tab">Logs</div>
+    </div>
+    <div class="panel-content">
+      <div class="tool-entry">
+        <div class="tool-entry-header">
+          <div class="tool-entry-icon">$</div>
+          <div class="tool-entry-name">Shell</div>
+        </div>
+        <div class="tool-entry-desc">npm install @ai-sdk/openai-compatible</div>
+      </div>
+      <div class="tool-entry">
+        <div class="tool-entry-header">
+          <div class="tool-entry-icon">F</div>
+          <div class="tool-entry-name">File Read</div>
+        </div>
+        <div class="tool-entry-desc">src/config/providers.ts</div>
+      </div>
+      <div class="tool-entry">
+        <div class="tool-entry-header">
+          <div class="tool-entry-icon">F</div>
+          <div class="tool-entry-name">File Write</div>
+        </div>
+        <div class="tool-entry-desc">src/config/providers.ts</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-label">2. Chat Page — Disconnected State</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item active">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">SESSIONS</div>
+      <div class="sidebar-action">+</div>
+    </div>
+    <div class="session-list"></div>
+    <div class="sidebar-footer">
+      <div class="connection-dot" style="background: #f38ba8;"></div>
+      <div class="connection-text" style="color: #f38ba8;">Runtime Disconnected</div>
+    </div>
+  </div>
+  <div class="main-content">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="session-name">New Chat</div>
+      </div>
+    </div>
+    <div class="disconnected-card">
+      <div class="disconnected-title">
+        <span>⚠</span> Runtime 未连接
+      </div>
+      <div class="disconnected-text">
+        无法连接到 OpenCode Runtime。请检查服务器设置或启动本地 Runtime。
+      </div>
+      <div class="disconnected-actions">
+        <button class="btn-sm btn-accent">打开设置</button>
+        <button class="btn-sm btn-secondary-sm">重新连接</button>
+      </div>
+    </div>
+    <div class="empty-state">
+      <div class="empty-icon">></div>
+      <div class="empty-title">Start a conversation</div>
+      <div class="empty-subtitle">Connect to Runtime to begin chatting</div>
+    </div>
+    <div class="composer">
+      <div class="composer-input-area">
+        <textarea class="composer-input" placeholder="Runtime disconnected..." disabled style="opacity: 0.5;"></textarea>
+        <button class="send-btn" disabled style="opacity: 0.5;">↑</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item" style="color: #f38ba8;">● Disconnected</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item">--</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-label">3. Chat Page — Empty / Welcome State</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item active">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+  </div>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">SESSIONS</div>
+      <div class="sidebar-action">+</div>
+    </div>
+    <div class="session-list"></div>
+    <div class="sidebar-footer">
+      <div class="connection-dot"></div>
+      <div class="connection-text">Runtime Connected</div>
+    </div>
+  </div>
+  <div class="main-content">
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <div class="session-name">New Chat</div>
+      </div>
+    </div>
+    <div class="empty-state">
+      <div class="empty-icon" style="background: #1e3a5f; color: #89b4fa;">OC</div>
+      <div class="empty-title">Welcome to OpenCode</div>
+      <div class="empty-subtitle">Type a message below to start coding with AI</div>
+    </div>
+    <div class="composer">
+      <div class="composer-toolbar">
+        <div class="mode-toggle">
+          <button class="mode-btn active">Build</button>
+          <button class="mode-btn">Plan</button>
+        </div>
+      </div>
+      <div class="composer-input-area">
+        <textarea class="composer-input" placeholder="How can I help you today?"></textarea>
+        <button class="send-btn">↑</button>
+      </div>
+    </div>
+    <div class="status-bar">
+      <div class="status-left">
+        <span class="status-item">Ready</span>
+      </div>
+      <div class="status-right">
+        <span class="status-item">anthropic/claude-3.5-sonnet</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

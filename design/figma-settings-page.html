@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode Harmony - Settings & Runtime Pages</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0a0f;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+  }
+
+  .screen-label {
+    font-size: 14px;
+    color: #6c7086;
+    margin-bottom: -32px;
+    font-weight: 500;
+  }
+
+  .app-frame {
+    width: 1200px;
+    height: 800px;
+    background: #1e1e2e;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    border: 1px solid #313244;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  }
+
+  /* Reuse activity bar and sidebar styles */
+  .activity-bar {
+    width: 48px;
+    background: #11111b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 8px;
+    border-right: 1px solid #313244;
+  }
+
+  .activity-item {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .activity-item.active {
+    color: #89b4fa;
+    background: #1e1e2e;
+  }
+
+  .activity-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    background: #89b4fa;
+    border-radius: 0 2px 2px 0;
+  }
+
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #1e1e2e;
+    overflow: hidden;
+  }
+
+  /* Settings Layout */
+  .settings-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .settings-sidebar {
+    width: 220px;
+    background: #181825;
+    border-right: 1px solid #313244;
+    padding: 24px 0;
+  }
+
+  .settings-nav-item {
+    padding: 10px 20px;
+    font-size: 13px;
+    color: #a6adc8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-left: 3px solid transparent;
+  }
+
+  .settings-nav-item:hover {
+    background: #1e1e2e;
+    color: #cdd6f4;
+  }
+
+  .settings-nav-item.active {
+    background: #1e1e2e;
+    color: #89b4fa;
+    border-left-color: #89b4fa;
+  }
+
+  .settings-nav-icon {
+    width: 20px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .settings-content {
+    flex: 1;
+    padding: 40px 60px;
+    overflow-y: auto;
+  }
+
+  .settings-header {
+    margin-bottom: 32px;
+  }
+
+  .settings-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #cdd6f4;
+    margin-bottom: 8px;
+  }
+
+  .settings-subtitle {
+    font-size: 14px;
+    color: #6c7086;
+  }
+
+  .settings-section {
+    margin-bottom: 32px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid #313244;
+  }
+
+  .settings-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #cdd6f4;
+    margin-bottom: 20px;
+  }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    gap: 24px;
+  }
+
+  .form-label {
+    font-size: 13px;
+    color: #a6adc8;
+    flex: 1;
+  }
+
+  .form-label-desc {
+    font-size: 12px;
+    color: #6c7086;
+    margin-top: 2px;
+  }
+
+  .form-control {
+    width: 280px;
+  }
+
+  .input {
+    width: 100%;
+    background: #11111b;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: #cdd6f4;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+
+  .input:focus {
+    border-color: #89b4fa;
+  }
+
+  .select {
+    width: 100%;
+    background: #11111b;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: #cdd6f4;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .toggle {
+    width: 44px;
+    height: 24px;
+    background: #313244;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background: #cdd6f4;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s;
+  }
+
+  .toggle.active {
+    background: #89b4fa;
+  }
+
+  .toggle.active::after {
+    transform: translateX(20px);
+    background: white;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+  }
+
+  .btn-primary {
+    background: #89b4fa;
+    color: #1e1e2e;
+  }
+
+  .btn-secondary {
+    background: #313244;
+    color: #cdd6f4;
+  }
+
+  .btn-danger {
+    background: #3a1a25;
+    color: #f38ba8;
+    border: 1px solid #f38ba8;
+  }
+
+  .btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid #313244;
+  }
+
+  /* Provider Card */
+  .provider-card {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .provider-icon {
+    width: 40px;
+    height: 40px;
+    background: #1e3a5f;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #89b4fa;
+    font-size: 16px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .provider-info {
+    flex: 1;
+  }
+
+  .provider-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #cdd6f4;
+    margin-bottom: 4px;
+  }
+
+  .provider-meta {
+    font-size: 12px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .provider-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #1a3a1a;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #a6e3a1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .provider-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Model List */
+  .model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .model-item {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .model-name {
+    font-size: 13px;
+    color: #cdd6f4;
+    font-weight: 500;
+  }
+
+  .model-id {
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 2px;
+  }
+
+  .model-badge {
+    padding: 2px 8px;
+    background: #1e3a5f;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #89b4fa;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Runtime Page Specific */
+  .runtime-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+  }
+
+  .status-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .status-card {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .status-card-label {
+    font-size: 12px;
+    color: #6c7086;
+    margin-bottom: 8px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status-card-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #cdd6f4;
+  }
+
+  .status-card-sub {
+    font-size: 12px;
+    color: #a6adc8;
+    margin-top: 4px;
+  }
+
+  .log-panel {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .log-header {
+    background: #181825;
+    padding: 10px 16px;
+    font-size: 11px;
+    color: #6c7086;
+    font-family: 'JetBrains Mono', monospace;
+    border-bottom: 1px solid #313244;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .log-content {
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #a6adc8;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .log-line {
+    display: flex;
+    gap: 12px;
+  }
+
+  .log-time {
+    color: #6c7086;
+    flex-shrink: 0;
+  }
+
+  .log-info { color: #89dceb; }
+  .log-ok { color: #a6e3a1; }
+  .log-warn { color: #f9e2af; }
+  .log-error { color: #f38ba8; }
+
+  .connection-form {
+    background: #11111b;
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .form-group label {
+    font-size: 12px;
+    color: #a6adc8;
+    font-weight: 500;
+  }
+
+  .mode-switcher {
+    display: flex;
+    background: #181825;
+    border-radius: 6px;
+    padding: 3px;
+    margin-bottom: 24px;
+    width: fit-content;
+  }
+
+  .mode-option {
+    padding: 6px 16px;
+    font-size: 13px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #6c7086;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+  }
+
+  .mode-option.active {
+    background: #313244;
+    color: #cdd6f4;
+    font-weight: 500;
+  }
+
+  .help-block {
+    background: #1e3a5f;
+    border: 1px solid #89b4fa;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+
+  .help-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #89b4fa;
+    margin-bottom: 8px;
+  }
+
+  .help-text {
+    font-size: 12px;
+    color: #a6adc8;
+    line-height: 1.6;
+    font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-label">4. Settings Page — General Tab</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+    <div style="flex:1"></div>
+    <div class="activity-item active">#</div>
+  </div>
+  <div class="main-content">
+    <div class="settings-container">
+      <div class="settings-sidebar">
+        <div class="settings-nav-item active">
+          <span class="settings-nav-icon">G</span>
+          General
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">M</span>
+          Models
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">P</span>
+          Providers
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">S</span>
+          Server
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">K</span>
+          Keybinds
+        </div>
+      </div>
+      <div class="settings-content">
+        <div class="settings-header">
+          <div class="settings-title">General Settings</div>
+          <div class="settings-subtitle">Configure application behavior and preferences</div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Appearance</div>
+          <div class="form-row">
+            <div class="form-label">
+              Theme
+              <div class="form-label-desc">Select your preferred color theme</div>
+            </div>
+            <div class="form-control">
+              <select class="select">
+                <option>Catppuccin Mocha</option>
+                <option>Tokyo Night</option>
+                <option>Gruvbox Dark</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Font Size
+              <div class="form-label-desc">Adjust the UI font size</div>
+            </div>
+            <div class="form-control">
+              <select class="select">
+                <option>Small</option>
+                <option selected>Medium</option>
+                <option>Large</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Behavior</div>
+          <div class="form-row">
+            <div class="form-label">
+              Auto-allow Tools
+              <div class="form-label-desc">Automatically approve tool executions</div>
+            </div>
+            <div class="toggle"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Show Reasoning
+              <div class="form-label-desc">Display AI reasoning process</div>
+            </div>
+            <div class="toggle active"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Expand Shell by Default
+              <div class="form-label-desc">Auto-expand shell command output</div>
+            </div>
+            <div class="toggle"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Show Progress
+              <div class="form-label-desc">Display operation progress indicators</div>
+            </div>
+            <div class="toggle active"></div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Notifications</div>
+          <div class="form-row">
+            <div class="form-label">
+              Agent Notifications
+              <div class="form-label-desc">Notify when agent completes tasks</div>
+            </div>
+            <div class="toggle active"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Permission Requests
+              <div class="form-label-desc">Alert on permission requests</div>
+            </div>
+            <div class="toggle active"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Error Alerts
+              <div class="form-label-desc">Show error notifications</div>
+            </div>
+            <div class="toggle"></div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary">Save Changes</button>
+          <button class="btn btn-secondary">Reset Defaults</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-label">5. Settings Page — Providers Tab</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+    <div style="flex:1"></div>
+    <div class="activity-item active">#</div>
+  </div>
+  <div class="main-content">
+    <div class="settings-container">
+      <div class="settings-sidebar">
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">G</span>
+          General
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">M</span>
+          Models
+        </div>
+        <div class="settings-nav-item active">
+          <span class="settings-nav-icon">P</span>
+          Providers
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">S</span>
+          Server
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">K</span>
+          Keybinds
+        </div>
+      </div>
+      <div class="settings-content">
+        <div class="settings-header">
+          <div class="settings-title">Providers</div>
+          <div class="settings-subtitle">Manage AI model providers and API connections</div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Configured Providers</div>
+
+          <div class="provider-card">
+            <div class="provider-icon">A</div>
+            <div class="provider-info">
+              <div class="provider-name">Anthropic</div>
+              <div class="provider-meta">claude-3.5-sonnet · 3 models</div>
+            </div>
+            <div class="provider-status">● Connected</div>
+            <div class="provider-actions">
+              <button class="btn btn-secondary btn-sm">Edit</button>
+              <button class="btn btn-danger btn-sm">Delete</button>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-icon" style="background: #3a3520; color: #f9e2af;">X</div>
+            <div class="provider-info">
+              <div class="provider-name">Xiaomi MiMo</div>
+              <div class="provider-meta">mimo-v2.5-pro · 2 models</div>
+            </div>
+            <div class="provider-status" style="background: #3a3520; color: #f9e2af;">● Syncing</div>
+            <div class="provider-actions">
+              <button class="btn btn-secondary btn-sm">Edit</button>
+              <button class="btn btn-danger btn-sm">Delete</button>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-icon" style="background: #1a2744; color: #7aa2f7;">O</div>
+            <div class="provider-info">
+              <div class="provider-name">OpenAI</div>
+              <div class="provider-meta">gpt-4o · 2 models</div>
+            </div>
+            <div class="provider-status" style="background: #2e1a22; color: #f7768e;">● Error</div>
+            <div class="provider-actions">
+              <button class="btn btn-secondary btn-sm">Edit</button>
+              <button class="btn btn-danger btn-sm">Delete</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Add Provider</div>
+          <div class="form-row">
+            <div class="form-label">
+              Provider Name
+              <div class="form-label-desc">Display name for this provider</div>
+            </div>
+            <div class="form-control">
+              <input class="input" placeholder="e.g., My OpenAI">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              API Mode
+              <div class="form-label-desc">Select the API protocol</div>
+            </div>
+            <div class="form-control">
+              <select class="select">
+                <option>OpenAI Chat Completions</option>
+                <option>Anthropic Messages</option>
+                <option>OpenAI Responses</option>
+                <option>AWS Bedrock Converse</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Endpoint URL
+              <div class="form-label-desc">Base URL for API requests</div>
+            </div>
+            <div class="form-control">
+              <input class="input" placeholder="https://api.example.com/v1">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              API Key
+              <div class="form-label-desc">Authentication key</div>
+            </div>
+            <div class="form-control">
+              <input class="input" type="password" placeholder="sk-...">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">Add Provider</button>
+            <button class="btn btn-secondary">Test Connection</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-label">6. Runtime / Server Settings Page</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+    <div class="activity-item active">R</div>
+    <div style="flex:1"></div>
+    <div class="activity-item">#</div>
+  </div>
+  <div class="main-content">
+    <div class="settings-content">
+      <div class="runtime-header">
+        <div>
+          <div class="settings-title">本地 Runtime</div>
+          <div class="settings-subtitle">Manage your OpenCode Runtime connection</div>
+        </div>
+        <div class="provider-status">● Connected</div>
+      </div>
+
+      <div class="mode-switcher">
+        <button class="mode-option active">开发电脑 / 局域网</button>
+        <button class="mode-option">本机模式</button>
+        <button class="mode-option">远程服务器</button>
+      </div>
+
+      <div class="connection-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Host</label>
+            <input class="input" value="192.168.1.72">
+          </div>
+          <div class="form-group">
+            <label>Port</label>
+            <input class="input" value="4096">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label>Token (optional)</label>
+          <input class="input" type="password" placeholder="Enter access token">
+        </div>
+        <div class="form-actions" style="margin-top: 0; padding-top: 16px;">
+          <button class="btn btn-primary">检测</button>
+          <button class="btn btn-secondary">保存并连接</button>
+        </div>
+      </div>
+
+      <div class="help-block">
+        <div class="help-title">启动命令</div>
+        <div class="help-text">opencode serve --port 4096 --hostname 0.0.0.0</div>
+      </div>
+
+      <div class="status-cards">
+        <div class="status-card">
+          <div class="status-card-label">STATUS</div>
+          <div class="status-card-value" style="color: #a6e3a1;">Running</div>
+          <div class="status-card-sub">PID: 45231</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card-label">VERSION</div>
+          <div class="status-card-value">v2.1.0</div>
+          <div class="status-card-sub">Latest</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card-label">UPTIME</div>
+          <div class="status-card-value">2h 34m</div>
+          <div class="status-card-sub">Since 08:23</div>
+        </div>
+      </div>
+
+      <div class="log-panel">
+        <div class="log-header">
+          <span>Server Logs</span>
+          <span style="cursor: pointer;">Clear</span>
+        </div>
+        <div class="log-content">
+          <div class="log-line">
+            <span class="log-time">08:23:15</span>
+            <span class="log-info">[info]</span>
+            <span>Server started on 0.0.0.0:4096</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">08:23:16</span>
+            <span class="log-ok">[ok]</span>
+            <span>Health check endpoint ready</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">08:23:17</span>
+            <span class="log-info">[info]</span>
+            <span>Loaded 3 providers, 7 models</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">08:45:32</span>
+            <span class="log-warn">[warn]</span>
+            <span>High memory usage: 1.2GB</span>
+          </div>
+          <div class="log-line">
+            <span class="log-time">10:12:08</span>
+            <span class="log-ok">[ok]</span>
+            <span>Client connected from 192.168.1.100</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-label">7. Settings Page — Models Tab</div>
+<div class="app-frame">
+  <div class="activity-bar">
+    <div class="activity-item">></div>
+    <div class="activity-item">{}</div>
+    <div class="activity-item">~</div>
+    <div style="flex:1"></div>
+    <div class="activity-item active">#</div>
+  </div>
+  <div class="main-content">
+    <div class="settings-container">
+      <div class="settings-sidebar">
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">G</span>
+          General
+        </div>
+        <div class="settings-nav-item active">
+          <span class="settings-nav-icon">M</span>
+          Models
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">P</span>
+          Providers
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">S</span>
+          Server
+        </div>
+        <div class="settings-nav-item">
+          <span class="settings-nav-icon">K</span>
+          Keybinds
+        </div>
+      </div>
+      <div class="settings-content">
+        <div class="settings-header">
+          <div class="settings-title">Models</div>
+          <div class="settings-subtitle">Configure available AI models and their settings</div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Anthropic Models</div>
+          <div class="model-list">
+            <div class="model-item">
+              <div>
+                <div class="model-name">Claude 3.5 Sonnet</div>
+                <div class="model-id">anthropic/claude-3.5-sonnet</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span class="model-badge">Default</span>
+                <div class="toggle active"></div>
+              </div>
+            </div>
+            <div class="model-item">
+              <div>
+                <div class="model-name">Claude 3 Opus</div>
+                <div class="model-id">anthropic/claude-3-opus</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="toggle active"></div>
+              </div>
+            </div>
+            <div class="model-item">
+              <div>
+                <div class="model-name">Claude 3 Haiku</div>
+                <div class="model-id">anthropic/claude-3-haiku</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="toggle"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Xiaomi MiMo Models</div>
+          <div class="model-list">
+            <div class="model-item">
+              <div>
+                <div class="model-name">MiMo v2.5 Pro</div>
+                <div class="model-id">xiaomi-mimo/mimo-v2.5-pro</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="toggle active"></div>
+              </div>
+            </div>
+            <div class="model-item">
+              <div>
+                <div class="model-name">MiMo v2.5</div>
+                <div class="model-id">xiaomi-mimo/mimo-v2.5</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="toggle active"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Add Custom Model</div>
+          <div class="form-row">
+            <div class="form-label">
+              Model ID
+              <div class="form-label-desc">Unique identifier for the model</div>
+            </div>
+            <div class="form-control">
+              <input class="input" placeholder="provider/model-name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-label">
+              Display Name
+              <div class="form-label-desc">Human-readable name</div>
+            </div>
+            <div class="form-control">
+              <input class="input" placeholder="My Custom Model">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary">Add Model</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

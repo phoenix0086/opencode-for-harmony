@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode Harmony - Figma Design System</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=HarmonyOS+Sans:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    /* Catppuccin Mocha (Default) */
+    --bg: #1e1e2e;
+    --bg-alt: #181825;
+    --panel: #11111b;
+    --sidebar: #181825;
+    --statusbar: #11111b;
+    --composer: #1e1e2e;
+    --composer-border: #45475a;
+    --input-bg: #11111b;
+    --border: #313244;
+    --border-light: #45475a;
+    --border-focus: #89b4fa;
+    --text-primary: #cdd6f4;
+    --text-secondary: #a6adc8;
+    --text-muted: #6c7086;
+    --text-inverse: #1e1e2e;
+    --accent: #89b4fa;
+    --accent-dim: #1e3a5f;
+    --accent-text: #89b4fa;
+    --success: #a6e3a1;
+    --success-dim: #1a3a1a;
+    --warning: #f9e2af;
+    --warning-dim: #3a3520;
+    --danger: #f38ba8;
+    --danger-dim: #3a1a25;
+    --info: #89dceb;
+    --code-bg: #11111b;
+    --code-border: #313244;
+    --tool-bg: #181825;
+    --tool-border: #313244;
+    --hover: #1e1e2e;
+    --active-bg: #313244;
+    --selection: #45475a;
+    --scrollbar: #45475a;
+    --activity-bar-bg: #11111b;
+    --activity-bar-active: #89b4fa;
+    --activity-bar-inactive: #6c7086;
+  }
+
+  body {
+    font-family: 'HarmonyOS Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0f;
+    color: var(--text-primary);
+    padding: 40px;
+    line-height: 1.6;
+  }
+
+  .design-canvas {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 40px;
+  }
+
+  .section {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 32px;
+  }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::before {
+    content: '';
+    width: 4px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* Color Palette Grid */
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 16px;
+  }
+
+  .color-swatch {
+    background: var(--panel);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .color-preview {
+    height: 80px;
+    width: 100%;
+  }
+
+  .color-info {
+    padding: 12px;
+  }
+
+  .color-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .color-hex {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Typography Scale */
+  .type-scale {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .type-row {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .type-label {
+    width: 80px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .type-sample {
+    flex: 1;
+    color: var(--text-primary);
+  }
+
+  .type-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Spacing Scale */
+  .spacing-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .spacing-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .spacing-label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .spacing-bar {
+    height: 24px;
+    background: var(--accent);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    font-size: 11px;
+    color: var(--text-inverse);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Component Library */
+  .component-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+
+  .component-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .component-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    gap: 6px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--text-inverse);
+  }
+
+  .btn-secondary {
+    background: var(--active-bg);
+    color: var(--text-primary);
+  }
+
+  .btn-danger {
+    background: var(--danger-dim);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  /* Inputs */
+  .input {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+    outline: none;
+  }
+
+  .input:focus {
+    border-color: var(--border-focus);
+  }
+
+  /* Toggle */
+  .toggle {
+    width: 40px;
+    height: 22px;
+    background: var(--border);
+    border-radius: 11px;
+    position: relative;
+    cursor: pointer;
+  }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: var(--text-primary);
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s;
+  }
+
+  .toggle.active {
+    background: var(--accent);
+  }
+
+  .toggle.active::after {
+    transform: translateX(18px);
+    background: white;
+  }
+
+  /* Status Badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .badge-success {
+    background: var(--success-dim);
+    color: var(--success);
+  }
+
+  .badge-warning {
+    background: var(--warning-dim);
+    color: var(--warning);
+  }
+
+  .badge-danger {
+    background: var(--danger-dim);
+    color: var(--danger);
+  }
+
+  .badge-info {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  /* Message Bubble */
+  .msg-user {
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 12px 12px 4px 12px;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-size: 14px;
+    max-width: 80%;
+    align-self: flex-end;
+  }
+
+  .msg-assistant {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px 12px 12px 4px;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    font-size: 14px;
+    max-width: 80%;
+  }
+
+  /* Activity Bar Item */
+  .activity-item {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--activity-bar-inactive);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .activity-item.active {
+    color: var(--activity-bar-active);
+    background: var(--bg);
+  }
+
+  .activity-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* Session Item */
+  .session-item {
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .session-item:hover {
+    background: var(--hover);
+  }
+
+  .session-item.active {
+    background: var(--active-bg);
+  }
+
+  .session-title {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .session-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Code Block */
+  .code-block {
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .code-header {
+    background: var(--bg-alt);
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .code-content {
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+
+  .code-keyword { color: #cba6f7; }
+  .code-string { color: #a6e3a1; }
+  .code-function { color: #89b4fa; }
+  .code-comment { color: #6c7086; }
+
+  /* Tool Card */
+  .tool-card {
+    background: var(--tool-bg);
+    border: 1px solid var(--tool-border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .tool-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .tool-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--accent-dim);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-size: 14px;
+  }
+
+  .tool-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .tool-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* Layout Dims */
+  .dim-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .dim-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .dim-value {
+    font-size: 13px;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="design-canvas">
+  <h1>OpenCode for Harmony</h1>
+  <p class="subtitle">Figma Design System & UI Kit — Catppuccin Mocha Theme</p>
+
+  <!-- Color Palette -->
+  <div class="section">
+    <div class="section-title">Color Palette</div>
+    <div class="color-grid">
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #1e1e2e;"></div>
+        <div class="color-info">
+          <div class="color-name">BG</div>
+          <div class="color-hex">#1e1e2e</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #181825;"></div>
+        <div class="color-info">
+          <div class="color-name">BG ALT</div>
+          <div class="color-hex">#181825</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #11111b;"></div>
+        <div class="color-info">
+          <div class="color-name">PANEL</div>
+          <div class="color-hex">#11111b</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #313244;"></div>
+        <div class="color-info">
+          <div class="color-name">BORDER</div>
+          <div class="color-hex">#313244</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #cdd6f4;"></div>
+        <div class="color-info">
+          <div class="color-name">TEXT PRIMARY</div>
+          <div class="color-hex">#cdd6f4</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #a6adc8;"></div>
+        <div class="color-info">
+          <div class="color-name">TEXT SECONDARY</div>
+          <div class="color-hex">#a6adc8</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #89b4fa;"></div>
+        <div class="color-info">
+          <div class="color-name">ACCENT</div>
+          <div class="color-hex">#89b4fa</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #a6e3a1;"></div>
+        <div class="color-info">
+          <div class="color-name">SUCCESS</div>
+          <div class="color-hex">#a6e3a1</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #f9e2af;"></div>
+        <div class="color-info">
+          <div class="color-name">WARNING</div>
+          <div class="color-hex">#f9e2af</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: #f38ba8;"></div>
+        <div class="color-info">
+          <div class="color-name">DANGER</div>
+          <div class="color-hex">#f38ba8</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Typography -->
+  <div class="section">
+    <div class="section-title">Typography</div>
+    <div class="type-scale">
+      <div class="type-row">
+        <div class="type-label">H1</div>
+        <div class="type-sample" style="font-size: 28px; font-weight: 700;">本地 Runtime</div>
+        <div class="type-meta">28px / Bold</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">H2</div>
+        <div class="type-sample" style="font-size: 20px; font-weight: 600;">Settings Panel</div>
+        <div class="type-meta">20px / SemiBold</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">Body</div>
+        <div class="type-sample" style="font-size: 14px;">Message content and body text</div>
+        <div class="type-meta">14px / Regular</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">Small</div>
+        <div class="type-sample" style="font-size: 12px;">Meta information and labels</div>
+        <div class="type-meta">12px / Regular</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">Mono</div>
+        <div class="type-sample" style="font-size: 13px; font-family: 'JetBrains Mono', monospace;">const config = new LocalServerConfig()</div>
+        <div class="type-meta">13px / Mono</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spacing -->
+  <div class="section">
+    <div class="section-title">Spacing Scale</div>
+    <div class="spacing-grid">
+      <div class="spacing-row">
+        <div class="spacing-label">xs</div>
+        <div class="spacing-bar" style="width: 8px;">2px</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">sm</div>
+        <div class="spacing-bar" style="width: 16px;">4px</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">md</div>
+        <div class="spacing-bar" style="width: 32px;">8px</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">lg</div>
+        <div class="spacing-bar" style="width: 48px;">12px</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">xl</div>
+        <div class="spacing-bar" style="width: 64px;">16px</div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-label">xxl</div>
+        <div class="spacing-bar" style="width: 96px;">24px</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layout Dimensions -->
+  <div class="section">
+    <div class="section-title">Layout Dimensions</div>
+    <div class="component-grid">
+      <div class="dim-box">
+        <span class="dim-label">Activity Bar Width</span>
+        <span class="dim-value">48px</span>
+      </div>
+      <div class="dim-box">
+        <span class="dim-label">Sidebar Width</span>
+        <span class="dim-value">240px</span>
+      </div>
+      <div class="dim-box">
+        <span class="dim-label">Status Bar Height</span>
+        <span class="dim-value">28px</span>
+      </div>
+      <div class="dim-box">
+        <span class="dim-label">Right Panel Width</span>
+        <span class="dim-value">300px</span>
+      </div>
+      <div class="dim-box">
+        <span class="dim-label">Composer Min Height</span>
+        <span class="dim-value">52px</span>
+      </div>
+      <div class="dim-box">
+        <span class="dim-label">Border Radius (sm)</span>
+        <span class="dim-value">2px</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Components -->
+  <div class="section">
+    <div class="section-title">Component Library</div>
+    <div class="component-grid">
+      <!-- Buttons -->
+      <div class="component-card">
+        <div class="component-name">Buttons</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button class="btn btn-primary">Primary</button>
+          <button class="btn btn-secondary">Secondary</button>
+          <button class="btn btn-danger">Danger</button>
+          <button class="btn btn-ghost">Ghost</button>
+        </div>
+      </div>
+
+      <!-- Inputs -->
+      <div class="component-card">
+        <div class="component-name">Inputs</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <input class="input" placeholder="Placeholder text..." value="">
+          <input class="input" value="Focused input" style="border-color: var(--border-focus);">
+          <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+            <div class="toggle active"></div>
+            <span style="font-size: 13px; color: var(--text-secondary);">Toggle On</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Badges -->
+      <div class="component-card">
+        <div class="component-name">Status Badges</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <span class="badge badge-success">● Connected</span>
+          <span class="badge badge-warning">● Connecting</span>
+          <span class="badge badge-danger">● Error</span>
+          <span class="badge badge-info">● Idle</span>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="component-card">
+        <div class="component-name">Message Bubbles</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="msg-user">Hello! Can you help me with this code?</div>
+          <div class="msg-assistant">Sure! I'd be happy to help. What are you working on?</div>
+        </div>
+      </div>
+
+      <!-- Activity Bar -->
+      <div class="component-card">
+        <div class="component-name">Activity Bar</div>
+        <div style="display: flex; flex-direction: column; background: var(--activity-bar-bg); border-radius: 6px; width: 48px;">
+          <div class="activity-item active">></div>
+          <div class="activity-item">{}</div>
+          <div class="activity-item">~</div>
+          <div class="activity-item">P</div>
+          <div class="activity-item">R</div>
+        </div>
+      </div>
+
+      <!-- Session List -->
+      <div class="component-card">
+        <div class="component-name">Session Items</div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div class="session-item active">
+            <div class="session-title">API Integration</div>
+            <div class="session-meta">2 min ago</div>
+          </div>
+          <div class="session-item">
+            <div class="session-title">Bug Fix #234</div>
+            <div class="session-meta">1 hr ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Code Block -->
+      <div class="component-card" style="grid-column: span 2;">
+        <div class="component-name">Code Block</div>
+        <div class="code-block">
+          <div class="code-header">
+            <span>typescript</span>
+            <span style="cursor: pointer;">Copy</span>
+          </div>
+          <div class="code-content">
+            <span class="code-keyword">async function</span> <span class="code-function">connect</span>() {<br>
+            &nbsp;&nbsp;<span class="code-keyword">const</span> status = <span class="code-keyword">await</span> <span class="code-function">checkHealth</span>();<br>
+            &nbsp;&nbsp;<span class="code-keyword">return</span> status === <span class="code-string">'ok'</span>;<br>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Tool Card -->
+      <div class="component-card">
+        <div class="component-name">Tool Card</div>
+        <div class="tool-card">
+          <div class="tool-header">
+            <div class="tool-icon">$</div>
+            <div class="tool-name">Shell Command</div>
+          </div>
+          <div class="tool-desc">Execute shell commands in the project directory</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
