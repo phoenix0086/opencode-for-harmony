@@ -409,10 +409,11 @@ export class MainViewModel {
       req.parts = [part]
 
       // Send prompt via adapter (v2: /api/session/:id/prompt, legacy: /session/:id/prompt_async)
-      const promptResult = await this.apiAdapter.sendPrompt(sessionId, {
-        text: text,
-        model: this.selectedModel
-      })
+      const promptInput = new PromptInput();
+      promptInput.text = text;
+      promptInput.model = this.selectedModel;
+      promptInput.agent = 'build';
+      const promptResult = await this.apiAdapter.sendPrompt(sessionId, promptInput);
       if (!promptResult.ok) {
         assistantMsg.setError(`prompt 发送失败：${promptResult.error}`)
         this.messages = [...this.messages]

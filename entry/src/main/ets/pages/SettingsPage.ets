@@ -77,19 +77,19 @@ export struct SettingsPage {
               { id: 'providers', label: 'Providers', icon: 'P' },
               { id: 'models', label: 'Models', icon: 'M' }
             ],
-            (tab) => {
+            (tab: Record<string, string>) => {
               Row() {
-                Text(tab.icon)
+                Text(tab['icon'])
                   .fontSize(13)
                   .fontFamily(Theme.FONT_MONO)
-                  .fontColor(this.activeTab === tab.id ? Theme.ACCENT : Theme.TEXT_MUTED)
+                  .fontColor(this.activeTab === tab['id'] ? Theme.ACCENT : Theme.TEXT_MUTED)
                   .width(20)
 
-                Text(tab.label)
+                Text(tab['label'])
                   .fontSize(13)
                   .fontFamily(Theme.FONT_MONO)
-                  .fontWeight(this.activeTab === tab.id ? FontWeight.Bold : FontWeight.Normal)
-                  .fontColor(this.activeTab === tab.id ? Theme.ACCENT : Theme.TEXT_MUTED)
+                  .fontWeight(this.activeTab === tab['id'] ? FontWeight.Bold : FontWeight.Normal)
+                  .fontColor(this.activeTab === tab['id'] ? Theme.ACCENT : Theme.TEXT_MUTED)
                   .layoutWeight(1)
               }
               .width('100%')
@@ -99,15 +99,15 @@ export struct SettingsPage {
                 top: Theme.sp.lg,
                 bottom: Theme.sp.lg
               })
-              .backgroundColor(this.activeTab === tab.id ? Theme.ACTIVE_BG : 'transparent')
+              .backgroundColor(this.activeTab === tab['id'] ? Theme.ACTIVE_BG : 'transparent')
               .borderRadius(Theme.rd.md)
               .borderWidth({ left: 3 })
-              .borderColor(this.activeTab === tab.id ? Theme.ACCENT : 'transparent')
+              .borderColor(this.activeTab === tab['id'] ? Theme.ACCENT : 'transparent')
               .onClick(() => {
-                this.activeTab = tab.id
+                this.activeTab = tab['id']
               })
             },
-            (tab) => tab.id
+            (tab: Record<string, string>) => tab['id']
           )
           Blank()
         }
