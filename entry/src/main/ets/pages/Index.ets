@@ -1,6 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
-import { MainViewModel, PendingPermission } from '../viewmodel/MainViewModel';
+import { MainViewModel, PendingPermission, PendingQuestion, QuestionOption } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
@@ -1014,6 +1014,79 @@ struct Index {
             .borderColor('#FFB30040')
             .margin({ left: 16, right: 16, bottom: 8 })
           }, (perm: PendingPermission) => perm.id)
+        }
+        .width('100%')
+      }
+
+      // Question dock — show pending questions
+      if (this.viewModel.pendingQuestions.length > 0) {
+        Column() {
+          ForEach(this.viewModel.pendingQuestions, (q: PendingQuestion) => {
+            Column() {
+              Row() {
+                Text('❓ 问题')
+                  .fontSize(13)
+                  .fontColor('#007DFF')
+                  .fontWeight(FontWeight.Bold)
+                Blank()
+              }
+              .width('100%')
+              .margin({ bottom: 6 })
+
+              if (q.header.length > 0) {
+                Text(q.header)
+                  .fontSize(14)
+                  .fontColor('#FFFFFF')
+                  .fontWeight(FontWeight.Medium)
+                  .width('100%')
+                  .margin({ bottom: 4 })
+              }
+
+              Text(q.question)
+                .fontSize(13)
+                .fontColor('#E0E0E0')
+                .width('100%')
+                .margin({ bottom: 8 })
+
+              // Options
+              ForEach(q.options, (opt: QuestionOption) => {
+                Row() {
+                  Button(opt.label)
+                    .fontSize(13)
+                    .height(32)
+                    .backgroundColor('#007DFF')
+                    .fontColor('#FFFFFF')
+                    .borderRadius(6)
+                    .onClick(() => { this.viewModel.replyQuestion(q.id, [opt.id]) })
+                  if (opt.description.length > 0) {
+                    Text(opt.description)
+                      .fontSize(12)
+                      .fontColor('#AAAAAA')
+                      .margin({ left: 8 })
+                  }
+                }
+                .width('100%')
+                .margin({ bottom: 4 })
+              }, (opt: QuestionOption) => opt.id)
+
+              // Reject button
+              Button('拒绝')
+                .fontSize(12)
+                .height(28)
+                .backgroundColor('#2D2D2D')
+                .fontColor('#FF5252')
+                .borderRadius(6)
+                .margin({ top: 4 })
+                .onClick(() => { this.viewModel.rejectQuestion(q.id) })
+            }
+            .width('100%')
+            .padding(12)
+            .backgroundColor('#001A1A')
+            .borderRadius(8)
+            .borderWidth(1)
+            .borderColor('#007DFF40')
+            .margin({ left: 16, right: 16, bottom: 8 })
+          }, (q: PendingQuestion) => q.id)
         }
         .width('100%')
       }

@@ -29,6 +29,7 @@ export class MainViewModel {
   serverLogs: string[] = [];
   serverMode: ServerMode = 'unknown';
   pendingPermissions: PendingPermission[] = [] // 待审批的权限请求
+  pendingQuestions: PendingQuestion[] = [] // 待回答的问题
   private healthTimer: number = -1;
   private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
   private activeTurnId: string = '' // 当前轮次 ID，防止上一轮迟到的 assistant 被当成本轮回复
@@ -1011,8 +1012,67 @@ export class MainViewModel {
    */
   private async checkAndLoadPermissions(): Promise<void> {
     await this.loadPendingPermissions()
+    await this.loadPendingQuestions()
     if (this.pendingPermissions.length > 0) {
       Logger.info(`Found ${this.pendingPermissions.length} pending permission(s)`)
+    }
+    if (this.pendingQuestions.length > 0) {
+      Logger.info(`Found ${this.pendingQuestions.length} pending question(s)`)
+    }
+  }
+
+  // ══════════ Question Handling ══════════
+
+  async loadPendingQuestions(): Promise<void> {
+    try {
+      const raw = await this.apiAdapter.listQuestions(this.currentSessionId)
+      this.pendingQuestions = raw.map((item: Object) => {
+        const r = item as Record<string, Object>
+        const q = new PendingQuestion()
+        q.id = (r['id'] as string) || ''
+        q.sessionID = (r['sessionID'] as string) || this.currentSessionId
+        q.header = (r['header'] as string) || ''
+        q.question = (r['question'] as string) || ''
+        q.multiSelect = r['multiSelect'] === true
+        q.status = (r['status'] as string) || ''
+        const opts = r['options'] as Object[] | undefined
+        if (opts) {
+          for (const o of opts) {
+            const opt = o as Record<string, Object>
+            q.options.push({
+              id: (opt['id'] as string) || '',
+              label: (opt['label'] as string) || '',
+              description: (opt['description'] as string) || ''
+            })
+          }
+        }
+        return q
+      })
+    } catch (e) {
+      Logger.warn(`loadPendingQuestions failed: ${errStr(e)}`)
+    }
+  }
+
+  async replyQuestion(requestId: string, optionIDs: string[]): Promise<void> {
+    try {
+      await this.apiAdapter.replyQuestion(this.currentSessionId, requestId, optionIDs)
+      this.pendingQuestions = this.pendingQuestions.filter(q => q.id !== requestId)
+      this.messages = [...this.messages, ChatMessage.createSystemMessage('问题已回答')]
+      await this.loadMessages(this.currentSessionId)
+    } catch (e) {
+      Logger.error(`replyQuestion failed: ${errStr(e)}`)
+      this.messages = [...this.messages, ChatMessage.createErrorMessage(`回答失败：${errStr(e)}`)]
+    }
+  }
+
+  async rejectQuestion(requestId: string): Promise<void> {
+    try {
+      await this.apiAdapter.rejectQuestion(this.currentSessionId, requestId)
+      this.pendingQuestions = this.pendingQuestions.filter(q => q.id !== requestId)
+      this.messages = [...this.messages, ChatMessage.createSystemMessage('问题已拒绝')]
+      await this.loadMessages(this.currentSessionId)
+    } catch (e) {
+      Logger.error(`rejectQuestion failed: ${errStr(e)}`)
     }
   }
 }
@@ -1025,4 +1085,21 @@ export class PendingPermission {
   title: string = ''
   description: string = ''
   riskLevel: string = ''
+}
+
+/** Pending question model */
+export class PendingQuestion {
+  id: string = ''
+  sessionID: string = ''
+  header: string = ''
+  question: string = ''
+  multiSelect: boolean = false
+  status: string = ''
+  options: QuestionOption[] = []
+}
+
+export class QuestionOption {
+  id: string = ''
+  label: string = ''
+  description: string = ''
 }
