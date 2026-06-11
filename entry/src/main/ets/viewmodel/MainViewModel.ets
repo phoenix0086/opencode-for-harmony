@@ -55,6 +55,15 @@ export class MainViewModel {
       try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${String(e)}`); }
       await this.loadSessions(); await this.loadProviders();
       await this.autoSelectModel();
+      // Sync selected model to Runtime after connection
+      if (this.selectedModel.length > 0) {
+        try {
+          await this.syncModelToRuntime()
+          Logger.info(`Model synced to Runtime on connect: ${this.selectedModel}`)
+        } catch (e) {
+          Logger.warn(`Failed to sync model on connect: ${MainViewModel.errStr(e)}`)
+        }
+      }
       if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
       this.startHealthCheck();
     } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = MainViewModel.errStr(err); Logger.error(`Connection failed: ${MainViewModel.errStr(err)}`); }
@@ -444,7 +453,7 @@ export class MainViewModel {
   }
   async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const old = this.currentSessionId; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${String(err)}`; } finally { if (old.length > 0) this.currentSessionId = old; } }
 
-  private async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
+  async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
   private async getRawMessages(sessionId: string): Promise<Object[]> { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); return this.extractArray(raw, 'messages', 'data'); }
   private async waitForExecution(sessionId: string, beforeCount: number, maxAttempts: number = Constants.POLL_MAX_ATTEMPTS, intervalMs: number = Constants.POLL_INTERVAL_MS): Promise<ExecutionPollResult> {
     const r = new ExecutionPollResult();

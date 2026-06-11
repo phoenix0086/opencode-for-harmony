@@ -997,6 +997,7 @@ struct Index {
                         .onClick(() => {
                           this.viewModel.selectedModel = `${provider.id}/${modelId}`
                           this.viewModel.saveServerConfig()
+                          this.viewModel.syncModelToRuntime()
                         })
                     }, (modelId: string) => `${provider.id}/${modelId}`)
                   }
@@ -1055,8 +1056,9 @@ struct Index {
         .fontColor('#FFFFFF')
         .borderRadius(8)
         .margin({ top: 16 })
-        .onClick(() => {
-          this.viewModel.saveServerConfig()
+        .onClick(async () => {
+          await this.viewModel.saveServerConfig()
+          await this.viewModel.syncModelToRuntime()
         })
 
       Button('从 Provider 页面选择模型')
