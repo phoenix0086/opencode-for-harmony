@@ -91,14 +91,14 @@ int ProcessManager::startProcess(const std::string& command,
         processes_[capturedPid] = info;
         logCallbacks_[capturedPid] = logCallback;
         logLines_[capturedPid] = std::vector<std::string>();
+
+        readerThreads_[capturedPid] = std::thread(
+            &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
+        readerThreads_[capturedPid].detach();
+
+        waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
+        waitThreads_[capturedPid].detach();
     }
-
-    readerThreads_[capturedPid] = std::thread(
-        &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
-    readerThreads_[capturedPid].detach();
-
-    waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
-    waitThreads_[capturedPid].detach();
 
     appendLog(capturedPid, "[native] process started");
     OH_LOG_INFO(LOG_APP, "Started process pid=%{public}d cmd=%{public}s", capturedPid, command.c_str());
@@ -187,14 +187,14 @@ int ProcessManager::startProcessEx(const std::string& command,
         processes_[capturedPid] = info;
         logCallbacks_[capturedPid] = logCallback;
         logLines_[capturedPid] = std::vector<std::string>();
+
+        readerThreads_[capturedPid] = std::thread(
+            &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
+        readerThreads_[capturedPid].detach();
+
+        waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
+        waitThreads_[capturedPid].detach();
     }
-
-    readerThreads_[capturedPid] = std::thread(
-        &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
-    readerThreads_[capturedPid].detach();
-
-    waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
-    waitThreads_[capturedPid].detach();
 
     appendLog(capturedPid, "[native] process started (cwd=" + (cwd.empty() ? "(inherited)" : cwd) + ")");
     OH_LOG_INFO(LOG_APP, "Started process pid=%{public}d cmd=%{public}s cwd=%{public}s",

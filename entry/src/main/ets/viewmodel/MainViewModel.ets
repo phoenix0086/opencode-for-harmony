@@ -57,7 +57,7 @@ export class MainViewModel {
       await this.autoSelectModel();
       if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
       this.startHealthCheck();
-    } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = String(err); Logger.error(`Connection failed: ${String(err)}`); }
+    } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = MainViewModel.errStr(err); Logger.error(`Connection failed: ${MainViewModel.errStr(err)}`); }
   }
   disconnect(): void { this.wsService.disconnect(); this.stopHealthCheck(); this.connectionStatus = ConnectionStatus.Disconnected; this.serverInfo.connected = false; }
 
@@ -102,11 +102,11 @@ export class MainViewModel {
     } catch (e) {
       // 外层兜底: 任何 autoStart 内部抛出的异常(包括 TypeError: processStart of undefined,
       // 老的 HAP 没有 dev-pc 短路)都被这里接住
-      const msg = `autoStart 抛出异常: ${String(e)}`
+      const msg = `autoStart 抛出异常: ${MainViewModel.errStr(e)}`
       Logger.error(msg)
       this.serverStatusMessage = msg
       this.errorMessage = msg
-      this.serverLogs = [`[fatal] ${String(e)}`]
+      this.serverLogs = [`[fatal] ${MainViewModel.errStr(e)}`]
 
       // 异常时也试一次 health check,因为 Runtime 可能是 manual 启动的
       try {
@@ -264,52 +264,41 @@ export class MainViewModel {
         await this.syncModelToRuntime();
         Logger.info(`Runtime model synced: ${this.selectedModel}`);
       } catch (syncErr) {
-        const msg = `同步 Runtime model 失败：${String(syncErr)}`
+        const msg = `同步 Runtime model 失败：${MainViewModel.errStr(syncErr)}`
         assistantMsg.setError(msg)
         this.messages = [...this.messages]
         this.errorMessage = msg
         return
       }
 
-      // Read config for debug + check provider connectivity
-      try {
-        const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
-        const runtimeModel = config['model'] as string || ''
-        Logger.info(`Runtime config before prompt: model=${runtimeModel}`)
-
-        // Check if the provider for the configured model is connected
-        if (runtimeModel.length > 0 && runtimeModel.includes('/')) {
-          const providerId = runtimeModel.split('/')[0]
-          try {
-            const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER);
-            const connected = providerData['connected']
-            const connectedList: string[] = []
-            if (Array.isArray(connected)) {
-              for (const item of connected) {
-                if (typeof item === 'string') connectedList.push(item)
-                else if (item && typeof item === 'object') {
-                  const id = (item as Record<string, Object>)['id'] as string || ''
-                  if (id.length > 0) connectedList.push(id)
-                }
-              }
-            }
-            if (connectedList.length > 0 && !connectedList.includes(providerId)) {
+      // Check if the provider for the selected model is connected
+      if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
+        const providerId = this.selectedModel.split('/')[0]
+        try {
+          const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER);
+          const connectedList = this.extractConnectedProviderIds(providerData['connected'])
+          if (connectedList.length > 0 && !connectedList.includes(providerId)) {
+            // Check if provider is disabled
+            let isDisabled = false
+            try {
+              const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
               const disabled = config['disabled_providers']
-              const isDisabled = Array.isArray(disabled) && (disabled as Object[]).includes(providerId as Object)
-              const hint = isDisabled
-                ? `Provider "${providerId}" 已被禁用。请在 OpenCode 配置中启用该 provider，或切换到已连接的 provider 的模型。`
-                : `Provider "${providerId}" 未连接。当前已连接：${connectedList.join(', ')}。请连接该 provider 或切换模型。`
-              assistantMsg.setError(`模型 ${runtimeModel} 的 provider 不可用。\n${hint}`)
-              this.messages = [...this.messages]
-              this.errorMessage = `Provider ${providerId} not connected`
-              return
-            }
-          } catch (providerErr) {
-            Logger.warn(`Failed to check provider status: ${String(providerErr)}`)
+              isDisabled = Array.isArray(disabled) && (disabled as Object[]).some((d: Object) => {
+                return (typeof d === 'string' && d === providerId) ||
+                  (d && typeof d === 'object' && (d as Record<string, Object>)['id'] === providerId)
+              })
+            } catch (_) {}
+            const hint = isDisabled
+              ? `Provider "${providerId}" 已被禁用。请在 OpenCode 配置中启用该 provider，或切换到已连接的 provider 的模型。`
+              : `Provider "${providerId}" 未连接。当前已连接：${connectedList.join(', ')}。请连接该 provider 或切换模型。`
+            assistantMsg.setError(`模型 ${this.selectedModel} 的 provider 不可用。\n${hint}`)
+            this.messages = [...this.messages]
+            this.errorMessage = `Provider ${providerId} not connected`
+            return
           }
+        } catch (providerErr) {
+          Logger.warn(`Failed to check provider status: ${MainViewModel.errStr(providerErr)}`)
         }
-      } catch (configErr) {
-        Logger.warn(`Failed to read Runtime config: ${String(configErr)}`);
       }
 
       const before = await this.getRawMessages(sessionId); const beforeCount = before.length;
@@ -321,7 +310,7 @@ export class MainViewModel {
         promptSent = true
         Logger.info(`prompt_async sent session=${sessionId}`)
       } catch (promptErr) {
-        promptError = String(promptErr)
+        promptError = MainViewModel.errStr(promptErr)
         Logger.error(`prompt_async failed: ${promptError}`)
       }
       if (!promptSent) {
@@ -334,7 +323,7 @@ export class MainViewModel {
       const poll = await this.waitForExecution(sessionId, beforeCount); await this.loadMessages(sessionId);
       if (!poll.ok) { const e = ChatMessage.createErrorMessage(poll.message); e.sessionId = sessionId; this.messages = [...this.messages, e]; this.errorMessage = poll.message; }
       await this.loadSessions();
-    } catch (err) { assistantMsg.setError(String(err)); this.errorMessage = String(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${String(err)}`); }
+    } catch (err) { assistantMsg.setError(MainViewModel.errStr(err)); this.errorMessage = MainViewModel.errStr(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${MainViewModel.errStr(err)}`); }
     finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); }
   }
   async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${String(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
@@ -346,27 +335,16 @@ export class MainViewModel {
    */
   async autoSelectModel(): Promise<void> {
     try {
-      // Check if current model's provider is connected
       if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
         const currentProvider = this.selectedModel.split('/')[0]
         const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
-        const connected = providerData['connected']
-        const connectedList: string[] = []
-        if (Array.isArray(connected)) {
-          for (const item of connected) {
-            if (typeof item === 'string') connectedList.push(item)
-            else if (item && typeof item === 'object') {
-              const id = (item as Record<string, Object>)['id'] as string || ''
-              if (id.length > 0) connectedList.push(id)
-            }
-          }
-        }
+        const connectedList = this.extractConnectedProviderIds(providerData['connected'])
+
         if (connectedList.includes(currentProvider)) {
           Logger.info(`autoSelectModel: current provider "${currentProvider}" is connected, keeping ${this.selectedModel}`)
           return
         }
 
-        // Current provider not connected — find a connected provider with models
         Logger.warn(`autoSelectModel: current provider "${currentProvider}" not connected, searching for alternative`)
 
         const all = providerData['all']
@@ -399,13 +377,17 @@ export class MainViewModel {
           this.selectedModel = fallbackModel
           Logger.info(`autoSelectModel: switched to ${fallbackModel}`)
           await this.saveServerConfig()
-          await this.syncModelToRuntime()
+          try {
+            await this.syncModelToRuntime()
+          } catch (syncErr) {
+            Logger.error(`autoSelectModel: syncModelToRuntime failed: ${MainViewModel.errStr(syncErr)}`)
+          }
         } else {
           Logger.warn('autoSelectModel: no connected provider with models found')
         }
       }
     } catch (e) {
-      Logger.warn(`autoSelectModel failed: ${String(e)}`)
+      Logger.warn(`autoSelectModel failed: ${MainViewModel.errStr(e)}`)
     }
   }
 
@@ -421,7 +403,7 @@ export class MainViewModel {
       const health = await this.httpService.get<Record<string, Object>>(Constants.API_HEALTH);
       out.push(`[health] ${JSON.stringify(health)}`)
     } catch (e) {
-      out.push(`[health error] ${String(e)}`)
+      out.push(`[health error] ${MainViewModel.errStr(e)}`)
     }
 
     try {
@@ -432,7 +414,7 @@ export class MainViewModel {
       const providers = config['provider']
       if (providers) out.push(`[config.provider keys] ${Object.keys(providers as Record<string, Object>)}`)
     } catch (e) {
-      out.push(`[config error] ${String(e)}`)
+      out.push(`[config error] ${MainViewModel.errStr(e)}`)
     }
 
     try {
@@ -445,7 +427,7 @@ export class MainViewModel {
         out.push(`[provider.all ids] ${JSON.stringify(ids)}`)
       }
     } catch (e) {
-      out.push(`[provider error] ${String(e)}`)
+      out.push(`[provider error] ${MainViewModel.errStr(e)}`)
     }
 
     try {
@@ -453,7 +435,7 @@ export class MainViewModel {
       const arr = this.extractArray(sessions, 'sessions', 'data')
       out.push(`[sessions count] ${arr.length}`)
     } catch (e) {
-      out.push(`[session error] ${String(e)}`)
+      out.push(`[session error] ${MainViewModel.errStr(e)}`)
     }
 
     return out.join('\n')
@@ -481,7 +463,8 @@ export class MainViewModel {
         }
 
         // Condition 2: existing assistant message got content (agent updating in-place)
-        for (let j=0;j<raw.length;j++){
+        // ONLY check messages at or after beforeCount to avoid matching stale responses
+        for (let j=beforeCount;j<raw.length;j++){
           const item=raw[j] as Record<string,Object>;
           const info=item['info'] as Record<string,Object>;
           const role=info?(info['role'] as string):'';
@@ -493,9 +476,10 @@ export class MainViewModel {
           }
         }
 
-        // Condition 3: any new part appeared at all (tool, step, reasoning, etc.)
-        if(raw.length>=beforeCount){
-          const s=this.inspectMessages(raw,0);
+        // Condition 3: any new part appeared (tool, step, reasoning, etc.)
+        // ONLY check messages at or after beforeCount
+        if(raw.length>beforeCount){
+          const s=this.inspectMessages(raw,beforeCount);
           if(s.hasTool||s.hasPermission||s.hasError){
             r.hasTool=s.hasTool; r.hasPermission=s.hasPermission; r.hasError=s.hasError;
             if(s.hasError){r.ok=false; r.message=s.errorText.length>0?s.errorText:'Runtime 返回错误。'; return r;}
@@ -504,7 +488,7 @@ export class MainViewModel {
           }
         }
       } catch(err){
-        r.ok=false; r.message=`轮询消息失败：${String(err)}`; return r;
+        r.ok=false; r.message=`轮询消息失败：${MainViewModel.errStr(err)}`; return r;
       }
     }
     r.timedOut=true;
@@ -514,7 +498,7 @@ export class MainViewModel {
       const raw = await this.getRawMessages(sessionId);
       rawText = JSON.stringify(raw).slice(0, 2000);
     } catch (e) {
-      rawText = `读取 raw messages 失败：${String(e)}`;
+      rawText = `读取 raw messages 失败：${MainViewModel.errStr(e)}`;
     }
     r.message = `等待 assistant/tool/error/permission 超时。\n当前模型：${this.selectedModel}\nmessageCount=${r.messageCount}\n\nRaw messages preview:\n${rawText}`;
     return r;
@@ -646,4 +630,12 @@ export class MainViewModel {
   private onWsStatus(connected:boolean): void { Logger.info(`WebSocket status: ${connected?'connected':'disconnected'}`); }
   private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer=setInterval(()=>{ this.httpService.checkHealth().then((ok:boolean)=>{ this.serverInfo.healthOk=ok; if(!ok&&this.connectionStatus===ConnectionStatus.Connected){ this.connectionStatus=ConnectionStatus.Error; this.errorMessage='Runtime 健康检查失败，连接已断开。'; Logger.warn('Health check failed, marking disconnected'); } }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as number; }
   private stopHealthCheck(): void { if(this.healthTimer>=0){ clearInterval(this.healthTimer); this.healthTimer=-1; } }
+
+  /** Safe error-to-string for ArkTS (String(e) returns "[object Object]" for Error objects) */
+  private static errStr(e: Object): string {
+    if (typeof e === 'string') return e
+    const rec = e as Record<string, Object>
+    if (typeof rec['message'] === 'string') return rec['message'] as string
+    try { return JSON.stringify(e) } catch (_) { return String(e) }
+  }
 }

@@ -177,14 +177,7 @@ export class OpenCodeClient {
     } catch (e) {
       const r = new HealthResult()
       r.ok = false
-      // ArkTS: String(e) may return "[object Object]" for some error types
-      if (typeof e === 'string') {
-        r.error = e
-      } else if (e instanceof Error) {
-        r.error = e.message
-      } else {
-        try { r.error = JSON.stringify(e) } catch { r.error = String(e) }
-      }
+      r.error = OpenCodeClient.errorToString(e)
       return r
     }
   }
@@ -683,6 +676,18 @@ export class OpenCodeClient {
 
   getAuthHeaders(): Record<string, string> {
     return this.buildHeaders()
+  }
+
+  /**
+   * Safe error-to-string conversion for ArkTS.
+   * String(e) returns "[object Object]" for Error objects in ArkTS.
+   * instanceof may fail across module boundaries.
+   */
+  static errorToString(e: Object): string {
+    if (typeof e === 'string') return e
+    const rec = e as Record<string, Object>
+    if (typeof rec['message'] === 'string') return rec['message'] as string
+    try { return JSON.stringify(e) } catch (_) { return String(e) }
   }
 }
 

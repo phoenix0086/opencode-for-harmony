@@ -135,6 +135,7 @@ export struct AppShell {
   onNewTab: () => void = () => {}
   onReconnect: () => void = () => {}
   onRunnerActivated: (runner: Runner) => void = () => {}
+  onDiagnose: () => Promise<string> = async () => { return '' }
   @State showContextMenu: boolean = false
   @State contextMenuSessionId: string = ''
   @State contextMenuX: number = 0
@@ -405,6 +406,9 @@ export struct AppShell {
               },
               onReconnect: () => {
                 this.onReconnect()
+              },
+              onDiagnose: () => {
+                return this.onDiagnose()
               }
             })
           } else if (this.activeActivity === 'files') {
