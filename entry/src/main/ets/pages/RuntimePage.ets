@@ -4,6 +4,7 @@ import { RuntimeConfig, RuntimeState, localOpenCodeRuntimeService } from '../ser
 import { OpenCodeClient } from '../services/OpenCodeClient'
 import { RuntimeStatusCard } from '../components/runtime/RuntimeStatusCard'
 import { RuntimeLogPanel } from '../components/runtime/RuntimeLogPanel'
+import { errStr } from '../utils/ErrorUtil'
 
 @Component
 export struct RuntimePage {
@@ -63,7 +64,7 @@ export struct RuntimePage {
       this.formatterCount = fmt.length
       this.logs.push(`[ok] extensions: mcp=${mcp.length} lsp=${lsp.length} formatter=${fmt.length}`)
     } catch (e) {
-      this.logs.push(`[warn] extension status: ${String(e)}`)
+      this.logs.push(`[warn] extension status: ${errStr(e)}`)
     }
     this.statusLoading = false
   }

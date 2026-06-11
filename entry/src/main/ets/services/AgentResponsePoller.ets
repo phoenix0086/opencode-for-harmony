@@ -1,5 +1,6 @@
 import { OpenCodeClient } from './OpenCodeClient'
 import { agentExecutionInspector, AgentExecutionSnapshot } from './AgentExecutionInspector'
+import { errStr } from '../utils/ErrorUtil'
 
 export class AgentPollResult {
   ok: boolean = false
@@ -73,7 +74,7 @@ export class AgentResponsePoller {
         }
       } catch (e) {
         result.ok = false
-        result.message = `轮询消息失败：${String(e)}`
+        result.message = `轮询消息失败：${errStr(e)}`
         return result
       }
     }

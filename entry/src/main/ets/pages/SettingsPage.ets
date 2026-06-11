@@ -24,6 +24,10 @@ export struct SettingsPage {
   @State policyOverrides: Record<string, string> = {}
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @State mcpServers: MCPServer[] = []
+  /** Bumped to force ModelsTab / ProvidersTab to re-read providerRegistry
+   *  after Toggle changes (ForEach on getAll() doesn't observe internal
+   *  mutations, so we need a state nudge). */
+  @State providersVersion: number = 0
 
   // ══════════ Lifecycle ══════════
   async aboutToAppear(): Promise<void> {
@@ -500,8 +504,10 @@ export struct SettingsPage {
             Toggle({ type: ToggleType.Switch, isOn: m.enabled })
               .selectedColor(Theme.ACCENT)
               .onChange((isOn: boolean) => {
-                m.enabled = isOn
-                providerRegistry.save()
+                // Bump providersVersion so ForEach re-evaluates getFilteredProviders()
+                // (ForEach doesn't observe in-place mutations to model fields)
+                this.providersVersion = this.providersVersion + 1
+                providerRegistry.setModelEnabled(p.id, m.id, isOn)
               })
 
             // Set as default button
@@ -825,6 +831,9 @@ export struct SettingsPage {
    */
   private getFilteredProviders(): CNProvider[] {
     const providers = providerRegistry.getAll()
+    // Touch providersVersion so this method reads as state-dependent
+    // (ArkUI only re-runs the function when @State it reads changes).
+    const _v = this.providersVersion
     if (this.modelSearch.length === 0) {
       return providers
     }

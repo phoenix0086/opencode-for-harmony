@@ -1,6 +1,7 @@
 import { Theme } from './Theme'
 import { OpenCodeClient } from '../services/OpenCodeClient'
 import { Runner } from '../models/Runner'
+import { errStr } from '../utils/ErrorUtil'
 
 /**
  * File Panel
@@ -43,7 +44,7 @@ export struct FilePanel {
       }
       this.filePaths = paths
     } catch (e) {
-      this.errorMsg = `Failed to load files: ${String(e)}`
+      this.errorMsg = `Failed to load files: ${errStr(e)}`
     }
     this.isLoading = false
   }

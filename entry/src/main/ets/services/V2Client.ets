@@ -10,6 +10,7 @@ import {
   V2Response
 } from './V2Type'
 import { ModelV2Info, NormalizedMessage, NormalizedPart } from '../models/Event'
+import { errStr } from '../utils/ErrorUtil'
 
 /**
  * V2 API wrapper.
@@ -29,6 +30,18 @@ export class V2Client {
 
   constructor(client: OpenCodeClient) {
     this.client = client
+  }
+
+  /**
+   * Stop and remove ALL active PTY stream pollers. Should be called when
+   * the V2Client is no longer needed (e.g. on app shutdown or when
+   * disconnecting from a different server) to avoid orphaned timers.
+   */
+  closeAll(): void {
+    for (const poller of this.streamPollers.values()) {
+      poller.stop()
+    }
+    this.streamPollers.clear()
   }
 
   // ══════════ Snapshot API ══════════
@@ -548,7 +561,7 @@ export class V2Client {
       const out = new V2Response()
       out.ok = false
       out.status = 0
-      out.error = String(e)
+      out.error = errStr(e)
       return out
     }
   }
@@ -561,7 +574,7 @@ export class V2Client {
       const out = new V2Response()
       out.ok = false
       out.status = 0
-      out.error = String(e)
+      out.error = errStr(e)
       return out
     }
   }
@@ -575,7 +588,7 @@ export class V2Client {
       const out = new V2Response()
       out.ok = false
       out.status = 0
-      out.error = String(e)
+      out.error = errStr(e)
       return out
     }
   }
@@ -741,7 +754,7 @@ export class V2StreamPoller {
         }
       }
     } catch (e) {
-      this.onError(`pty poll exception: ${String(e)}`)
+      this.onError(`pty poll exception: ${errStr(e)}`)
       this.backoff()
     }
     this.scheduleNext()

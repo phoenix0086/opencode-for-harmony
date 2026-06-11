@@ -4,6 +4,7 @@ import {
   FullRunner, runnerBaseUrl, FullHealth, FullSession, FullMessage,
   FullFileItem, FullFileContent, FullDiff, FullPermission
 } from '../models/FullAppModels'
+import { errStr } from '../utils/ErrorUtil'
 
 export class OpenCodeApiClient {
   private baseUrl: string = ''
@@ -117,7 +118,7 @@ export class OpenCodeApiClient {
       return r
     } catch (e) {
       r.ok = false
-      r.error = String(e)
+      r.error = errStr(e)
       return r
     }
   }

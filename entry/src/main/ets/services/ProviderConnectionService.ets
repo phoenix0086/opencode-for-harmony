@@ -3,6 +3,7 @@ import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { Runner } from '../models/Runner'
 import { providerRegistry } from './ProviderRegistry'
 import { OpenCodeClient } from './OpenCodeClient'
+import { errStr } from '../utils/ErrorUtil'
 
 export class ProviderModelInput {
   id: string = ''
@@ -86,7 +87,7 @@ export class ProviderConnectionService {
     } catch (e) {
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = String(e)
+      result.error = errStr(e)
       return result
     }
   }
@@ -118,7 +119,7 @@ export class ProviderConnectionService {
     } catch (e) {
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = `请求 ${url} 失败: ${String(e)}`
+      result.error = `请求 ${url} 失败: ${errStr(e)}`
     }
 
     return result
@@ -158,7 +159,7 @@ export class ProviderConnectionService {
     } catch (e) {
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = `请求 ${url} 失败: ${String(e)}`
+      result.error = `请求 ${url} 失败: ${errStr(e)}`
     }
 
     return result
@@ -191,7 +192,7 @@ export class ProviderConnectionService {
     } catch (e) {
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = `请求 ${url} 失败: ${String(e)}`
+      result.error = `请求 ${url} 失败: ${errStr(e)}`
     }
 
     return result
@@ -243,7 +244,7 @@ export class ProviderConnectionService {
     } catch (e) {
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = `请求 ${url} 失败: ${String(e)}`
+      result.error = `请求 ${url} 失败: ${errStr(e)}`
     }
 
     return result
@@ -357,7 +358,7 @@ export class ProviderConnectionService {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw new Error(String(e))
+      throw new Error(errStr(e))
     } finally {
       req.destroy()
     }
@@ -437,7 +438,7 @@ export class ProviderConnectionService {
       } catch (e) {
         result.ok = true
         result.connected = false
-        result.message = `Provider saved locally, but config patch failed: ${String(e)}`
+        result.message = `Provider saved locally, but config patch failed: ${errStr(e)}`
         return result
       }
 
@@ -446,7 +447,7 @@ export class ProviderConnectionService {
           result.serverAuthSaved = await client.setAuth(input.providerId, input.apiKey)
         } catch (e) {
           result.serverAuthSaved = false
-          result.message = `Provider config saved, but auth failed: ${String(e)}`
+          result.message = `Provider config saved, but auth failed: ${errStr(e)}`
         }
       }
 
@@ -474,9 +475,10 @@ export class ProviderConnectionService {
       }
       return result
     } catch (e) {
+      const es = errStr(e)
       result.ok = false
-      result.error = String(e)
-      result.message = String(e)
+      result.error = es
+      result.message = es
       return result
     }
   }

@@ -4,6 +4,7 @@ import { OpenCodeClient } from './OpenCodeClient'
 import { ProcessBridge } from './ProcessBridge'
 import { fileIo } from '@kit.CoreFileKit'
 import { Logger } from '../utils/Logger'
+import { errStr } from '../utils/ErrorUtil'
 
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
@@ -76,9 +77,9 @@ export class LocalOpenCodeServerManager {
       data = context.resourceManager.getRawFileContentSync('opencode')
       log(`[step2] rawfile read OK: ${data.byteLength} bytes`)
     } catch (e) {
-      const msg = `[step2] rawfile read FAILED: ${String(e)}`
+      const msg = `[step2] rawfile read FAILED: ${errStr(e)}`
       log(msg)
-      this.binaryExtractError = String(e)
+      this.binaryExtractError = errStr(e)
       return
     }
 
@@ -94,7 +95,7 @@ export class LocalOpenCodeServerManager {
       fileIo.closeSync(file)
       log(`[step3] write to filesDir OK`)
     } catch (e) {
-      const msg = `[step3] write FAILED: ${String(e)}`
+      const msg = `[step3] write FAILED: ${errStr(e)}`
       log(msg)
       return
     }
@@ -104,9 +105,9 @@ export class LocalOpenCodeServerManager {
       const ok = ProcessBridge.chmodFile(targetPath, 0o755)
       log(`[step4] chmod 755 result=${ok}`)
     } catch (e) {
-      const msg = `[step4] chmod FAILED: ${String(e)}`
+      const msg = `[step4] chmod FAILED: ${errStr(e)}`
       log(msg)
-      this.binaryExtractError = String(e)
+      this.binaryExtractError = errStr(e)
     }
 
     // Step 5: verify
@@ -115,9 +116,9 @@ export class LocalOpenCodeServerManager {
       log(`[step5] verify OK: size=${stat.size}, mode=${stat.mode}`)
       this.cachedBinaryPath = targetPath
     } catch (e) {
-      const msg = `[step5] verify FAILED: ${String(e)}`
+      const msg = `[step5] verify FAILED: ${errStr(e)}`
       log(msg)
-      this.binaryExtractError = String(e)
+      this.binaryExtractError = errStr(e)
     }
   }
 
@@ -209,8 +210,8 @@ export class LocalOpenCodeServerManager {
       }
     } catch (e) {
       status.status = 'error'
-      status.message = `Runtime 检测失败：${String(e)}`
-      status.logs.push(`[error] ${String(e)}`)
+      status.message = `Runtime 检测失败：${errStr(e)}`
+      status.logs.push(`[error] ${errStr(e)}`)
     }
 
     return status
@@ -375,7 +376,7 @@ export class LocalOpenCodeServerManager {
     try {
       return ProcessBridge.drainLogs(pid)
     } catch (e) {
-      return [`[error] drainLogs failed: ${String(e)}`]
+      return [`[error] drainLogs failed: ${errStr(e)}`]
     }
   }
 

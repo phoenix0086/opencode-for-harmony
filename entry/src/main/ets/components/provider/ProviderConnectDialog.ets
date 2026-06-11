@@ -1,6 +1,7 @@
 import { Theme } from '../Theme'
 import { http } from '@kit.NetworkKit'
 import { ProviderConnectInput, ProviderModelInput, providerConnectionService, TestConnectionResult } from '../../services/ProviderConnectionService'
+import { errStr } from '../../utils/ErrorUtil'
 
 // API 模式选项定义（ArkUI Select 需要 SelectOption[]）
 const API_MODE_OPTIONS: SelectOption[] = [
@@ -666,13 +667,13 @@ export struct ProviderConnectDialog {
             this.errorText = '返回数据格式异常'
           }
         } catch (e) {
-          this.errorText = '解析模型列表失败: ' + String(e)
+          this.errorText = '解析模型列表失败: ' + errStr(e)
         }
       } else {
         this.errorText = `获取模型失败: HTTP ${resp.responseCode}`
       }
     } catch (e) {
-      this.errorText = '获取模型列表出错: ' + String(e)
+      this.errorText = '获取模型列表出错: ' + errStr(e)
     }
 
     this.fetchingModels = false
@@ -705,7 +706,7 @@ export struct ProviderConnectDialog {
         this.errorText = result.error
       }
     } catch (e) {
-      this.errorText = '测试请求异常: ' + String(e)
+      this.errorText = '测试请求异常: ' + errStr(e)
     }
 
     this.testing = false

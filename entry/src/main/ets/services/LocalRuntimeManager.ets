@@ -1,5 +1,6 @@
 import { FullRunner, FullHealth, FullRuntimeConfig, FullRuntimeState } from '../models/FullAppModels'
 import { OpenCodeApiClient } from './OpenCodeApiClient'
+import { errStr } from '../utils/ErrorUtil'
 
 export class LocalRuntimeManager {
   createRunner(config: FullRuntimeConfig): FullRunner {
@@ -39,7 +40,7 @@ export class LocalRuntimeManager {
       }
     } catch (e) {
       s.status = 'error'
-      s.message = String(e)
+      s.message = errStr(e)
     }
 
     return s

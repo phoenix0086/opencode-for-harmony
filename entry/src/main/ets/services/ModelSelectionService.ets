@@ -3,6 +3,7 @@ import { providerRegistry } from './ProviderRegistry'
 import { storageService } from './StorageService'
 import { OpenCodeClient } from './OpenCodeClient'
 import { agentResponsePoller } from './AgentResponsePoller'
+import { errStr } from '../utils/ErrorUtil'
 
 export class ModelOption {
   providerId: string = ''
@@ -112,7 +113,7 @@ export class ModelSelectionService {
       return result
     } catch (e) {
       result.ok = false
-      result.message = `默认模型已本地保存，但同步失败：${String(e)}`
+      result.message = `默认模型已本地保存，但同步失败：${errStr(e)}`
       return result
     }
   }
@@ -144,7 +145,7 @@ export class ModelSelectionService {
       return result
     } catch (e) {
       result.ok = false
-      result.message = `Small Model 已本地保存，但同步失败：${String(e)}`
+      result.message = `Small Model 已本地保存，但同步失败：${errStr(e)}`
       return result
     }
   }
@@ -220,7 +221,7 @@ export class ModelSelectionService {
       }
       return `模型测试失败：${poll.message.length > 0 ? poll.message : 'unknown'} (${modelRef}${suffix})`
     } catch (e) {
-      return `模型测试失败：${String(e)}`
+      return `模型测试失败：${errStr(e)}`
     }
   }
 }

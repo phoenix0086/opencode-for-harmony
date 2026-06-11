@@ -4,6 +4,7 @@ import { providerRegistry } from '../services/ProviderRegistry'
 import { Runner } from '../models/Runner'
 import { Theme } from '../components/Theme'
 import { TestConnectionResult } from '../services/ProviderConnectionService'
+import { errStr } from '../utils/ErrorUtil'
 
 /**
  * OpenCode-style Provider / Model settings page.
@@ -954,9 +955,9 @@ export struct ProviderPage {
       const result = new TestConnectionResult()
       result.ok = false
       result.latencyMs = Date.now() - startTime
-      result.error = String(e)
+      result.error = errStr(e)
       this.testResult = result
-      this.statusMsg = `测试失败: ${String(e)}`
+      this.statusMsg = `测试失败: ${errStr(e)}`
     }
 
     this.testing = false
@@ -1028,7 +1029,7 @@ export struct ProviderPage {
         this.statusMsg = `获取模型失败: HTTP ${resp.responseCode}`
       }
     } catch (e) {
-      this.statusMsg = `获取模型失败: ${String(e)}`
+      this.statusMsg = `获取模型失败: ${errStr(e)}`
     }
 
     this.fetchingModels = false

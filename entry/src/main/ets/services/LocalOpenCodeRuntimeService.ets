@@ -2,6 +2,7 @@ import { Runner, RunnerConfig, createRunner, runnerBaseUrl } from '../models/Run
 import { storageService } from './StorageService'
 import { OpenCodeClient } from './OpenCodeClient'
 import { ILocalProcessBridge, manualProcessBridge, ProcessStartRequest } from './LocalProcessBridge'
+import { errStr } from '../utils/ErrorUtil'
 
 export class RuntimeConfig {
   mode: string = 'local' // local | dev-pc | remote
@@ -94,8 +95,8 @@ export class LocalOpenCodeRuntimeService {
       }
     } catch (e) {
       s.status = 'error'
-      s.message = `Runtime health failed: ${String(e)}`
-      s.logs.push(`[error] ${String(e)}`)
+      s.message = `Runtime health failed: ${errStr(e)}`
+      s.logs.push(`[error] ${errStr(e)}`)
     }
 
     return s

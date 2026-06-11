@@ -7,6 +7,7 @@ import { ConnectionStatus, SessionInfo, ProviderInfo } from '../model/AppState';
 import { EmptyRequest, TextPromptPart, PromptAsyncRequest, ConfigModelPatch, ExecutionPollResult } from '../model/OpenCodeApiTypes';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
+import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
 
 export class MainViewModel {
@@ -49,10 +50,17 @@ export class MainViewModel {
     try {
       this.httpService.setServer(this.serverInfo);
       const healthy = await this.httpService.checkHealth();
-      if (!healthy) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = '本地 Runtime 健康检查失败。'; return; }
+      if (!healthy) {
+        this.connectionStatus = ConnectionStatus.Error
+        this.errorMessage = '本地 Runtime 健康检查失败。'
+        // Reset serverInfo so UI doesn't show "connected" via stale state
+        this.serverInfo.connected = false
+        this.serverInfo.healthOk = false
+        return
+      }
       this.connectionStatus = ConnectionStatus.Connected;
       this.serverInfo.connected = true; this.serverInfo.healthOk = true;
-      try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${String(e)}`); }
+      try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${errStr(e)}`); }
       await this.loadSessions(); await this.loadProviders();
       await this.autoSelectModel();
       // Sync selected model to Runtime after connection
@@ -61,12 +69,18 @@ export class MainViewModel {
           await this.syncModelToRuntime()
           Logger.info(`Model synced to Runtime on connect: ${this.selectedModel}`)
         } catch (e) {
-          Logger.warn(`Failed to sync model on connect: ${MainViewModel.errStr(e)}`)
+          Logger.warn(`Failed to sync model on connect: ${errStr(e)}`)
         }
       }
       if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
       this.startHealthCheck();
-    } catch (err) { this.connectionStatus = ConnectionStatus.Error; this.errorMessage = MainViewModel.errStr(err); Logger.error(`Connection failed: ${MainViewModel.errStr(err)}`); }
+    } catch (err) {
+      this.connectionStatus = ConnectionStatus.Error
+      this.errorMessage = errStr(err)
+      this.serverInfo.connected = false
+      this.serverInfo.healthOk = false
+      Logger.error(`Connection failed: ${errStr(err)}`)
+    }
   }
   disconnect(): void { this.wsService.disconnect(); this.stopHealthCheck(); this.connectionStatus = ConnectionStatus.Disconnected; this.serverInfo.connected = false; }
 
@@ -95,7 +109,7 @@ export class MainViewModel {
           }
         }
       } catch (e) {
-        Logger.warn(`Auto-start: failed to pre-populate workspace: ${String(e)}`)
+        Logger.warn(`Auto-start: failed to pre-populate workspace: ${errStr(e)}`)
       }
     }
 
@@ -111,11 +125,11 @@ export class MainViewModel {
     } catch (e) {
       // 外层兜底: 任何 autoStart 内部抛出的异常(包括 TypeError: processStart of undefined,
       // 老的 HAP 没有 dev-pc 短路)都被这里接住
-      const msg = `autoStart 抛出异常: ${MainViewModel.errStr(e)}`
+      const msg = `autoStart 抛出异常: ${errStr(e)}`
       Logger.error(msg)
       this.serverStatusMessage = msg
       this.errorMessage = msg
-      this.serverLogs = [`[fatal] ${MainViewModel.errStr(e)}`]
+      this.serverLogs = [`[fatal] ${errStr(e)}`]
 
       // 异常时也试一次 health check,因为 Runtime 可能是 manual 启动的
       try {
@@ -188,7 +202,7 @@ export class MainViewModel {
           }
         }
       } catch (e) {
-        Logger.warn(`Manual Runtime fallback failed: ${String(e)}`);
+        Logger.warn(`Manual Runtime fallback failed: ${errStr(e)}`);
       }
     }
   }
@@ -208,7 +222,7 @@ export class MainViewModel {
 
   async loadSessions(): Promise<void> {
     try { const r = await this.httpService.get<Object>(Constants.API_SESSION); this.sessions = this.extractArray(r, 'sessions', 'data').map((x: Object) => SessionInfo.fromJson(x as Record<string, Object>)); }
-    catch (err) { Logger.error(`loadSessions failed: ${String(err)}`); }
+    catch (err) { Logger.error(`loadSessions failed: ${errStr(err)}`); }
   }
   async loadProviders(): Promise<void> {
     try {
@@ -240,16 +254,16 @@ export class MainViewModel {
       this.providers = next
       Logger.info(`providers.loaded count=${next.length}`)
     } catch (err) {
-      Logger.error(`loadProviders failed: ${String(err)}`)
+      Logger.error(`loadProviders failed: ${errStr(err)}`)
       this.providers = []
     }
   }
   async createSession(): Promise<string> {
     try { const r = await this.httpService.post<Record<string, Object>>(Constants.API_SESSION, new EmptyRequest()); const id = (r['id'] as string) ?? ''; if (id.length > 0) { this.currentSessionId = id; await this.storageService?.setString(Constants.KEY_SESSION_ID, id); await this.loadSessions(); } return id; }
-    catch (err) { this.errorMessage = String(err); Logger.error(`createSession failed: ${String(err)}`); return ''; }
+    catch (err) { this.errorMessage = errStr(err); Logger.error(`createSession failed: ${errStr(err)}`); return ''; }
   }
   async selectSession(sessionId: string): Promise<void> { this.currentSessionId = sessionId; await this.storageService?.setString(Constants.KEY_SESSION_ID, sessionId); await this.loadMessages(sessionId); }
-  async loadMessages(sessionId: string = this.currentSessionId): Promise<void> { if (sessionId.length === 0) return; try { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); this.messages = this.normalizeOpenCodeMessages(this.extractArray(raw, 'messages', 'data'), sessionId); } catch (err) { Logger.error(`loadMessages failed: ${String(err)}`); } }
+  async loadMessages(sessionId: string = this.currentSessionId): Promise<void> { if (sessionId.length === 0) return; try { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); this.messages = this.normalizeOpenCodeMessages(this.extractArray(raw, 'messages', 'data'), sessionId); } catch (err) { Logger.error(`loadMessages failed: ${errStr(err)}`); } }
 
   async sendMessage(content: string): Promise<void> {
     const text = content.trim(); if (text.length === 0 || this.isGenerating) return;
@@ -273,7 +287,7 @@ export class MainViewModel {
         await this.syncModelToRuntime();
         Logger.info(`Runtime model synced: ${this.selectedModel}`);
       } catch (syncErr) {
-        const msg = `同步 Runtime model 失败：${MainViewModel.errStr(syncErr)}`
+        const msg = `同步 Runtime model 失败：${errStr(syncErr)}`
         assistantMsg.setError(msg)
         this.messages = [...this.messages]
         this.errorMessage = msg
@@ -306,7 +320,7 @@ export class MainViewModel {
             return
           }
         } catch (providerErr) {
-          Logger.warn(`Failed to check provider status: ${MainViewModel.errStr(providerErr)}`)
+          Logger.warn(`Failed to check provider status: ${errStr(providerErr)}`)
         }
       }
 
@@ -319,7 +333,7 @@ export class MainViewModel {
         promptSent = true
         Logger.info(`prompt_async sent session=${sessionId}`)
       } catch (promptErr) {
-        promptError = MainViewModel.errStr(promptErr)
+        promptError = errStr(promptErr)
         Logger.error(`prompt_async failed: ${promptError}`)
       }
       if (!promptSent) {
@@ -332,10 +346,10 @@ export class MainViewModel {
       const poll = await this.waitForExecution(sessionId, beforeCount); await this.loadMessages(sessionId);
       if (!poll.ok) { const e = ChatMessage.createErrorMessage(poll.message); e.sessionId = sessionId; this.messages = [...this.messages, e]; this.errorMessage = poll.message; }
       await this.loadSessions();
-    } catch (err) { assistantMsg.setError(MainViewModel.errStr(err)); this.errorMessage = MainViewModel.errStr(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${MainViewModel.errStr(err)}`); }
+    } catch (err) { assistantMsg.setError(errStr(err)); this.errorMessage = errStr(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${errStr(err)}`); }
     finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); }
   }
-  async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${String(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
+  async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${errStr(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
 
   /**
@@ -391,14 +405,14 @@ export class MainViewModel {
           try {
             await this.syncModelToRuntime()
           } catch (syncErr) {
-            Logger.error(`autoSelectModel: syncModelToRuntime failed: ${MainViewModel.errStr(syncErr)}`)
+            Logger.error(`autoSelectModel: syncModelToRuntime failed: ${errStr(syncErr)}`)
           }
         } else {
           Logger.warn('autoSelectModel: no connected provider with models found')
         }
       }
     } catch (e) {
-      Logger.warn(`autoSelectModel failed: ${MainViewModel.errStr(e)}`)
+      Logger.warn(`autoSelectModel failed: ${errStr(e)}`)
     }
   }
 
@@ -414,7 +428,7 @@ export class MainViewModel {
       const health = await this.httpService.get<Record<string, Object>>(Constants.API_HEALTH);
       out.push(`[health] ${JSON.stringify(health)}`)
     } catch (e) {
-      out.push(`[health error] ${MainViewModel.errStr(e)}`)
+      out.push(`[health error] ${errStr(e)}`)
     }
 
     try {
@@ -425,7 +439,7 @@ export class MainViewModel {
       const providers = config['provider']
       if (providers) out.push(`[config.provider keys] ${Object.keys(providers as Record<string, Object>)}`)
     } catch (e) {
-      out.push(`[config error] ${MainViewModel.errStr(e)}`)
+      out.push(`[config error] ${errStr(e)}`)
     }
 
     try {
@@ -438,7 +452,7 @@ export class MainViewModel {
         out.push(`[provider.all ids] ${JSON.stringify(ids)}`)
       }
     } catch (e) {
-      out.push(`[provider error] ${MainViewModel.errStr(e)}`)
+      out.push(`[provider error] ${errStr(e)}`)
     }
 
     try {
@@ -446,12 +460,12 @@ export class MainViewModel {
       const arr = this.extractArray(sessions, 'sessions', 'data')
       out.push(`[sessions count] ${arr.length}`)
     } catch (e) {
-      out.push(`[session error] ${MainViewModel.errStr(e)}`)
+      out.push(`[session error] ${errStr(e)}`)
     }
 
     return out.join('\n')
   }
-  async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const old = this.currentSessionId; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${String(err)}`; } finally { if (old.length > 0) this.currentSessionId = old; } }
+  async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const old = this.currentSessionId; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${errStr(err)}`; } finally { if (old.length > 0) this.currentSessionId = old; } }
 
   async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
   private async getRawMessages(sessionId: string): Promise<Object[]> { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); return this.extractArray(raw, 'messages', 'data'); }
@@ -499,7 +513,7 @@ export class MainViewModel {
           }
         }
       } catch(err){
-        r.ok=false; r.message=`轮询消息失败：${MainViewModel.errStr(err)}`; return r;
+        r.ok=false; r.message=`轮询消息失败：${errStr(err)}`; return r;
       }
     }
     r.timedOut=true;
@@ -509,7 +523,7 @@ export class MainViewModel {
       const raw = await this.getRawMessages(sessionId);
       rawText = JSON.stringify(raw).slice(0, 2000);
     } catch (e) {
-      rawText = `读取 raw messages 失败：${MainViewModel.errStr(e)}`;
+      rawText = `读取 raw messages 失败：${errStr(e)}`;
     }
     r.message = `等待 assistant/tool/error/permission 超时。\n当前模型：${this.selectedModel}\nmessageCount=${r.messageCount}\n\nRaw messages preview:\n${rawText}`;
     return r;
@@ -587,7 +601,6 @@ export class MainViewModel {
     return out
   }
   private extractArray(value:Object, key1:string, key2:string): Object[] { if(Array.isArray(value)) return value as Object[]; if(!value||typeof value!=='object') return []; const rec=value as Record<string,Object>; const c1=rec[key1]; if(Array.isArray(c1)) return c1 as Object[]; const c2=rec[key2]; if(Array.isArray(c2)) return c2 as Object[]; return []; }
-  private extractStringArray(value:Object|undefined): string[] { if(!value||!Array.isArray(value)) return []; return value as string[]; }
   private extractConnectedProviderIds(value: Object | undefined): string[] {
     const out: string[] = []
     if (!value) return out
@@ -637,16 +650,10 @@ export class MainViewModel {
   private sessionAbortPath(sessionId:string): string { return `/session/${sessionId}/abort`; }
   private finalizeLastStreamingAssistant(): void { if(this.messages.length===0) return; const last=this.messages[this.messages.length-1]; if(last.role===MessageRole.Assistant&&last.isStreaming){ last.finalize(); this.messages=[...this.messages]; } }
   private async delay(ms:number): Promise<void> { return new Promise<void>((resolve)=>{ setTimeout(()=>resolve(), ms); }); }
-  private onWsMessage(data:string): void { try { const parsed=JSON.parse(data) as Record<string,Object>; Logger.info(`Runtime ws event: ${(parsed['type'] as string)??'unknown'}`); } catch(err){ Logger.error(`onWsMessage parse error: ${String(err)}`); } }
+  private onWsMessage(data:string): void { try { const parsed=JSON.parse(data) as Record<string,Object>; Logger.info(`Runtime ws event: ${(parsed['type'] as string)??'unknown'}`); } catch(err){ Logger.error(`onWsMessage parse error: ${errStr(err)}`); } }
   private onWsStatus(connected:boolean): void { Logger.info(`WebSocket status: ${connected?'connected':'disconnected'}`); }
   private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer=setInterval(()=>{ this.httpService.checkHealth().then((ok:boolean)=>{ this.serverInfo.healthOk=ok; if(!ok&&this.connectionStatus===ConnectionStatus.Connected){ this.connectionStatus=ConnectionStatus.Error; this.errorMessage='Runtime 健康检查失败，连接已断开。'; Logger.warn('Health check failed, marking disconnected'); } }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as number; }
   private stopHealthCheck(): void { if(this.healthTimer>=0){ clearInterval(this.healthTimer); this.healthTimer=-1; } }
 
-  /** Safe error-to-string for ArkTS (String(e) returns "[object Object]" for Error objects) */
-  private static errStr(e: Object): string {
-    if (typeof e === 'string') return e
-    const rec = e as Record<string, Object>
-    if (typeof rec['message'] === 'string') return rec['message'] as string
-    try { return JSON.stringify(e) } catch (_) { return String(e) }
-  }
+  // Safe error-to-string is provided by the imported errStr() from utils/ErrorUtil
 }

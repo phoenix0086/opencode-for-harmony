@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit'
 import { util } from '@kit.ArkTS'
 import { Runner, runnerBaseUrl } from '../models/Runner'
+import { errStr } from '../utils/ErrorUtil'
 import {
   HealthInfo, ConfigInfo, SessionInfo,
   WithParts, RawPart, NormalizedMessage, NormalizedPart,
@@ -84,7 +85,7 @@ export class OpenCodeClient {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw new Error(String(e))
+      throw new Error(errStr(e))
     } finally {
       req.destroy()
     }
@@ -120,7 +121,7 @@ export class OpenCodeClient {
       const resp = await req.request(url, options)
       return resp
     } catch (e) {
-      throw new Error(String(e))
+      throw new Error(errStr(e))
     } finally {
       req.destroy()
     }
@@ -681,7 +682,7 @@ export class OpenCodeClient {
   /**
    * Safe error-to-string conversion for ArkTS.
    * String(e) returns "[object Object]" for Error objects in ArkTS.
-   * instanceof may fail across module boundaries.
+   * @deprecated Use errStr() from utils/ErrorUtil instead.
    */
   static errorToString(e: Object): string {
     if (typeof e === 'string') return e

@@ -1,5 +1,6 @@
 import { ServerEvent, EventTypes, NormalizedMessage, NormalizedPart, QuestionRequest } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
+import { errStr } from '../utils/ErrorUtil'
 
 /**
  * Polling-based event client for ArkTS.
@@ -150,7 +151,7 @@ export class EventStreamClient {
 
       const errEvent = new ServerEvent()
       errEvent.type = 'error'
-      errEvent.properties['message'] = String(e)
+      errEvent.properties['message'] = errStr(e)
       this.emit('error', errEvent)
     } finally {
       this.pollInFlight = false
