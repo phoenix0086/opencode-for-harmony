@@ -474,7 +474,18 @@ export class MainViewModel {
       this.finalizeLastStreamingAssistant()
     }
   }
-  async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${errStr(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
+  async stopGeneration(): Promise<void> {
+    if (!this.isGenerating || this.currentSessionId.length === 0) return;
+    try {
+      await this.apiAdapter.abortSession(this.currentSessionId);
+    } catch (err) {
+      Logger.error(`stopGeneration failed: ${errStr(err)}`);
+    } finally {
+      this.isGenerating = false;
+      this.sendLock = false;
+      this.finalizeLastStreamingAssistant();
+    }
+  }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
 
   /**
@@ -1073,6 +1084,40 @@ export class MainViewModel {
       await this.loadMessages(this.currentSessionId)
     } catch (e) {
       Logger.error(`rejectQuestion failed: ${errStr(e)}`)
+    }
+  }
+
+  // ══════════ MCP / Command / Skill Loading ══════════
+
+  async loadCommands(): Promise<Object[]> {
+    try {
+      return await this.apiAdapter.listCommands()
+    } catch (e) {
+      Logger.error(`loadCommands failed: ${errStr(e)}`)
+      return []
+    }
+  }
+
+  async loadSkills(): Promise<Object[]> {
+    try {
+      return await this.apiAdapter.listSkills()
+    } catch (e) {
+      Logger.error(`loadSkills failed: ${errStr(e)}`)
+      return []
+    }
+  }
+
+  // ══════════ Abort ══════════
+
+  async abortSession(): Promise<void> {
+    if (this.currentSessionId.length === 0) return
+    try {
+      await this.apiAdapter.abortSession(this.currentSessionId)
+      this.isGenerating = false
+      this.sendLock = false
+      this.messages = [...this.messages, ChatMessage.createSystemMessage('已中止')]
+    } catch (e) {
+      Logger.error(`abortSession failed: ${errStr(e)}`)
     }
   }
 }
