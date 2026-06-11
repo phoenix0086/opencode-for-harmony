@@ -27,6 +27,7 @@ export class MainViewModel {
   serverLogs: string[] = [];
   private healthTimer: number = -1;
   private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
+  private activeTurnId: string = '' // 当前轮次 ID，防止上一轮迟到的 assistant 被当成本轮回复
 
   async init(storage: StorageService): Promise<void> {
     this.storageService = storage;
@@ -267,27 +268,58 @@ export class MainViewModel {
   async loadMessages(sessionId: string = this.currentSessionId): Promise<void> { if (sessionId.length === 0) return; try { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); this.messages = this.normalizeOpenCodeMessages(this.extractArray(raw, 'messages', 'data'), sessionId); } catch (err) { Logger.error(`loadMessages failed: ${errStr(err)}`); } }
 
   async sendMessage(content: string): Promise<void> {
-    const text = content.trim(); if (text.length === 0 || this.isGenerating || this.sendLock) return;
-    this.sendLock = true;
-    if (this.connectionStatus !== ConnectionStatus.Connected) { this.messages = [...this.messages, ChatMessage.createErrorMessage('本地 Runtime 未连接。')]; return; }
-
-    // Pre-check: selectedModel must be set
-    if (this.selectedModel.length === 0) {
-      const err = ChatMessage.createErrorMessage('未设置模型。请先到 Models 页面选择 providerId/modelId。');
-      this.messages = [...this.messages, err];
-      this.errorMessage = '未设置模型';
-      return;
+    const text = content.trim()
+    if (text.length === 0 || this.isGenerating || this.sendLock) {
+      if (this.isGenerating || this.sendLock) {
+        const warn = ChatMessage.createSystemMessage('上一条消息还在生成中，请等待完成或点击 Stop。')
+        this.messages = [...this.messages, warn]
+      }
+      return
     }
 
-    let sessionId = this.currentSessionId; if (sessionId.length === 0) { sessionId = await this.createSession(); if (sessionId.length === 0) { this.messages = [...this.messages, ChatMessage.createErrorMessage('创建 session 失败。')]; return; } }
-    const userMsg = ChatMessage.createUserMessage(text); userMsg.sessionId = sessionId;
-    const assistantMsg = ChatMessage.createAssistantMessage('等待 Runtime 响应...'); assistantMsg.sessionId = sessionId;
-    this.messages = [...this.messages, userMsg, assistantMsg]; this.isGenerating = true; this.errorMessage = '';
+    if (this.connectionStatus !== ConnectionStatus.Connected) {
+      this.messages = [...this.messages, ChatMessage.createErrorMessage('本地 Runtime 未连接。')]
+      return
+    }
+
+    if (this.selectedModel.length === 0) {
+      const err = ChatMessage.createErrorMessage('未设置模型。请先到 Models 页面选择 providerId/modelId。')
+      this.messages = [...this.messages, err]
+      this.errorMessage = '未设置模型'
+      return
+    }
+
+    let sessionId = this.currentSessionId
+    if (sessionId.length === 0) {
+      sessionId = await this.createSession()
+      if (sessionId.length === 0) {
+        this.messages = [...this.messages, ChatMessage.createErrorMessage('创建 session 失败。')]
+        return
+      }
+    }
+
+    // 生成新 turnId，发送前中止上一轮 stale run
+    const turnId = this.newTurnId()
+    this.activeTurnId = turnId
+    if (this.isGenerating && this.currentSessionId.length > 0) {
+      await this.stopGeneration()
+      await this.delay(500)
+    }
+
+    this.sendLock = true
+    this.isGenerating = true
+    this.errorMessage = ''
+
+    const userMsg = ChatMessage.createUserMessage(text)
+    userMsg.sessionId = sessionId
+    const assistantMsg = ChatMessage.createAssistantMessage('等待 Runtime 响应...')
+    assistantMsg.sessionId = sessionId
+    this.messages = [...this.messages, userMsg, assistantMsg]
+
     try {
-      // Sync model to Runtime — must not fail silently
       try {
-        await this.syncModelToRuntime();
-        Logger.info(`Runtime model synced: ${this.selectedModel}`);
+        await this.syncModelToRuntime()
+        Logger.info(`Runtime model synced: ${this.selectedModel}`)
       } catch (syncErr) {
         const msg = `同步 Runtime model 失败：${errStr(syncErr)}`
         assistantMsg.setError(msg)
@@ -296,17 +328,15 @@ export class MainViewModel {
         return
       }
 
-      // Check if the provider for the selected model is connected
       if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
         const providerId = this.selectedModel.split('/')[0]
         try {
-          const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER);
+          const providerData = await this.httpService.get<Record<string, Object>>(Constants.API_PROVIDER)
           const connectedList = this.extractConnectedProviderIds(providerData['connected'])
           if (connectedList.length > 0 && !connectedList.includes(providerId)) {
-            // Check if provider is disabled
             let isDisabled = false
             try {
-              const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG);
+              const config = await this.httpService.get<Record<string, Object>>(Constants.API_CONFIG)
               const disabled = config['disabled_providers']
               isDisabled = Array.isArray(disabled) && (disabled as Object[]).some((d: Object) => {
                 return (typeof d === 'string' && d === providerId) ||
@@ -326,14 +356,20 @@ export class MainViewModel {
         }
       }
 
-      const before = await this.getRawMessages(sessionId); const beforeCount = before.length;
-      const req = new PromptAsyncRequest(); const part = new TextPromptPart(); part.text = text; req.parts = [part];
+      const before = await this.getRawMessages(sessionId)
+      const beforeCount = before.length
+
+      const req = new PromptAsyncRequest()
+      const part = new TextPromptPart()
+      part.text = text
+      req.parts = [part]
+
       let promptSent = false
       let promptError = ''
       try {
-        await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req);
+        await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req)
         promptSent = true
-        Logger.info(`prompt_async sent session=${sessionId}`)
+        Logger.info(`prompt_async sent session=${sessionId} turn=${turnId}`)
       } catch (promptErr) {
         promptError = errStr(promptErr)
         Logger.error(`prompt_async failed: ${promptError}`)
@@ -344,12 +380,48 @@ export class MainViewModel {
         this.errorMessage = promptError
         return
       }
-      await this.loadMessages(sessionId);
-      const poll = await this.waitForExecution(sessionId, beforeCount); await this.loadMessages(sessionId);
-      if (!poll.ok) { const e = ChatMessage.createErrorMessage(poll.message); e.sessionId = sessionId; this.messages = [...this.messages, e]; this.errorMessage = poll.message; }
-      await this.loadSessions();
-    } catch (err) { assistantMsg.setError(errStr(err)); this.errorMessage = errStr(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${errStr(err)}`); }
-    finally { this.isGenerating = false; this.sendLock = false; this.finalizeLastStreamingAssistant(); }
+
+      // 等待 user message 出现在 raw messages 中，定位 userIndex
+      let userIndex = -1
+      for (let i = 0; i < 10; i++) {
+        await this.delay(300)
+        const raw = await this.getRawMessages(sessionId)
+        userIndex = this.findLastUserIndex(raw, text)
+        if (userIndex >= 0) break
+      }
+      if (userIndex < 0) {
+        userIndex = beforeCount - 1
+        Logger.warn(`sendMessage: could not find user message, fallback userIndex=${userIndex}`)
+      }
+
+      await this.loadMessages(sessionId)
+      const poll = await this.waitForExecutionAfterIndex(sessionId, userIndex, turnId)
+      await this.loadMessages(sessionId)
+
+      if (!poll.ok) {
+        const e = ChatMessage.createErrorMessage(
+          `Runtime 没有返回当前问题的 assistant。${poll.message}\n\n` +
+          `session=${sessionId}\n` +
+          `turn=${turnId}\n` +
+          `model=${this.selectedModel}\n` +
+          `messageCount=${poll.messageCount}`
+        )
+        e.sessionId = sessionId
+        this.messages = [...this.messages, e]
+        this.errorMessage = e.content
+      }
+
+      await this.loadSessions()
+    } catch (err) {
+      assistantMsg.setError(errStr(err))
+      this.errorMessage = errStr(err)
+      this.messages = [...this.messages]
+      Logger.error(`sendMessage failed: ${errStr(err)}`)
+    } finally {
+      this.isGenerating = false
+      this.sendLock = false
+      this.finalizeLastStreamingAssistant()
+    }
   }
   async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${errStr(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
@@ -730,6 +802,87 @@ export class MainViewModel {
   private sessionAbortPath(sessionId:string): string { return `/session/${sessionId}/abort`; }
   private finalizeLastStreamingAssistant(): void { if(this.messages.length===0) return; const last=this.messages[this.messages.length-1]; if(last.role===MessageRole.Assistant&&last.isStreaming){ last.finalize(); this.messages=[...this.messages]; } }
   private async delay(ms:number): Promise<void> { return new Promise<void>((resolve)=>{ setTimeout(()=>resolve(), ms); }); }
+  private newTurnId(): string { return `turn_${Date.now()}_${Math.floor(Math.random() * 100000)}` }
+
+  private findLastUserIndex(raw: Object[], text: string): number {
+    for (let i = raw.length - 1; i >= 0; i--) {
+      const item = raw[i] as Record<string, Object>
+      const info = item['info'] as Record<string, Object>
+      const role = info ? ((info['role'] as string) ?? '') : ''
+      if (role !== 'user') continue
+      const parts = (item['parts'] as Object[]) ?? []
+      for (const pa of parts) {
+        const part = pa as Record<string, Object>
+        const t = this.extractPartText(part)
+        if (t === text) return i
+      }
+    }
+    return -1
+  }
+
+  private async waitForExecutionAfterIndex(
+    sessionId: string,
+    userIndex: number,
+    turnId: string,
+    maxAttempts: number = Constants.POLL_MAX_ATTEMPTS,
+    intervalMs: number = Constants.POLL_INTERVAL_MS
+  ): Promise<ExecutionPollResult> {
+    const r = new ExecutionPollResult()
+    for (let i = 0; i < maxAttempts; i++) {
+      await this.delay(intervalMs)
+
+      // stale poll 检查：如果 turnId 已变，说明用户发了新问题，本轮 poll 应丢弃
+      if (this.activeTurnId !== turnId) {
+        Logger.warn(`stale poll ignored: ${turnId}`)
+        r.ok = false
+        r.message = '轮询被新消息中断'
+        return r
+      }
+
+      try {
+        const raw = await this.getRawMessages(sessionId)
+        r.messageCount = raw.length
+
+        if (raw.length <= userIndex + 1) continue
+
+        const s = this.inspectMessages(raw, userIndex + 1)
+        r.hasAssistant = s.hasAssistant
+        r.hasTool = s.hasTool
+        r.hasError = s.hasError
+        r.hasPermission = s.hasPermission
+
+        if (s.hasError) {
+          r.ok = false
+          r.message = s.errorText.length > 0 ? s.errorText : 'Runtime 返回错误。'
+          return r
+        }
+
+        if (s.hasPermission) {
+          r.ok = true
+          r.message = 'Runtime 正在等待权限确认。'
+          return r
+        }
+
+        if (s.hasAssistant) {
+          r.ok = true
+          r.message = 'assistant response received'
+          return r
+        }
+
+        if (s.hasTool) {
+          r.message = 'Runtime 已开始工具调用，继续等待 assistant...'
+        }
+      } catch (err) {
+        r.ok = false
+        r.message = `轮询消息失败：${errStr(err)}`
+        return r
+      }
+    }
+    r.ok = false
+    r.timedOut = true
+    r.message = `等待 assistant 超时。userIndex=${userIndex}`
+    return r
+  }
   private onWsMessage(data:string): void { try { const parsed=JSON.parse(data) as Record<string,Object>; Logger.info(`Runtime ws event: ${(parsed['type'] as string)??'unknown'}`); } catch(err){ Logger.error(`onWsMessage parse error: ${errStr(err)}`); } }
   private onWsStatus(connected:boolean): void { Logger.info(`WebSocket status: ${connected?'connected':'disconnected'}`); }
   private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer=setInterval(()=>{ this.httpService.checkHealth().then((ok:boolean)=>{ this.serverInfo.healthOk=ok; if(!ok&&this.connectionStatus===ConnectionStatus.Connected){ this.connectionStatus=ConnectionStatus.Error; this.errorMessage='Runtime 健康检查失败，连接已断开。'; Logger.warn('Health check failed, marking disconnected'); } }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as number; }
