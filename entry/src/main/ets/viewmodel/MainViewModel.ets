@@ -9,6 +9,8 @@ import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
+import { OpenCodeApiAdapter, PromptInput } from '../services/OpenCodeApiAdapter';
+import { ServerMode } from '../services/OpenCodeCapabilities';
 
 export class MainViewModel {
   httpService: HttpService = new HttpService();
@@ -25,9 +27,11 @@ export class MainViewModel {
   errorMessage: string = '';
   serverStatusMessage: string = '';
   serverLogs: string[] = [];
+  serverMode: ServerMode = 'unknown';
   private healthTimer: number = -1;
   private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
   private activeTurnId: string = '' // 当前轮次 ID，防止上一轮迟到的 assistant 被当成本轮回复
+  private apiAdapter: OpenCodeApiAdapter = new OpenCodeApiAdapter();
 
   async init(storage: StorageService): Promise<void> {
     this.storageService = storage;
@@ -51,11 +55,17 @@ export class MainViewModel {
     this.errorMessage = '';
     try {
       this.httpService.setServer(this.serverInfo);
+
+      // Detect server mode via adapter
+      this.apiAdapter.setBaseUrl(this.serverInfo.url);
+      const caps = await this.apiAdapter.detectCapabilities();
+      this.serverMode = caps.mode;
+      Logger.info(`Server mode detected: ${this.serverMode}`);
+
       const healthy = await this.httpService.checkHealth();
       if (!healthy) {
         this.connectionStatus = ConnectionStatus.Error
         this.errorMessage = '本地 Runtime 健康检查失败。'
-        // Reset serverInfo so UI doesn't show "connected" via stale state
         this.serverInfo.connected = false
         this.serverInfo.healthOk = false
         return
@@ -65,7 +75,6 @@ export class MainViewModel {
       try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${errStr(e)}`); }
       await this.loadSessions(); await this.loadProviders();
       await this.autoSelectModel();
-      // Sync selected model to Runtime after connection
       if (this.selectedModel.length > 0) {
         try {
           await this.syncModelToRuntime()
@@ -223,8 +232,17 @@ export class MainViewModel {
   }
 
   async loadSessions(): Promise<void> {
-    try { const r = await this.httpService.get<Object>(Constants.API_SESSION); this.sessions = this.extractArray(r, 'sessions', 'data').map((x: Object) => SessionInfo.fromJson(x as Record<string, Object>)); }
-    catch (err) { Logger.error(`loadSessions failed: ${errStr(err)}`); }
+    try {
+      const sessions = await this.apiAdapter.listSessions();
+      this.sessions = sessions.map(s => SessionInfo.fromJson({
+        id: s.id,
+        name: s.name,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        model: s.model,
+        agent: s.agent
+      } as Record<string, Object>));
+    } catch (err) { Logger.error(`loadSessions failed: ${errStr(err)}`); }
   }
   async loadProviders(): Promise<void> {
     try {
@@ -261,11 +279,31 @@ export class MainViewModel {
     }
   }
   async createSession(): Promise<string> {
-    try { const r = await this.httpService.post<Record<string, Object>>(Constants.API_SESSION, new EmptyRequest()); const id = (r['id'] as string) ?? ''; if (id.length > 0) { this.currentSessionId = id; await this.storageService?.setString(Constants.KEY_SESSION_ID, id); await this.loadSessions(); } return id; }
-    catch (err) { this.errorMessage = errStr(err); Logger.error(`createSession failed: ${errStr(err)}`); return ''; }
+    try {
+      const session = await this.apiAdapter.createSession({
+        model: this.selectedModel,
+        location: this.serverInfo.projectPath
+      });
+      if (session.id.length > 0) {
+        this.currentSessionId = session.id;
+        await this.storageService?.setString(Constants.KEY_SESSION_ID, session.id);
+        await this.loadSessions();
+      }
+      return session.id;
+    } catch (err) {
+      this.errorMessage = errStr(err);
+      Logger.error(`createSession failed: ${errStr(err)}`);
+      return '';
+    }
   }
   async selectSession(sessionId: string): Promise<void> { this.currentSessionId = sessionId; await this.storageService?.setString(Constants.KEY_SESSION_ID, sessionId); await this.loadMessages(sessionId); }
-  async loadMessages(sessionId: string = this.currentSessionId): Promise<void> { if (sessionId.length === 0) return; try { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); this.messages = this.normalizeOpenCodeMessages(this.extractArray(raw, 'messages', 'data'), sessionId); } catch (err) { Logger.error(`loadMessages failed: ${errStr(err)}`); } }
+  async loadMessages(sessionId: string = this.currentSessionId): Promise<void> {
+    if (sessionId.length === 0) return;
+    try {
+      const raw = await this.apiAdapter.listMessages(sessionId);
+      this.messages = this.normalizeOpenCodeMessages(raw, sessionId);
+    } catch (err) { Logger.error(`loadMessages failed: ${errStr(err)}`); }
+  }
 
   async sendMessage(content: string): Promise<void> {
     const text = content.trim()
@@ -364,21 +402,27 @@ export class MainViewModel {
       part.text = text
       req.parts = [part]
 
-      let promptSent = false
-      let promptError = ''
-      try {
-        await this.httpService.post<Object>(this.sessionPromptAsyncPath(sessionId), req)
-        promptSent = true
-        Logger.info(`prompt_async sent session=${sessionId} turn=${turnId}`)
-      } catch (promptErr) {
-        promptError = errStr(promptErr)
-        Logger.error(`prompt_async failed: ${promptError}`)
-      }
-      if (!promptSent) {
-        assistantMsg.setError(`prompt_async 发送失败：${promptError}`)
+      // Send prompt via adapter (v2: /api/session/:id/prompt, legacy: /session/:id/prompt_async)
+      const promptResult = await this.apiAdapter.sendPrompt(sessionId, {
+        text: text,
+        model: this.selectedModel
+      })
+      if (!promptResult.ok) {
+        assistantMsg.setError(`prompt 发送失败：${promptResult.error}`)
         this.messages = [...this.messages]
-        this.errorMessage = promptError
+        this.errorMessage = promptResult.error ?? 'unknown'
         return
+      }
+      Logger.info(`prompt sent session=${sessionId} turn=${turnId} mode=${this.serverMode}`)
+
+      // v2: call wait endpoint
+      if (this.serverMode === 'api-v2') {
+        try {
+          await this.apiAdapter.waitSession(sessionId)
+          Logger.info(`wait completed for session=${sessionId}`)
+        } catch (waitErr) {
+          Logger.warn(`wait failed: ${errStr(waitErr)}`)
+        }
       }
 
       // 等待 user message 出现在 raw messages 中，定位 userIndex
@@ -620,7 +664,9 @@ export class MainViewModel {
   async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const oldSid = this.currentSessionId; const oldMsgs = this.messages; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${errStr(err)}`; } finally { if (oldSid.length > 0) { this.currentSessionId = oldSid; this.messages = oldMsgs; } } }
 
   async syncModelToRuntime(): Promise<void> { if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; } const patch = new ConfigModelPatch(); patch.model = this.selectedModel; await this.httpService.patch<Object>(Constants.API_CONFIG, patch); await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel); }
-  private async getRawMessages(sessionId: string): Promise<Object[]> { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); return this.extractArray(raw, 'messages', 'data'); }
+  private async getRawMessages(sessionId: string): Promise<Object[]> {
+    return this.apiAdapter.listMessages(sessionId);
+  }
   private async waitForExecution(sessionId: string, beforeCount: number, maxAttempts: number = Constants.POLL_MAX_ATTEMPTS, intervalMs: number = Constants.POLL_INTERVAL_MS): Promise<ExecutionPollResult> {
     const r = new ExecutionPollResult();
     for (let i=0;i<maxAttempts;i++){

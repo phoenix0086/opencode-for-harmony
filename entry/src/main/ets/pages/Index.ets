@@ -55,6 +55,8 @@ struct Index {
   @State settingCommandPalette: boolean = false
   @State settingServerStatus: boolean = false
   @State settingCustomAgents: boolean = false
+  // M21: server mode for StatusPopover
+  @State serverMode: string = 'unknown'
   @State settingLanguage: string = '简体中文'
   @State settingShell: string = 'Auto (Default)'
   @State settingColorScheme: string = '系统'

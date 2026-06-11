@@ -18,8 +18,8 @@ export struct StatusPopover {
   @Prop tokensMax: number = 128000
   @Prop agentMode: string = 'build'
   @Prop uptime: string = ''
-  // Sprint 5-F.42: 'unknown' | 'v2' | 'v1'
-  @Prop v2Status: string = 'unknown'
+  // M21: server mode from capability detection
+  @Prop serverMode: string = 'unknown'
 
   onDismiss: () => void = () => {}
   onReconnect: () => void = () => {}
@@ -59,23 +59,23 @@ export struct StatusPopover {
     return Theme.SUCCESS
   }
 
-  // ── v2 status helpers (Sprint 5-F.42) ────────────────────────
+  // ── Server mode helpers (M21) ───────────────────────────────
 
-  private v2StatusLabel(): string {
-    if (this.v2Status === 'v2') return 'v2 (full)'
-    if (this.v2Status === 'v1') return 'v1 (legacy)'
+  private serverModeLabel(): string {
+    if (this.serverMode === 'api-v2') return 'api-v2'
+    if (this.serverMode === 'legacy') return 'legacy'
     return '-- (probing)'
   }
 
-  private v2StatusColor(): string {
-    if (this.v2Status === 'v2') return Theme.SUCCESS
-    if (this.v2Status === 'v1') return Theme.WARNING
+  private serverModeColor(): string {
+    if (this.serverMode === 'api-v2') return Theme.SUCCESS
+    if (this.serverMode === 'legacy') return Theme.WARNING
     return Theme.TEXT_MUTED
   }
 
-  private v2StatusBg(): string {
-    if (this.v2Status === 'v2') return Theme.SUCCESS_DIM
-    if (this.v2Status === 'v1') return Theme.WARNING_DIM
+  private serverModeBg(): string {
+    if (this.serverMode === 'api-v2') return Theme.SUCCESS_DIM
+    if (this.serverMode === 'legacy') return Theme.WARNING_DIM
     return Theme.ACTIVE_BG
   }
 
@@ -170,7 +170,26 @@ export struct StatusPopover {
                   .fontFamily(Theme.FONT_MONO)
               }
               .width('100%')
+              .margin({ bottom: Theme.sp.sm })
             }
+
+            // Server mode (M21)
+            Row() {
+              Text('mode')
+                .fontSize(Theme.fs.xs)
+                .fontColor(Theme.TEXT_MUTED)
+                .fontFamily(Theme.FONT_MONO)
+                .width(60)
+
+              Text(this.serverModeLabel())
+                .fontSize(Theme.fs.sm)
+                .fontColor(this.serverModeColor())
+                .fontFamily(Theme.FONT_MONO)
+                .backgroundColor(this.serverModeBg())
+                .borderRadius(Theme.rd.sm)
+                .padding({ left: Theme.sp.md, right: Theme.sp.md, top: 2, bottom: 2 })
+            }
+            .width('100%')
           }
           .width('100%')
           .margin({ top: Theme.sp.lg })

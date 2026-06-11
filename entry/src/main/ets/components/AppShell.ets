@@ -101,7 +101,7 @@ export struct AppShell {
   @Prop agents: AgentDetail[] = []
   @Prop agentUnsupported: boolean = false
   // Sprint 5-F.42: v2 status (unknown/v2/v1)
-  @Prop v2Status: string = 'unknown'
+  @Prop serverMode: string = 'unknown'
   // v2: commands + skills
   @Prop commands: CommandInfo[] = []
   @Prop commandLoading: boolean = false
@@ -247,6 +247,7 @@ export struct AppShell {
           tokensUsed: this.tokensUsed,
           tokensMax: this.tokensMax,
           agentMode: this.agentMode,
+          serverMode: this.serverMode,
           onDismiss: () => {
             this.showStatusPopover = false
           },
