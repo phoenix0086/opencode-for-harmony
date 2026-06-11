@@ -350,14 +350,16 @@ export class MainViewModel {
         const all = providerData['all']
         let fallbackModel = ''
         if (Array.isArray(all)) {
-          for (const p of all) {
-            const prov = p as Record<string, Object>
-            const provId = prov['id'] as string || ''
+          const allArr = all as Object[]
+          for (let idx = 0; idx < allArr.length; idx++) {
+            const prov = allArr[idx] as Record<string, Object>
+            const provId = (prov['id'] as string) || ''
             if (connectedList.includes(provId)) {
               const models = prov['models']
               if (Array.isArray(models) && models.length > 0) {
-                const firstModel = models[0]
-                const modelId = typeof firstModel === 'string' ? firstModel : (firstModel as Record<string, Object>)['id'] as string || ''
+                const modelsArr = models as Object[]
+                const firstModel = modelsArr[0] as Record<string, Object>
+                const modelId = typeof modelsArr[0] === 'string' ? (modelsArr[0] as string) : ((firstModel['id'] as string) || '')
                 if (modelId.length > 0) {
                   fallbackModel = `${provId}/${modelId}`
                   break
