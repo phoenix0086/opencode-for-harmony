@@ -146,7 +146,7 @@ export class WebSocketService {
     if (this.ws) {
       this.ws.close((err: Error) => {
         if (err) {
-          Logger.error('WebSocketService close error: ' + String(err.message));
+          Logger.error('WebSocketService close error: ' + errStr(err));
         }
       });
       this.ws = null;

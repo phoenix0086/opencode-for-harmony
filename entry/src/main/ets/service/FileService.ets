@@ -1,6 +1,7 @@
 import { fileIo } from '@kit.CoreFileKit';
 import util from '@ohos.util';
 import { Logger } from '../utils/Logger';
+import { errStr } from '../utils/ErrorUtil';
 
 /**
  * File system operations for reading/writing project files.
@@ -17,8 +18,8 @@ export class FileService {
       const decoder = new util.TextDecoder('utf-8');
       return decoder.decode(new Uint8Array(buffer, 0, bytesRead));
     } catch (err) {
-      Logger.error('FileService readFile error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('FileService readFile error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -30,8 +31,8 @@ export class FileService {
       fileIo.writeSync(file.fd, buffer);
       fileIo.closeSync(file);
     } catch (err) {
-      Logger.error('FileService writeFile error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('FileService writeFile error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -39,8 +40,8 @@ export class FileService {
     try {
       return fileIo.listFileSync(path);
     } catch (err) {
-      Logger.error('FileService listDirectory error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('FileService listDirectory error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -57,8 +58,8 @@ export class FileService {
     try {
       fileIo.mkdirSync(path);
     } catch (err) {
-      Logger.error('FileService mkdir error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('FileService mkdir error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -71,8 +72,8 @@ export class FileService {
         fileIo.unlinkSync(path);
       }
     } catch (err) {
-      Logger.error('FileService remove error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('FileService remove error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 

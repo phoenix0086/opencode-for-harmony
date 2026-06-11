@@ -3,6 +3,7 @@ import { MainViewModel } from '../viewmodel/MainViewModel';
 import { ConnectionStatus } from '../model/AppState';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
+import { errStr } from '../utils/ErrorUtil';
 
 /**
  * Server configuration page.
@@ -215,7 +216,7 @@ struct ServerConfig {
       this.viewModel.serverInfo.password = savedPass;
     } catch (err) {
       this.testSuccess = false;
-      this.testResult = 'Connection failed: ' + String(err);
+      this.testResult = 'Connection failed: ' + errStr(err);
     } finally {
       this.testingConnection = false;
     }

@@ -2,6 +2,7 @@ import { preferences } from '@kit.ArkData';
 import { Logger } from '../utils/Logger';
 import { Constants } from '../utils/Constants';
 import { common } from '@kit.AbilityKit';
+import { errStr } from '../utils/ErrorUtil';
 
 /**
  * Persistent key-value storage backed by ArkPreferences.
@@ -20,7 +21,7 @@ export class StorageService {
       this.store = await preferences.getPreferences(this.context, 'opencode_prefs');
       Logger.info('StorageService initialized');
     } catch (err) {
-      Logger.error('StorageService init failed: ' + String(String(err)));
+      Logger.error('StorageService init failed: ' + errStr(err));
     }
   }
 
@@ -30,7 +31,7 @@ export class StorageService {
       const val = await this.store.get(key, defaultValue);
       return val as string;
     } catch (err) {
-      Logger.error('StorageService getString error: ' + String(String(err)));
+      Logger.error('StorageService getString error: ' + errStr(err));
       return defaultValue;
     }
   }
@@ -41,7 +42,7 @@ export class StorageService {
       await this.store.put(key, value);
       await this.store.flush();
     } catch (err) {
-      Logger.error('StorageService setString error: ' + String(String(err)));
+      Logger.error('StorageService setString error: ' + errStr(err));
     }
   }
 
@@ -51,7 +52,7 @@ export class StorageService {
       const val = await this.store.get(key, defaultValue);
       return val as number;
     } catch (err) {
-      Logger.error('StorageService getNumber error: ' + String(String(err)));
+      Logger.error('StorageService getNumber error: ' + errStr(err));
       return defaultValue;
     }
   }
@@ -62,7 +63,7 @@ export class StorageService {
       await this.store.put(key, value);
       await this.store.flush();
     } catch (err) {
-      Logger.error('StorageService setNumber error: ' + String(String(err)));
+      Logger.error('StorageService setNumber error: ' + errStr(err));
     }
   }
 
@@ -72,7 +73,7 @@ export class StorageService {
       const val = await this.store.get(key, defaultValue);
       return val as boolean;
     } catch (err) {
-      Logger.error('StorageService getBoolean error: ' + String(String(err)));
+      Logger.error('StorageService getBoolean error: ' + errStr(err));
       return defaultValue;
     }
   }
@@ -83,7 +84,7 @@ export class StorageService {
       await this.store.put(key, value);
       await this.store.flush();
     } catch (err) {
-      Logger.error('StorageService setBoolean error: ' + String(String(err)));
+      Logger.error('StorageService setBoolean error: ' + errStr(err));
     }
   }
 
@@ -93,7 +94,7 @@ export class StorageService {
       await this.store.delete(key);
       await this.store.flush();
     } catch (err) {
-      Logger.error('StorageService delete error: ' + String(String(err)));
+      Logger.error('StorageService delete error: ' + errStr(err));
     }
   }
 
@@ -103,7 +104,7 @@ export class StorageService {
       await this.store.clear();
       await this.store.flush();
     } catch (err) {
-      Logger.error('StorageService clear error: ' + String(String(err)));
+      Logger.error('StorageService clear error: ' + errStr(err));
     }
   }
 }

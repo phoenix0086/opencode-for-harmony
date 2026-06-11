@@ -1,4 +1,5 @@
 import { Logger } from '../utils/Logger';
+import { errStr } from '../utils/ErrorUtil';
 
 /**
  * Utility for accessing app resources at runtime.
@@ -18,8 +19,8 @@ export class ResourceManager {
       const decoder = new util.TextDecoder('utf-8');
       return decoder.decode(rawFile);
     } catch (err) {
-      Logger.error('ResourceManager readRawFile error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('ResourceManager readRawFile error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -27,8 +28,8 @@ export class ResourceManager {
     try {
       return 'resource://rawfile/' + fileName;
     } catch (err) {
-      Logger.error('ResourceManager getRawFileUri error: ' + String(String(err)));
-      throw new Error(String(err));
+      Logger.error('ResourceManager getRawFileUri error: ' + errStr(err));
+      throw new Error(errStr(err));
     }
   }
 
@@ -46,7 +47,7 @@ export class ResourceManager {
     try {
       return this.context.resourceManager.getStringSync(resId);
     } catch (err) {
-      Logger.error('ResourceManager getString error: ' + String(String(err)));
+      Logger.error('ResourceManager getString error: ' + errStr(err));
       return '';
     }
   }

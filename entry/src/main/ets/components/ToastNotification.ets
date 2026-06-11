@@ -131,9 +131,17 @@ export struct ToastContainer {
 export class ToastManager {
   private static _toasts: ToastData[] = []
   private static _onChange: (() => void) | null = null
+  private static _timers: number[] = []
 
-  static setOnChange(handler: () => void): void {
+  static setOnChange(handler: (() => void) | null): void {
     ToastManager._onChange = handler
+    // Clear all pending auto-dismiss timers when handler is unset (component unmount)
+    if (handler === null) {
+      for (const t of ToastManager._timers) {
+        clearTimeout(t)
+      }
+      ToastManager._timers = []
+    }
   }
 
   static show(message: string, type: string = 'info', duration: number = 3000): void {
@@ -147,9 +155,10 @@ export class ToastManager {
       ToastManager._onChange()
     }
     // Auto-dismiss after duration
-    setTimeout(() => {
+    const timerId = setTimeout(() => {
       ToastManager.dismiss(toast.id)
     }, duration)
+    ToastManager._timers.push(timerId)
   }
 
   static dismiss(id: string): void {

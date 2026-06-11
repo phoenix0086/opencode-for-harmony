@@ -2,7 +2,8 @@ import { router } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
-import { initStorageService } from '../services/StorageService';
+import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
+import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage } from '../model/ChatMessage';
@@ -101,23 +102,20 @@ struct Index {
    */
   async loadRecentProjects(): Promise<void> {
     try {
-      const storage = new StorageService(this.context);
-      await storage.init();
-      const raw = await storage.getString('recents', '[]')
-      const parsed = JSON.parse(raw) as Array<Record<string, Object>>
+      const raw = await storageSingleton.getRecentWorkspaces()
       const projects: ProjectEntry[] = []
-      for (const item of parsed) {
+      for (const dir of raw) {
         const p = new ProjectEntry()
-        p.id = (item['id'] as string) ?? ''
-        p.name = (item['name'] as string) ?? ''
-        p.directory = (item['directory'] as string) ?? ''
-        p.worktree = (item['worktree'] as string) ?? p.directory
-        p.lastOpened = (item['lastOpened'] as string) ?? ''
+        p.id = dir
+        p.name = dir.split('/').pop() ?? dir
+        p.directory = dir
+        p.worktree = dir
+        p.lastOpened = ''
         p.isActive = false
         projects.push(p)
       }
       // 注入当前工作区作为默认最近项目
-      const currentDir = await storage.getString(Constants.KEY_WORKSPACE_PATH, '')
+      const currentDir = await storageSingleton.getWorkspacePath()
       if (currentDir.length > 0 && !projects.some(p => p.directory === currentDir)) {
         const p = new ProjectEntry()
         p.id = 'current'
@@ -130,7 +128,7 @@ struct Index {
       }
       this.homeProjects = projects
     } catch (err) {
-      Logger.warn(`loadRecentProjects: ${String(err)}`)
+      Logger.warn(`loadRecentProjects: ${errStr(err)}`)
       this.homeProjects = []
     }
   }
@@ -145,35 +143,13 @@ struct Index {
       return
     }
     try {
-      const storage = new StorageService(this.context);
-      await storage.init();
-      await storage.setString(Constants.KEY_WORKSPACE_PATH, directory)
-
-      // 追加到 recents (去重,前置)
-      // 修复 C3: JSON.parse 已加 try/catch,此处补 Array.isArray 防御性校验,
-      // 防止 storage 数据损坏为非数组时崩溃
-      const raw = await storage.getString('recents', '[]')
-      let list: Array<Record<string, Object>> = []
-      try { list = JSON.parse(raw) as Array<Record<string, Object>> } catch { list = [] }
-      if (!Array.isArray(list)) {
-        Logger.warn('openProject: recents is not an array, resetting')
-        list = []
-      }
-      list = list.filter(x => (x['directory'] as string) !== directory)
-      const entry: Record<string, Object> = {}
-      entry['id'] = directory
-      entry['name'] = directory.split('/').pop() ?? directory
-      entry['directory'] = directory
-      entry['worktree'] = directory
-      entry['lastOpened'] = new Date().toISOString()
-      list.unshift(entry)
-      if (list.length > 10) list = list.slice(0, 10)
-      await storage.setString('recents', JSON.stringify(list))
+      await storageSingleton.saveWorkspacePath(directory)
+      await storageSingleton.addRecentWorkspace(directory)
 
       await this.loadRecentProjects()
       this.currentView = AppView.Chat
     } catch (err) {
-      Logger.error(`openProject failed: ${String(err)}`)
+      Logger.error(`openProject failed: ${errStr(err)}`)
     }
   }
 

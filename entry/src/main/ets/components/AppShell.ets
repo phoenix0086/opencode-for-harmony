@@ -153,6 +153,10 @@ export struct AppShell {
     })
   }
 
+  aboutToDisappear(): void {
+    ToastManager.setOnChange(null)
+  }
+
   private computeTabs(): SessionTab[] {
     const tabs: SessionTab[] = []
     for (const s of this.sessions) {
