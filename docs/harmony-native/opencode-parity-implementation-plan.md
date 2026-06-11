@@ -1073,3 +1073,50 @@ Runtime 影响启动体验，但不应该阻塞远程连接和 dev-pc 模式。�
 ```
 
 第一批完成后，再进入文件、权限、question、composer。这样风险最低，也最容易确认方向正确。
+
+---
+
+## 16. 实施进度跟踪
+
+### 已完成
+
+| 里程碑 | 任务 | 状态 | Commit |
+|--------|------|------|--------|
+| M21 | OpenCodeCapabilities 能力探测 | ✅ | `c4835fe` |
+| M21 | OpenCodeApiAdapter 统一适配器 | ✅ | `c4835fe` |
+| M21 | MainViewModel 改走 adapter | ✅ | `c4835fe` |
+| M21 | api-v2 prompt + wait 支持 | ✅ | `c4835fe` |
+| M21 | 状态栏显示 server mode | ✅ | `c4835fe` |
+| M21 | smoke matrix 文档 | ✅ | `c4835fe` |
+| M22 | Turn alignment (activeTurnId) | ✅ | `5b170b7` |
+| M22 | Send lock 防并发 | ✅ | `10e96dd` |
+| M22 | Chat UI: error/tool/system/streaming/stop | ✅ | `103010f` |
+| M23 | Adapter: permissions/questions/commands/skills/abort/events | ✅ | `cb55af5` |
+| M23 | Permission dock (Allow/Always/Reject) | ✅ | `da22b09` |
+| M23 | Question dock (Options + Reject) | ✅ | `dbcc9c4` |
+| M24 | MCP/Command/Skill loading via adapter | ✅ | `16af14b` |
+| M25 | stopGeneration via adapter | ✅ | `16af14b` |
+| M25 | 删除死代码 LocalRuntimeManager | ✅ | `00fec6a` |
+
+### 待完成
+
+| 里程碑 | 任务 | 优先级 | 说明 |
+|--------|------|--------|------|
+| M23 | FilePanel 接入 adapter | 中 | 当前用 OpenCodeClient，可工作 |
+| M23 | Todo 展示 | 低 | 需要 event stream 或 message parts |
+| M23 | Diff 展示 | 低 | 需要确认新版 API 数据来源 |
+| M24 | ComposerBar 改进 | 中 | 模型标签、slash popover、附件 |
+| M24 | Terminal 接入 | 低 | 需要确认 PTY API |
+| M24 | MCP 面板接入 | 低 | UI 壳已完成，需数据接入 |
+| M25 | Runtime 服务收敛 | 低 | LocalOpenCodeRuntimeService 待迁移 |
+| M25 | Settings 真实配置 | 低 | 当前多为静态状态 |
+| M26 | 兼容矩阵完善 | 低 | smoke matrix 已有基础 |
+
+### 关键架构决策
+
+```text
+1. 适配器优先：所有 API 调用走 OpenCodeApiAdapter，不直接用 HttpService
+2. 新版优先：默认 api-v2，legacy 作为 fallback
+3. 一个功能一条路径：收敛到 LocalOpenCodeServerManager + OpenCodeApiAdapter
+4. 面板必须有数据来源：没有真实 API 的标记为 unsupported
+```
