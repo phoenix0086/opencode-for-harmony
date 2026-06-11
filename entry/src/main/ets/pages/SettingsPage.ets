@@ -73,31 +73,48 @@ export struct SettingsPage {
         // ── Left sidebar ──
         Column() {
           ForEach(
-            ['general', 'models', 'providers', 'servers', 'keybinds'],
-            (tab: string) => {
-              Text(tab)
-                .fontSize(Theme.fs.sm)
-                .fontFamily(Theme.FONT_MONO)
-                .fontWeight(this.activeTab === tab ? FontWeight.Bold : FontWeight.Normal)
-                .fontColor(this.activeTab === tab ? Theme.ACCENT : Theme.TEXT_MUTED)
-                .backgroundColor(this.activeTab === tab ? Theme.ACTIVE_BG : 'transparent')
-                .width('100%')
-                .padding({
-                  left: Theme.sp.xl,
-                  right: Theme.sp.xl,
-                  top: Theme.sp.lg,
-                  bottom: Theme.sp.lg
-                })
-                .borderRadius(Theme.rd.md)
-                .onClick(() => {
-                  this.activeTab = tab
-                })
+            [
+              { id: 'general', label: 'General', icon: 'G' },
+              { id: 'models', label: 'Models', icon: 'M' },
+              { id: 'providers', label: 'Providers', icon: 'P' },
+              { id: 'servers', label: 'Server', icon: 'S' },
+              { id: 'keybinds', label: 'Keybinds', icon: 'K' }
+            ],
+            (tab) => {
+              Row() {
+                Text(tab.icon)
+                  .fontSize(13)
+                  .fontFamily(Theme.FONT_MONO)
+                  .fontColor(this.activeTab === tab.id ? Theme.ACCENT : Theme.TEXT_MUTED)
+                  .width(20)
+
+                Text(tab.label)
+                  .fontSize(13)
+                  .fontFamily(Theme.FONT_MONO)
+                  .fontWeight(this.activeTab === tab.id ? FontWeight.Bold : FontWeight.Normal)
+                  .fontColor(this.activeTab === tab.id ? Theme.ACCENT : Theme.TEXT_MUTED)
+                  .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({
+                left: Theme.sp.xl,
+                right: Theme.sp.xl,
+                top: Theme.sp.lg,
+                bottom: Theme.sp.lg
+              })
+              .backgroundColor(this.activeTab === tab.id ? Theme.ACTIVE_BG : 'transparent')
+              .borderRadius(Theme.rd.md)
+              .borderWidth({ left: 3 })
+              .borderColor(this.activeTab === tab.id ? Theme.ACCENT : 'transparent')
+              .onClick(() => {
+                this.activeTab = tab.id
+              })
             },
-            (tab: string) => tab
+            (tab) => tab.id
           )
           Blank()
         }
-        .width(140)
+        .width(220)
         .height('100%')
         .backgroundColor(Theme.PANEL)
         .padding({ top: Theme.sp.md, bottom: Theme.sp.md })

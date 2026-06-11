@@ -149,23 +149,33 @@ export struct LeftActivityBar {
 
       // Activity items
       ForEach(this.items, (item: ActivityItem) => {
-        Column() {
-          Text(item.symbol)
-            .fontSize(item.symbol === '{}' ? Theme.fs.sm : Theme.fs.lg)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.activeId === item.id ? Theme.ACTIVITY_BAR_ACTIVE : Theme.ACTIVITY_BAR_INACTIVE)
-            .fontFamily(Theme.FONT_MONO)
+        Row() {
+          // Active indicator bar
+          Column()
+            .width(3)
+            .height(24)
+            .backgroundColor(this.activeId === item.id ? Theme.ACCENT : 'transparent')
+            .borderRadius({ topRight: 2, bottomRight: 2 })
+            .margin({ right: 2 })
 
-          Text(item.label)
-            .fontSize(9)
-            .fontColor(this.activeId === item.id ? Theme.TEXT_SECONDARY : Theme.TEXT_MUTED)
-            .margin({ top: 2 })
+          Column() {
+            Text(item.symbol)
+              .fontSize(item.symbol === '{}' ? Theme.fs.sm : Theme.fs.lg)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.activeId === item.id ? Theme.ACTIVITY_BAR_ACTIVE : Theme.ACTIVITY_BAR_INACTIVE)
+              .fontFamily(Theme.FONT_MONO)
+
+            Text(item.label)
+              .fontSize(9)
+              .fontColor(this.activeId === item.id ? Theme.TEXT_SECONDARY : Theme.TEXT_MUTED)
+              .margin({ top: 2 })
+          }
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
         }
         .width(Theme.ACTIVITY_BAR_W)
-        .padding({ top: Theme.sp.md, bottom: Theme.sp.md })
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor(this.activeId === item.id ? Theme.ACTIVE_BG : 'transparent')
-        .borderRadius(Theme.rd.md)
+        .height(48)
+        .backgroundColor(this.activeId === item.id ? Theme.BG : 'transparent')
         .onClick(() => {
           this.onActivityChange(item.id)
         })

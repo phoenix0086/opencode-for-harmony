@@ -44,36 +44,66 @@ export struct ComposerBar {
         .color(Theme.BORDER)
         .strokeWidth(1)
 
-      // Composer area
+      // Toolbar row
       Row() {
-        // Model indicator (clickable)
-        Column() {
-          Text(this.modelLabel.length > 0 ? this.modelLabel : 'model')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
+        // Mode toggle
+        Row() {
+          Text('build')
+            .fontSize(12)
+            .fontColor(this.agentMode === 'build' ? Theme.TEXT_PRIMARY : Theme.TEXT_MUTED)
+            .fontWeight(this.agentMode === 'build' ? FontWeight.Bold : FontWeight.Normal)
             .fontFamily(Theme.FONT_MONO)
-            .decoration({
-              type: TextDecorationType.Underline,
-              color: Theme.ACCENT_DIM
-            })
+            .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+            .backgroundColor(this.agentMode === 'build' ? Theme.ACTIVE_BG : 'transparent')
+            .borderRadius(Theme.rd.md)
             .onClick(() => {
-              this.onModelClick()
+              this.onModeChange('build')
+            })
+
+          Text('plan')
+            .fontSize(12)
+            .fontColor(this.agentMode === 'plan' ? Theme.TEXT_PRIMARY : Theme.TEXT_MUTED)
+            .fontWeight(this.agentMode === 'plan' ? FontWeight.Bold : FontWeight.Normal)
+            .fontFamily(Theme.FONT_MONO)
+            .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+            .backgroundColor(this.agentMode === 'plan' ? Theme.ACTIVE_BG : 'transparent')
+            .borderRadius(Theme.rd.md)
+            .onClick(() => {
+              this.onModeChange('plan')
             })
         }
-        .width(60)
-        .justifyContent(FlexAlign.Center)
+        .backgroundColor(Theme.PANEL)
+        .borderRadius(Theme.rd.md)
+        .padding(2)
 
+        Blank()
+
+        // Context usage
+        if (this.tokensUsed > 0) {
+          Text(`Context: ${this.tokensUsed.toLocaleString()} / ${this.tokensMax.toLocaleString()} tokens`)
+            .fontSize(11)
+            .fontColor(Theme.TEXT_MUTED)
+            .fontFamily(Theme.FONT_MONO)
+        }
+      }
+      .width('100%')
+      .padding({ left: 24, right: 24, top: 12, bottom: 12 })
+
+      // Composer area
+      Row() {
         // Input field
-        TextArea({ text: this.inputText, placeholder: 'Send a message to the agent...' })
+        TextArea({ text: this.inputText, placeholder: 'How can I help you today?' })
           .layoutWeight(1)
-          .fontSize(Theme.fs.md)
+          .fontSize(14)
           .fontColor(Theme.TEXT_PRIMARY)
           .placeholderColor(Theme.TEXT_MUTED)
           .fontFamily(Theme.FONT_MONO)
           .backgroundColor(Theme.INPUT_BG)
-          .borderRadius(Theme.rd.md)
-          .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
-          .height(Theme.COMPOSER_MIN_H)
+          .borderRadius(8)
+          .borderWidth(1)
+          .borderColor(Theme.BORDER_LIGHT)
+          .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+          .height(52)
           .onChange((v: string) => {
             this.onTextChange(v)
           })
@@ -81,123 +111,46 @@ export struct ComposerBar {
         // Send / Abort button
         Column() {
           if (this.isSending) {
-            Text('[x]')
-              .fontSize(Theme.fs.lg)
-              .fontColor(Theme.DANGER)
-              .fontFamily(Theme.FONT_MONO)
-              .fontWeight(FontWeight.Bold)
-              .onClick(() => {
-                this.onAbort()
-              })
+            Column() {
+              Text('✕')
+                .fontSize(16)
+                .fontColor(Theme.DANGER)
+                .fontWeight(FontWeight.Bold)
+            }
+            .width(40)
+            .height(40)
+            .backgroundColor(Theme.DANGER_DIM)
+            .borderRadius(8)
+            .borderWidth(1)
+            .borderColor(Theme.DANGER)
+            .justifyContent(FlexAlign.Center)
+            .onClick(() => {
+              this.onAbort()
+            })
           } else {
-            Text('[>]')
-              .fontSize(Theme.fs.lg)
-              .fontColor(this.inputText.trim().length > 0 ? Theme.ACCENT : Theme.TEXT_MUTED)
-              .fontFamily(Theme.FONT_MONO)
-              .fontWeight(FontWeight.Bold)
-              .onClick(() => {
-                if (this.inputText.trim().length > 0) {
-                  this.onSend()
-                }
-              })
+            Column() {
+              Text('↑')
+                .fontSize(18)
+                .fontColor(Theme.TEXT_INVERSE)
+                .fontWeight(FontWeight.Bold)
+            }
+            .width(40)
+            .height(40)
+            .backgroundColor(this.inputText.trim().length > 0 ? Theme.ACCENT : Theme.ACTIVE_BG)
+            .borderRadius(8)
+            .justifyContent(FlexAlign.Center)
+            .onClick(() => {
+              if (this.inputText.trim().length > 0) {
+                this.onSend()
+              }
+            })
           }
         }
         .width(48)
         .justifyContent(FlexAlign.Center)
       }
       .width('100%')
-      .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.sm })
-
-      // Bottom info bar
-      // Layout: [agent selector] [session title] [context usage] --- [shift+enter hint]
-      Row() {
-        // ── Agent selector (Sprint 3-B.14/15) ──
-        // 修复 W3: 条件渲染逻辑说明
-        // - agents.length > 0 → v2 server 有可用的 agent 列表,渲染 AgentSelector
-        // - agentUnsupported = true → v2 探测失败 (404/405),仍渲染 AgentSelector
-        //   以显示 "v2 agents unavailable" 占位,让用户知道是这个能力不支持
-        //   (vs. 没接好 props 时的静默 fallback)
-        // - 都不满足 → parent 没传 v2 props,显示 legacy build/plan 内联切换,
-        //   保持向后兼容 (M14 之前的老调用方)
-        if (this.agents.length > 0 || this.agentUnsupported) {
-          AgentSelector({
-            agents: this.agents,
-            currentAgent: this.agentMode,
-            unsupported: this.agentUnsupported,
-            onSelect: (name: string): void => { this.onModeChange(name) }
-          })
-        } else {
-          // Legacy M14 inline toggle (only rendered when parent didn't pass
-          // v2 agents — keeps backward compat for Index.ets callers that
-          // haven't yet wired the agents prop)
-          Row() {
-            Text('build')
-              .fontSize(Theme.fs.xs)
-              .fontColor(this.agentMode === 'build' ? Theme.ACCENT : Theme.TEXT_MUTED)
-              .fontWeight(this.agentMode === 'build' ? FontWeight.Bold : FontWeight.Normal)
-              .fontFamily(Theme.FONT_MONO)
-              .onClick(() => {
-                this.onModeChange('build')
-              })
-
-            Text('/')
-              .fontSize(Theme.fs.xs)
-              .fontColor(Theme.TEXT_MUTED)
-              .fontFamily(Theme.FONT_MONO)
-              .margin({ left: Theme.sp.xs, right: Theme.sp.xs })
-
-            Text('plan')
-              .fontSize(Theme.fs.xs)
-              .fontColor(this.agentMode === 'plan' ? Theme.ACCENT : Theme.TEXT_MUTED)
-              .fontWeight(this.agentMode === 'plan' ? FontWeight.Bold : FontWeight.Normal)
-              .fontFamily(Theme.FONT_MONO)
-              .onClick(() => {
-                this.onModeChange('plan')
-              })
-          }
-        }
-
-        // ── Session title ──
-        if (this.sessionTitle.length > 0) {
-          Text(this.sessionTitle)
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
-            .maxLines(1)
-            .constraintSize({ maxWidth: 200 })
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .margin({ left: Theme.sp.md })
-        }
-
-        // ── Plan mode description (shown when in plan mode) ──
-        if (this.agentMode === 'plan') {
-          Text('Plan mode restricts edit/bash permissions to ask')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.WARNING)
-            .fontFamily(Theme.FONT_MONO)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .constraintSize({ maxWidth: 260 })
-            .margin({ left: Theme.sp.md })
-        }
-
-        // ── Context usage (between left section and shortcut hint) ──
-        if (this.tokensUsed > 0) {
-          ContextUsage({
-            tokensUsed: this.tokensUsed,
-            tokensMax: this.tokensMax
-          })
-            .margin({ left: Theme.sp.md })
-        }
-
-        Blank()
-
-        Text('Shift+Enter to send')
-          .fontSize(Theme.fs.xs)
-          .fontColor(Theme.TEXT_MUTED)
-          .fontFamily(Theme.FONT_MONO)
-      }
-      .width('100%')
-      .padding({ left: Theme.sp.xl, right: Theme.sp.xl, bottom: Theme.sp.sm })
+      .padding({ left: 24, right: 24, bottom: 16 })
     }
     .width('100%')
     .backgroundColor(Theme.COMPOSER)

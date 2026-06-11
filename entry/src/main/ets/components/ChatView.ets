@@ -1,8 +1,10 @@
 import { ChatMessage, MessageRole } from '../model/ChatMessage';
+import { Theme } from './Theme';
 
 /**
  * Chat view component that renders message bubbles and handles scrolling.
  * Reusable across different pages that need chat display.
+ * Updated with Catppuccin Mocha design system.
  */
 @Component
 export struct ChatView {
@@ -14,7 +16,6 @@ export struct ChatView {
   private lastMessageCount: number = 0;
 
   aboutToAppear(): void {
-    // 初始加载后滚动到底部
     setTimeout(() => { this.scrollToBottom(); }, 100)
   }
 
@@ -25,7 +26,6 @@ export struct ChatView {
   }
 
   build() {
-    // 检测消息数量变化，自动滚动到底部
     if (this.messages.length !== this.lastMessageCount) {
       this.lastMessageCount = this.messages.length;
       setTimeout(() => { this.scrollToBottom(); }, 50)
@@ -45,17 +45,7 @@ export struct ChatView {
       .onReachEnd(() => {})
 
       if (this.messages.length === 0) {
-        Column() {
-          Text('Start a conversation')
-            .fontSize(18)
-            .fontColor('#555555')
-            .margin({ bottom: 8 })
-          Text('Type a message below to begin')
-            .fontSize(14)
-            .fontColor('#444444')
-        }
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
+        this.EmptyState()
       }
     }
     .width('100%')
@@ -63,57 +53,48 @@ export struct ChatView {
   }
 
   @Builder
+  EmptyState() {
+    Column() {
+      Column() {
+        Text('OC')
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.ACCENT)
+          .fontFamily(Theme.FONT_MONO)
+      }
+      .width(64)
+      .height(64)
+      .backgroundColor(Theme.ACCENT_DIM)
+      .borderRadius(16)
+      .justifyContent(FlexAlign.Center)
+      .margin({ bottom: 16 })
+
+      Text('Welcome to OpenCode')
+        .fontSize(18)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .margin({ bottom: 8 })
+
+      Text('Type a message below to start coding with AI')
+        .fontSize(14)
+        .fontColor(Theme.TEXT_MUTED)
+    }
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
   MessageBubble(msg: ChatMessage) {
     Row() {
       if (msg.role === MessageRole.Assistant) {
-        Column() {
-          Row() {
-            Circle()
-              .width(24)
-              .height(24)
-              .fill('#007DFF')
-            Text('AI')
-              .fontSize(12)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#007DFF')
-              .margin({ left: 8 })
-            if (msg.isStreaming) {
-              LoadingProgress()
-                .width(14)
-                .height(14)
-                .color('#007DFF')
-                .margin({ left: 8 })
-            }
-          }
-          .margin({ bottom: 6 })
-
-          Text(msg.content.length > 0 ? msg.content : (msg.isStreaming ? 'Thinking...' : ''))
-            .fontSize(14)
-            .fontColor('#E0E0E0')
-            .copyOption(CopyOptions.LocalDevice)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .padding(12)
-        .backgroundColor('#1A1A1A')
-        .borderRadius(12)
-        .constraintSize({ maxWidth: '80%' })
+        this.AssistantMessage(msg)
       } else if (msg.role === MessageRole.User) {
         Blank()
-        Column() {
-          Text(msg.content)
-            .fontSize(14)
-            .fontColor('#FFFFFF')
-            .copyOption(CopyOptions.LocalDevice)
-        }
-        .alignItems(HorizontalAlign.End)
-        .padding(12)
-        .backgroundColor('#007DFF')
-        .borderRadius(12)
-        .constraintSize({ maxWidth: '80%' })
+        this.UserMessage(msg)
       } else {
         Text(msg.content)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor(Theme.TEXT_MUTED)
           .fontStyle(FontStyle.Italic)
           .textAlign(TextAlign.Center)
           .width('100%')
@@ -121,7 +102,88 @@ export struct ChatView {
       }
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+    .padding({ left: 24, right: 24, top: 8, bottom: 8 })
     .alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  AssistantMessage(msg: ChatMessage) {
+    Row() {
+      // Avatar
+      Column() {
+        Text('AI')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.TEXT_PRIMARY)
+      }
+      .width(32)
+      .height(32)
+      .backgroundColor(Theme.ACTIVE_BG)
+      .borderRadius(8)
+      .justifyContent(FlexAlign.Center)
+      .margin({ right: 12 })
+
+      Column() {
+        // Header
+        Row() {
+          Text('Assistant')
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.TEXT_SECONDARY)
+
+          if (msg.isStreaming) {
+            LoadingProgress()
+              .width(12)
+              .height(12)
+              .color(Theme.ACCENT)
+              .margin({ left: 8 })
+          }
+        }
+        .margin({ bottom: 6 })
+
+        // Content
+        Text(msg.content.length > 0 ? msg.content : (msg.isStreaming ? 'Thinking...' : ''))
+          .fontSize(14)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .padding(12)
+      .backgroundColor(Theme.PANEL)
+      .borderWidth(1)
+      .borderColor(Theme.BORDER)
+      .borderRadius(12)
+      .constraintSize({ maxWidth: '85%' })
+    }
+  }
+
+  @Builder
+  UserMessage(msg: ChatMessage) {
+    Column() {
+      // Header
+      Row() {
+        Text('You')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.TEXT_SECONDARY)
+      }
+      .margin({ bottom: 6 })
+      .alignSelf(ItemAlign.End)
+
+      // Content
+      Text(msg.content)
+        .fontSize(14)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .lineHeight(22)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .alignItems(HorizontalAlign.End)
+    .padding(12)
+    .backgroundColor(Theme.ACCENT_DIM)
+    .borderWidth(1)
+    .borderColor(Theme.ACCENT)
+    .borderRadius({ topLeft: 12, topRight: 12, bottomLeft: 12, bottomRight: 4 })
+    .constraintSize({ maxWidth: '85%' })
   }
 }

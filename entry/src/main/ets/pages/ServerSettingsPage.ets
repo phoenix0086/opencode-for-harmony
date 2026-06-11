@@ -81,22 +81,24 @@ export struct ServerSettingsPage {
   @Builder
   ModeSwitcher() {
     Row() {
-      this.ModePill('local', '本机模式')
       this.ModePill('dev-pc', '开发电脑 / 局域网')
-      this.ModePill('remote', '远程 Runtime')
+      this.ModePill('local', '本机模式')
+      this.ModePill('remote', '远程服务器')
     }
+    .backgroundColor(Theme.PANEL)
+    .borderRadius(Theme.rd.md)
+    .padding(3)
     .margin({ bottom: Theme.sp.xl })
   }
 
   @Builder
   ModePill(id: string, label: string) {
     Text(label)
-      .fontSize(Theme.fs.sm)
-      .fontColor(this.mode === id ? Theme.TEXT_INVERSE : Theme.TEXT_SECONDARY)
-      .backgroundColor(this.mode === id ? Theme.ACCENT : Theme.PANEL)
+      .fontSize(13)
+      .fontColor(this.mode === id ? Theme.TEXT_PRIMARY : Theme.TEXT_MUTED)
+      .fontWeight(this.mode === id ? FontWeight.Medium : FontWeight.Normal)
+      .backgroundColor(this.mode === id ? Theme.ACTIVE_BG : 'transparent')
       .borderRadius(Theme.rd.md)
-      .borderWidth(1)
-      .borderColor(this.mode === id ? Theme.ACCENT : Theme.BORDER)
       .padding({ left: Theme.sp.lg, right: Theme.sp.lg, top: Theme.sp.md, bottom: Theme.sp.md })
       .margin({ right: Theme.sp.md })
       .onClick(() => {
@@ -184,52 +186,33 @@ export struct ServerSettingsPage {
   @Builder
   HelpBlock() {
     Column() {
-      Text('使用说明')
-        .fontSize(Theme.fs.lg)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.TEXT_PRIMARY)
-        .margin({ bottom: Theme.sp.lg })
+      // Command hint card
+      Column() {
+        Text('启动命令')
+          .fontSize(13)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.ACCENT)
+          .margin({ bottom: Theme.sp.md })
 
-      Text('本机模式：正式产品默认路径。App 通过 Native Bridge 启动本机 opencode serve，并连接 127.0.0.1。')
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_SECONDARY)
-        .margin({ bottom: Theme.sp.md })
-
-      Text('开发电脑 / 局域网：用于 DevEco、模拟器或真机调试。Runtime 在开发电脑上跑，Host 填开发电脑局域网 IP。')
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_SECONDARY)
-        .margin({ bottom: Theme.sp.md })
-
-      Text('远程 Runtime：高级模式，不会启动本地进程，只检测并连接远程地址。')
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.WARNING)
-        .margin({ bottom: Theme.sp.md })
-
-      Text('如果自动启动失败，可在终端手动执行下面命令后再点"检测并连接"：')
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.TEXT_SECONDARY)
-        .margin({ bottom: Theme.sp.sm })
-
-      // 注意：dev-pc / remote 模式 hostname 必须是 0.0.0.0（开发电脑监听）
-      // 不是 this.config.host（那是连接目标 IP，不能用来 bind）
-      Text(localOpenCodeServerManager.getCommandForConfig(this.config))
-        .fontSize(Theme.fs.sm)
-        .fontColor(Theme.ACCENT)
-        .fontFamily(Theme.FONT_MONO)
-        .padding(Theme.sp.md)
-        .backgroundColor(Theme.INPUT_BG)
-        .borderRadius(Theme.rd.md)
-        .width('100%')
-        .margin({ bottom: Theme.sp.md })
+        Text(localOpenCodeServerManager.getCommandForConfig(this.config))
+          .fontSize(13)
+          .fontColor(Theme.ACCENT)
+          .fontFamily(Theme.FONT_MONO)
+          .padding(Theme.sp.md)
+          .backgroundColor(Theme.INPUT_BG)
+          .borderRadius(Theme.rd.md)
+          .width('100%')
+      }
+      .width('100%')
+      .padding(Theme.sp.xl)
+      .borderRadius(Theme.rd.lg)
+      .backgroundColor(Theme.ACCENT_DIM)
+      .borderWidth(1)
+      .borderColor(Theme.ACCENT)
+      .margin({ bottom: Theme.sp.xxl })
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .padding(Theme.sp.xl)
-    .borderRadius(Theme.rd.lg)
-    .backgroundColor(Theme.SIDEBAR)
-    .borderWidth(1)
-    .borderColor(Theme.BORDER)
-    .margin({ bottom: Theme.sp.xxl })
-    .alignItems(HorizontalAlign.Start)
   }
 
   private refreshStatusPreview(): void {

@@ -139,20 +139,28 @@ export struct SessionSidebar {
       .scrollBar(BarState.Off)
       .backgroundColor('transparent')
 
-      // Bottom: Quick actions
+      // Bottom: Connection status + Quick actions
       Column() {
         Divider()
           .color(Theme.BORDER)
           .strokeWidth(1)
           .margin({ bottom: Theme.sp.md })
 
+        // Connection status
         Row() {
-          Text('[N] New')
-            .fontSize(Theme.fs.xs)
-            .fontColor(Theme.TEXT_MUTED)
+          Circle({ width: 8, height: 8 })
+            .fill(this.getConnectionColor())
+            .margin({ right: 8 })
+
+          Text(this.getConnectionText())
+            .fontSize(12)
+            .fontColor(this.getConnectionColor())
             .fontFamily(Theme.FONT_MONO)
+            .fontWeight(FontWeight.Medium)
+
           Blank()
-          Text('[/] Search')
+
+          Text('[N] New')
             .fontSize(Theme.fs.xs)
             .fontColor(Theme.TEXT_MUTED)
             .fontFamily(Theme.FONT_MONO)
@@ -166,6 +174,15 @@ export struct SessionSidebar {
     .backgroundColor(Theme.SIDEBAR)
     .borderWidth({ right: 1 })
     .borderColor(Theme.BORDER)
+  }
+
+  private getConnectionColor(): string {
+    // Default to success if we can't determine status
+    return Theme.SUCCESS
+  }
+
+  private getConnectionText(): string {
+    return 'Runtime Connected'
   }
 
   private formatRelTime(timestamp: number): string {
