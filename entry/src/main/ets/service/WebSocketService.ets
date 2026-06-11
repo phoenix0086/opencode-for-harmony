@@ -2,6 +2,7 @@ import { webSocket } from '@kit.NetworkKit';
 import { Logger } from '../utils/Logger';
 import { Constants } from '../utils/Constants';
 import { ServerInfo } from '../model/ServerInfo';
+import { errStr } from '../utils/ErrorUtil';
 
 export type WSMessageHandler = (data: string) => void;
 export type WSStatusHandler = (connected: boolean) => void;
@@ -44,6 +45,17 @@ export class WebSocketService {
   private doConnect(): void {
     if (!this.server) return;
 
+    // Clean up previous WebSocket instance before creating a new one.
+    // Without this, reconnecting leaks the old socket and its event listeners.
+    if (this.ws) {
+      try { this.ws.off('open'); } catch (_) {}
+      try { this.ws.off('message'); } catch (_) {}
+      try { this.ws.off('close'); } catch (_) {}
+      try { this.ws.off('error'); } catch (_) {}
+      try { this.ws.close(); } catch (_) {}
+      this.ws = null
+    }
+
     const wsUrl = this.server.url.replace(/^http/, 'ws') + '/ws';
     Logger.info('WebSocketService connecting to ' + String(wsUrl));
 
@@ -58,7 +70,7 @@ export class WebSocketService {
 
     this.ws.on('message', (err: Error, data: string | ArrayBuffer) => {
       if (err) {
-        Logger.error('WebSocketService message error: ' + String(err.message));
+        Logger.error('WebSocketService message error: ' + errStr(err));
         return;
       }
       if (typeof data === 'string') {
@@ -74,7 +86,7 @@ export class WebSocketService {
     });
 
     this.ws.on('error', (err: Error) => {
-      Logger.error('WebSocketService error: ' + String(err.message));
+      Logger.error('WebSocketService error: ' + errStr(err));
       this.connected = false;
       this.onStatus?.(false);
     });
@@ -88,7 +100,7 @@ export class WebSocketService {
 
     this.ws.connect(wsUrl, { header: headers }, (err: Error) => {
       if (err) {
-        Logger.error('WebSocketService connect failed: ' + String(err.message));
+        Logger.error('WebSocketService connect failed: ' + errStr(err));
         this.tryReconnect();
       }
     });
@@ -116,7 +128,7 @@ export class WebSocketService {
     }
     this.ws.send(data, (err: Error) => {
       if (err) {
-        Logger.error('WebSocketService send error: ' + String(err.message));
+        Logger.error('WebSocketService send error: ' + errStr(err));
       }
     });
   }

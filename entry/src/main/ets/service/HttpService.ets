@@ -2,6 +2,7 @@ import { http } from '@kit.NetworkKit';
 import { Logger } from '../utils/Logger';
 import { Constants } from '../utils/Constants';
 import { ServerInfo } from '../model/ServerInfo';
+import { errStr } from '../utils/ErrorUtil';
 
 export class HttpService {
   private server: ServerInfo | null = null;
@@ -51,8 +52,8 @@ export class HttpService {
       if (response.responseCode >= 200 && response.responseCode < 300) return this.parseResult<T>(response.result);
       throw new Error(`HTTP ${response.responseCode}: ${JSON.stringify(response.result)}`);
     } catch (err) {
-      Logger.error(`HTTP ${method} ${path} failed: ${String(err)}`);
-      throw new Error(String(err));
+      Logger.error(`HTTP ${method} ${path} failed: ${errStr(err)}`);
+      throw new Error(errStr(err));
     } finally {
       httpRequest.destroy();
     }
