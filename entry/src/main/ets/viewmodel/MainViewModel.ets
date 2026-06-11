@@ -26,6 +26,7 @@ export class MainViewModel {
   serverStatusMessage: string = '';
   serverLogs: string[] = [];
   private healthTimer: number = -1;
+  private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
 
   async init(storage: StorageService): Promise<void> {
     this.storageService = storage;
@@ -266,7 +267,8 @@ export class MainViewModel {
   async loadMessages(sessionId: string = this.currentSessionId): Promise<void> { if (sessionId.length === 0) return; try { const raw = await this.httpService.get<Object>(this.sessionMessagesPath(sessionId)); this.messages = this.normalizeOpenCodeMessages(this.extractArray(raw, 'messages', 'data'), sessionId); } catch (err) { Logger.error(`loadMessages failed: ${errStr(err)}`); } }
 
   async sendMessage(content: string): Promise<void> {
-    const text = content.trim(); if (text.length === 0 || this.isGenerating) return;
+    const text = content.trim(); if (text.length === 0 || this.isGenerating || this.sendLock) return;
+    this.sendLock = true;
     if (this.connectionStatus !== ConnectionStatus.Connected) { this.messages = [...this.messages, ChatMessage.createErrorMessage('本地 Runtime 未连接。')]; return; }
 
     // Pre-check: selectedModel must be set
@@ -347,7 +349,7 @@ export class MainViewModel {
       if (!poll.ok) { const e = ChatMessage.createErrorMessage(poll.message); e.sessionId = sessionId; this.messages = [...this.messages, e]; this.errorMessage = poll.message; }
       await this.loadSessions();
     } catch (err) { assistantMsg.setError(errStr(err)); this.errorMessage = errStr(err); this.messages = [...this.messages]; Logger.error(`sendMessage failed: ${errStr(err)}`); }
-    finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); }
+    finally { this.isGenerating = false; this.sendLock = false; this.finalizeLastStreamingAssistant(); }
   }
   async stopGeneration(): Promise<void> { if (!this.isGenerating || this.currentSessionId.length === 0) return; try { await this.httpService.post<Object>(this.sessionAbortPath(this.currentSessionId), new EmptyRequest()); } catch (err) { Logger.error(`stopGeneration failed: ${errStr(err)}`); } finally { this.isGenerating = false; this.finalizeLastStreamingAssistant(); } }
   async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }

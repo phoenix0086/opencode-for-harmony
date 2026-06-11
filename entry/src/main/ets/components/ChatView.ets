@@ -11,8 +11,26 @@ export struct ChatView {
   onStopGeneration?: () => void;
 
   private scroller: Scroller = new Scroller();
+  private lastMessageCount: number = 0;
+
+  aboutToAppear(): void {
+    // 初始加载后滚动到底部
+    setTimeout(() => { this.scrollToBottom(); }, 100)
+  }
+
+  private scrollToBottom(): void {
+    if (this.messages.length > 0) {
+      this.scroller.scrollEdge(Edge.Bottom)
+    }
+  }
 
   build() {
+    // 检测消息数量变化，自动滚动到底部
+    if (this.messages.length !== this.lastMessageCount) {
+      this.lastMessageCount = this.messages.length;
+      setTimeout(() => { this.scrollToBottom(); }, 50)
+    }
+
     Column() {
       List({ scroller: this.scroller }) {
         ForEach(this.messages, (msg) => {

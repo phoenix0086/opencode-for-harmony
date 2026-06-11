@@ -82,6 +82,14 @@ struct Session {
           this.scroller.scrollToIndex(this.viewModel.messages.length - 1);
         }
       })
+      .onAreaChange((oldArea, newArea) => {
+        // 列表区域变化时（消息增减导致高度变化），自动滚动到底部
+        if (this.autoScroll && this.viewModel.messages.length > 0) {
+          setTimeout(() => {
+            this.scroller.scrollToIndex(this.viewModel.messages.length - 1);
+          }, 50)
+        }
+      })
 
       Divider().color('#2D2D2D').width('100%')
 
