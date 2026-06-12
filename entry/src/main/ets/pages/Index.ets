@@ -5,13 +5,13 @@ import { StorageService } from '../service/StorageService';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
+import { localRuntimeService } from '../services/LocalRuntimeService';
 import { ProcessBridge } from '../services/ProcessBridge';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
-import { AiConfigPage } from './AiConfigPage';
 import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
 import { RuntimePage } from './RuntimePage';
 import { Runner } from '../models/Runner';
@@ -60,6 +60,13 @@ struct Index {
   @State settingCommandPalette: boolean = false
   @State settingServerStatus: boolean = false
   @State settingCustomAgents: boolean = false
+  // PR 3:权限 Tab
+  @State permissionFileRead: boolean = true
+  @State permissionFileWrite: boolean = true
+  @State permissionShell: boolean = true
+  @State permissionAutoAccept: boolean = false
+  // PR 3:高级 Tab
+  @State developerMode: boolean = false
   // M21: server mode for StatusPopover
   @State serverMode: string = 'unknown'
   // Runtime 连接模式: dev-pc | local | remote
@@ -74,6 +81,7 @@ struct Index {
   @State settingSoundAgent: string = '斯泰普博普斯 01'
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
+  @State settingsModelSearch: string = ''
 
   // ── Provider dialog 状态 ──
   @State showProviderDialog: boolean = false
@@ -208,14 +216,22 @@ struct Index {
   }
 
   build() {
-    // ── Home 全屏模式: 与 opencode-dev 的 LegacyHome 完全对齐 ──
-    // 默认 currentView=Home 时直接显示 OpenCodeHomeLaunch,不带侧栏,
-    // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
-    if (this.currentView === AppView.Home) {
-      this.FullScreenHome()
-    } else {
-      this.SidebarLayout()
+    Stack() {
+      // ── Home 全屏模式: 与 opencode-dev 的 LegacyHome 完全对齐 ──
+      // 默认 currentView=Home 时直接显示 OpenCodeHomeLaunch,不带侧栏,
+      // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
+      if (this.currentView === AppView.Home) {
+        this.FullScreenHome()
+      } else {
+        this.SidebarLayout()
+      }
+
+      if (this.showSettings) {
+        this.SettingsModal()
+      }
     }
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -1379,12 +1395,17 @@ struct Index {
           .width('100%')
           .padding({ left: 20, top: 20, bottom: 16 })
 
-        this.SettingNavItem('桌面', 'desktop')
+        // PR 3:Settings 收敛,只保留 5 个 Tab
+        // 通用 / 外观 / 快捷键 / 权限 / 高级
+        // 提供商 / 模型 / 服务器 已迁出:
+        //   - 提供商 / 模型 → AI 配置(Tab 供应商配置 / 模型选择)
+        //   - 服务器 → 高级
+        // Runtime / WebUI / Terminal / Logs 也在 高级
         this.SettingNavItem('通用', 'general')
+        this.SettingNavItem('外观', 'appearance')
         this.SettingNavItem('快捷键', 'shortcuts')
-        this.SettingNavItem('服务器', 'servers')
-        this.SettingNavItem('提供商', 'providers')
-        this.SettingNavItem('模型', 'models')
+        this.SettingNavItem('权限', 'permissions')
+        this.SettingNavItem('高级', 'advanced')
 
         Blank()
 
@@ -1402,16 +1423,24 @@ struct Index {
         Column() {
           if (this.settingsTab === 'general') {
             this.SettingsGeneralContent()
-          } else if (this.settingsTab === 'desktop') {
+          } else if (this.settingsTab === 'appearance') {
+            // 外观:原 桌面 内容(主题 / 字号 / 通知)
             this.SettingsDesktopContent()
           } else if (this.settingsTab === 'shortcuts') {
             this.SettingsShortcutsContent()
-          } else if (this.settingsTab === 'servers') {
+          } else if (this.settingsTab === 'permissions') {
+            // PR 3:权限策略(占位)
+            this.SettingsPermissionsContent()
+          } else if (this.settingsTab === 'advanced') {
+            // PR 3:高级(Runtime / WebUI / Terminal / Logs / Developer Mode)
+            this.SettingsAdvancedContent()
+          } else if (this.settingsTab === 'servers_legacy') {
+            // PR 3:服务器配置(从 Settings → 高级 跳转过来),内容保留原 servers tab
             this.SettingsServerContent()
-          } else if (this.settingsTab === 'providers') {
-            this.SettingsProvidersContent()
-          } else if (this.settingsTab === 'models') {
-            this.SettingsModelsContent()
+          } else {
+            // 已迁出的 legacy tabs(providers / models / servers)走兜底:
+            // 直接跳到 通用,避免空白页
+            this.SettingsGeneralContent()
           }
         }
         .padding({ left: 32, right: 32, top: 24, bottom: 40 })
@@ -1785,6 +1814,124 @@ struct Index {
     this.ShortcutRow('命令面板', 'Ctrl + Shift + P')
     Divider().color('#222222')
     this.ShortcutRow('搜索', 'Ctrl + F')
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  PR 3:权限 (Permissions) Tab
+  // ══════════════════════════════════════════════════════════
+  @Builder
+  SettingsPermissionsContent() {
+    Text('权限')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('控制 AI 在执行工具调用、读写文件、运行命令时的询问策略。')
+      .fontSize(12)
+      .fontColor('#999999')
+      .margin({ bottom: 20 })
+
+    this.SSection('工具调用')
+    this.SNotifRow(
+      '文件读取',
+      '读取项目内文件时是否需要确认。',
+      this.permissionFileRead,
+      () => { this.permissionFileRead = !this.permissionFileRead }
+    )
+    Divider().color('#222222')
+    this.SNotifRow(
+      '文件写入',
+      '写入 / 覆盖项目内文件时是否需要确认。',
+      this.permissionFileWrite,
+      () => { this.permissionFileWrite = !this.permissionFileWrite }
+    )
+    Divider().color('#222222')
+    this.SNotifRow(
+      'Shell 命令',
+      '运行 shell 命令时是否需要确认。',
+      this.permissionShell,
+      () => { this.permissionShell = !this.permissionShell }
+    )
+
+    this.SSection('会话')
+    this.SNotifRow(
+      '自动接受所有权限请求',
+      '开启后所有权限请求自动放行(慎用)。',
+      this.permissionAutoAccept,
+      () => { this.permissionAutoAccept = !this.permissionAutoAccept }
+    )
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  PR 3:高级 (Advanced) Tab
+  //  集中放 Runtime / WebUI / Terminal / Logs / Developer Mode
+  // ══════════════════════════════════════════════════════════
+  @Builder
+  SettingsAdvancedContent() {
+    Text('高级')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('Runtime 状态、Web UI、Terminal、Logs 等开发/调试入口。普通用户可忽略。')
+      .fontSize(12)
+      .fontColor('#999999')
+      .margin({ bottom: 20 })
+
+    this.SSection('Runtime')
+    this.AdvancedLinkRow('Runtime 状态', '查看 / 启动 / 停止本地 OpenCode Runtime', () => {
+      this.currentView = AppView.Runtime
+    })
+    Divider().color('#222222')
+    this.AdvancedLinkRow('服务器配置', '配置远端 OpenCode Server URL(原"服务器"Tab)', () => {
+      // PR 3:服务器配置仍走 Settings 内部 tab(legacy),后续 PR 6 再迁
+      this.settingsTab = 'servers_legacy'
+    })
+
+    this.SSection('Web & Terminal')
+    this.AdvancedLinkRow('Web UI', '内置 OpenCode Web 界面', () => {
+      this.currentView = AppView.WebView
+    })
+    Divider().color('#222222')
+    this.AdvancedLinkRow('Terminal', '本地 shell 终端', () => {
+      this.currentView = AppView.Terminal
+    })
+
+    this.SSection('调试')
+    this.AdvancedLinkRow('Logs', '查看 Runtime / App 日志(即将推出)', () => {})
+    Divider().color('#222222')
+    this.SNotifRow(
+      'Developer Mode',
+      '开启后显示实验性功能和详细错误日志。',
+      this.developerMode,
+      () => { this.developerMode = !this.developerMode }
+    )
+  }
+
+  @Builder
+  AdvancedLinkRow(title: string, desc: string, onClick: () => void) {
+    Row() {
+      Column() {
+        Text(title)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+        Text(desc)
+          .fontSize(12)
+          .fontColor('#999999')
+          .margin({ top: 3 })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Text('›')
+        .fontSize(18)
+        .fontColor('#999999')
+    }
+    .width('100%')
+    .padding({ top: 13, bottom: 13 })
+    .onClick(() => onClick())
   }
 
   @Builder
