@@ -88,7 +88,22 @@ export class OpenCodeApiAdapter {
   //  Sessions
   // ══════════════════════════════════════════════════════════
   async listSessions(): Promise<SessionInfo[]> {
-    if (this.isLocal) return localRuntimeClient.listSessions();
+    if (this.isLocal) {
+      const localSessions = localRuntimeClient.listSessions();
+      const out: SessionInfo[] = [];
+      for (let i = 0; i < localSessions.length; i++) {
+        const s = localSessions[i];
+        const info = new SessionInfo();
+        info.id = s['id'] as string || '';
+        info.name = s['name'] as string || '';
+        info.createdAt = s['createdAt'] as string || '';
+        info.updatedAt = s['updatedAt'] as string || '';
+        info.model = s['model'] as string || '';
+        info.agent = s['agent'] as string || '';
+        out.push(info);
+      }
+      return out;
+    }
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/session');
       const arr = this.extractArray(data, 'data');
@@ -99,7 +114,17 @@ export class OpenCodeApiAdapter {
   }
 
   async createSession(input?: Record<string, Object>): Promise<SessionInfo> {
-    if (this.isLocal) return localRuntimeClient.createSession(input);
+    if (this.isLocal) {
+      const s = localRuntimeClient.createSession(input);
+      const info = new SessionInfo();
+      info.id = s['id'] as string || '';
+      info.name = s['name'] as string || '';
+      info.createdAt = s['createdAt'] as string || '';
+      info.updatedAt = s['updatedAt'] as string || '';
+      info.model = s['model'] as string || '';
+      info.agent = s['agent'] as string || '';
+      return info;
+    }
     const body = input ?? {};
     if (this.mode === 'api-v2') {
       const data = await this.post('/api/session', body);
@@ -110,7 +135,17 @@ export class OpenCodeApiAdapter {
   }
 
   async getSession(sessionId: string): Promise<SessionInfo> {
-    if (this.isLocal) return localRuntimeClient.getSession(sessionId);
+    if (this.isLocal) {
+      const s = localRuntimeClient.getSession(sessionId);
+      const info = new SessionInfo();
+      info.id = s['id'] as string || '';
+      info.name = s['name'] as string || '';
+      info.createdAt = s['createdAt'] as string || '';
+      info.updatedAt = s['updatedAt'] as string || '';
+      info.model = s['model'] as string || '';
+      info.agent = s['agent'] as string || '';
+      return info;
+    }
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}`);
       return this.normalizeSession(this.extractObj(data, 'data'));
@@ -137,7 +172,13 @@ export class OpenCodeApiAdapter {
   //  Prompt
   // ══════════════════════════════════════════════════════════
   async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
-    if (this.isLocal) return localRuntimeClient.sendPrompt(sessionId, input);
+    if (this.isLocal) {
+      const r = await localRuntimeClient.sendPrompt(sessionId, input.text, input.model);
+      const out = new PromptResult();
+      out.ok = r['ok'] === true;
+      out.error = (r['error'] as string) || '';
+      return out;
+    }
     const result = new PromptResult();
     if (this.mode === 'api-v2') {
       try {

@@ -6,7 +6,21 @@
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localRuntimeService } from './LocalRuntimeService';
-import { SessionInfo, PromptInput, PromptResult } from './OpenCodeApiAdapter';
+
+// Local type definitions to avoid circular dependency with OpenCodeApiAdapter
+class LocalLocalSessionInfo {
+  id: string = '';
+  name: string = '';
+  createdAt: string = '';
+  updatedAt: string = '';
+  model: string = '';
+  agent: string = '';
+}
+
+class LocalLocalPromptResult {
+  ok: boolean = false;
+  error: string = '';
+}
 
 export class LocalRuntimeClient {
 
@@ -43,26 +57,26 @@ export class LocalRuntimeClient {
   listModels(): Object[] { return []; }
 
   // ══════════ Sessions ══════════
-  listSessions(): SessionInfo[] {
+  listSessions(): LocalSessionInfo[] {
     const sessions = localRuntimeService.listSessions();
-    const out: SessionInfo[] = [];
+    const out: LocalSessionInfo[] = [];
     for (let i = 0; i < sessions.length; i++) {
       out.push(this.toSessionInfo(sessions[i]));
     }
     return out;
   }
 
-  createSession(input?: Record<string, Object>): SessionInfo {
+  createSession(input?: Record<string, Object>): LocalSessionInfo {
     const s = localRuntimeService.createSession(input);
     return this.toSessionInfo(s);
   }
 
-  getSession(sessionId: string): SessionInfo {
+  getSession(sessionId: string): LocalSessionInfo {
     const sessions = localRuntimeService.listSessions();
     for (let i = 0; i < sessions.length; i++) {
       if (sessions[i].id === sessionId) return this.toSessionInfo(sessions[i]);
     }
-    return new SessionInfo();
+    return new LocalSessionInfo();
   }
 
   deleteSession(sessionId: string): boolean { return localRuntimeService.deleteSession(sessionId); }
@@ -76,9 +90,9 @@ export class LocalRuntimeClient {
   }
 
   // ══════════ Prompt ══════════
-  async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
-    const result = new PromptResult();
-    const localInput = { text: input.text, model: { providerID: '', id: input.model, variant: '' } };
+  async sendPrompt(sessionId: string, text: string, model: string = ''): Promise<LocalPromptResult> {
+    const result = new LocalPromptResult();
+    const localInput = { text: text, model: { providerID: '', id: model, variant: '' } };
     const r = await localRuntimeService.sendPrompt(sessionId, localInput);
     result.ok = r.ok;
     result.error = r.error;
@@ -147,8 +161,8 @@ export class LocalRuntimeClient {
   }
 
   // ══════════ Converters ══════════
-  private toSessionInfo(s: Record<string, Object>): SessionInfo {
-    const info = new SessionInfo();
+  private toSessionInfo(s: Record<string, Object>): LocalSessionInfo {
+    const info = new LocalSessionInfo();
     info.id = (s['id'] as string) || '';
     info.name = (s['title'] as string) || (s['name'] as string) || '';
     info.createdAt = String((s['createdAt'] as number) || 0);
