@@ -7,7 +7,7 @@ import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
 import { ProcessBridge } from '../services/ProcessBridge';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
-import { ChatMessage, ToolCall } from '../model/ChatMessage';
+import { ChatMessage, MessageRole, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
@@ -31,6 +31,14 @@ struct PickerDialog {
   @Prop selectedIndex: number = 0
   onConfirm: (value: string) => void = () => {}
 
+  // 用本地 @State 镜像 prop,避免 @CustomDialog 复用同一实例时 prop
+  // 重新打开时不同步导致"上次的选项"残留
+  @State currentIndex: number = 0
+
+  aboutToAppear(): void {
+    this.currentIndex = this.selectedIndex
+  }
+
   build() {
     Column() {
       Row() {
@@ -47,12 +55,11 @@ struct PickerDialog {
       .width('100%')
       .padding({ left: 20, right: 20, top: 16, bottom: 8 })
 
-      TextPicker({ range: this.options, selected: this.selectedIndex })
+      TextPicker({ range: this.options, selected: this.currentIndex })
         .width('100%')
         .height(220)
         .onChange((value: string | string[], index: number | number[]) => {
-          const idx: number = Array.isArray(index) ? index[0] : index
-          this.selectedIndex = idx
+          this.currentIndex = Array.isArray(index) ? index[0] : index
         })
 
       Button('确定')
@@ -63,7 +70,7 @@ struct PickerDialog {
         .fontColor('#FFFFFF')
         .margin({ top: 8, bottom: 16 })
         .onClick(() => {
-          this.onConfirm(this.options[this.selectedIndex])
+          this.onConfirm(this.options[this.currentIndex])
           this.controller.close()
         })
     }
@@ -92,6 +99,42 @@ struct Index {
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
   @State inputText: string = '';
+
+  // ── AI 思考态动态省略号 ──
+  @State thinkingDots: number = 0
+  private thinkingTimerId: number = -1
+
+  aboutToDisappear(): void {
+    this.stopThinkingAnimation();
+    // 不要在页面消失时自动关闭 Runtime。
+    // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
+    // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
+    // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
+    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
+  }
+
+  private startThinkingAnimation(): void {
+    this.stopThinkingAnimation();
+    this.thinkingDots = 0;
+    this.thinkingTimerId = setInterval(() => {
+      this.thinkingDots = (this.thinkingDots + 1) % 4;
+    }, 500);
+  }
+
+  private stopThinkingAnimation(): void {
+    if (this.thinkingTimerId !== -1) {
+      clearInterval(this.thinkingTimerId);
+      this.thinkingTimerId = -1;
+    }
+  }
+
+  private buildDots(): string {
+    let s = '';
+    for (let i = 0; i < this.thinkingDots; i++) {
+      s += '.';
+    }
+    return s;
+  }
 
   // ── Settings 页面状态 ──
   @State settingsTab: string = 'general'
@@ -162,6 +205,8 @@ struct Index {
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
+    // 启动 AI 思考态动态省略号定时器
+    this.startThinkingAnimation();
     if (!this.initialized) {
       // Initialize the services/ StorageService singleton (used by ProviderRegistry)
       await initStorageService(this.context);
@@ -206,14 +251,6 @@ struct Index {
         this.loadRecentProjects()
       ])
     }
-  }
-
-  aboutToDisappear(): void {
-    // 不要在页面消失时自动关闭 Runtime。
-    // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
-    // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
-    // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
-    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
   }
 
   /**
@@ -919,9 +956,8 @@ struct Index {
         List() {
           ForEach(this.viewModel.messages, (msg: ChatMessage) => {
             ListItem() {
-              Column() {
-                if (msg.isError) {
-                // Error message
+              if (msg.isError) {
+                // Error message — full width centered
                 Column() {
                   Text('Error')
                     .fontSize(12)
@@ -940,61 +976,17 @@ struct Index {
                 .borderWidth(1)
                 .borderColor('#FF525240')
                 .margin({ left: 16, right: 16, top: 4, bottom: 4 })
-              } else if (msg.role === 'assistant') {
-                // Assistant message
-                Row() {
-                  Column() {
-                    Row() {
-                      Text('AI')
-                        .fontSize(12)
-                        .fontColor('#FFFFFF')
-                        .margin({ bottom: 4 })
-                      if (msg.isStreaming) {
-                        Text(' (streaming...)')
-                          .fontSize(11)
-                          .fontColor('#FFFFFF')
-                          .margin({ bottom: 4, left: 4 })
-                      }
-                    }
-                    // Tool calls
-                    if (msg.toolCalls.length > 0) {
-                      ForEach(msg.toolCalls, (tool: ToolCall) => {
-                        Row() {
-                          Text(tool.name)
-                            .fontSize(12)
-                            .fontColor('#FFFFFF')
-                            .fontFamily('monospace')
-                            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                            .backgroundColor('#007DFF15')
-                            .borderRadius(4)
-                          if (tool.status === 'error') {
-                            Text('error')
-                              .fontSize(11)
-                              .fontColor('#FFFFFF')
-                              .margin({ left: 6 })
-                          } else if (tool.status === 'complete') {
-                            Text('done')
-                              .fontSize(11)
-                              .fontColor('#FFFFFF')
-                              .margin({ left: 6 })
-                          }
-                        }
-                        .margin({ bottom: 4 })
-                      }, (tool: ToolCall) => tool.id)
-                    }
-                    if (msg.content.length > 0) {
-                      Text(msg.content)
-                        .fontSize(14)
-                        .fontColor('#FFFFFF')
-                    }
-                  }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
+              } else if (msg.role === MessageRole.Assistant) {
+                // Assistant message — LEFT side, AI avatar ABOVE the message bubble
+                Column() {
+                  this.AvatarHeader()
+                  this.AssistantBubble(msg)
                 }
                 .width('100%')
-                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-              } else if (msg.role === 'system') {
-                // System message
+                .alignItems(HorizontalAlign.Start)
+                .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+              } else if (msg.role === MessageRole.System) {
+                // System message — centered
                 Text(msg.content)
                   .fontSize(12)
                   .fontColor('#FFFFFF')
@@ -1003,19 +995,16 @@ struct Index {
                   .width('100%')
                   .padding({ left: 32, right: 32, top: 4, bottom: 4 })
               } else {
-                // User message
-                Blank()
-                Column() {
-                  Text(msg.content)
-                    .fontSize(14)
-                    .fontColor('#FFFFFF')
-                    .textAlign(TextAlign.End)
+                // User message — RIGHT side, bubble
+                Row() {
+                  Blank()
+                  this.UserBubble(msg)
                 }
-                .alignItems(HorizontalAlign.End)
-                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                .alignItems(VerticalAlign.Top)
               }
-              } // Column
-            } // ListItem
+            }
           }, (msg: ChatMessage) => msg.id)
         }
         .layoutWeight(1)
@@ -1214,6 +1203,98 @@ struct Index {
 
     this.viewModel.sendMessage(this.inputText)
     this.inputText = ''
+  }
+
+  @Builder
+  AvatarHeader() {
+    Row() {
+      // AI avatar circle
+      Column() {
+        Text('AI')
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+      }
+      .width(28)
+      .height(28)
+      .borderRadius(14)
+      .backgroundColor('#007DFF')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+    .margin({ bottom: 6 })
+  }
+
+  @Builder
+  AssistantBubble(msg: ChatMessage) {
+    Column() {
+      // Tool calls
+      if (msg.toolCalls.length > 0) {
+        ForEach(msg.toolCalls, (tool: ToolCall) => {
+          Row() {
+            Text(tool.name)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .fontFamily('monospace')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#007DFF15')
+              .borderRadius(4)
+            if (tool.status === 'error') {
+              Text('error')
+                .fontSize(11)
+                .fontColor('#FF5252')
+                .margin({ left: 6 })
+            } else if (tool.status === 'complete') {
+              Text('done')
+                .fontSize(11)
+                .fontColor('#3DDC84')
+                .margin({ left: 6 })
+            }
+          }
+          .margin({ bottom: 4 })
+        }, (tool: ToolCall) => tool.id)
+      }
+
+      // Message body — show "Thinking..." with animated dots when streaming and empty
+      if (msg.content.length > 0) {
+        Text(msg.content)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+          .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
+      } else if (msg.isStreaming) {
+        Row() {
+          Text('Thinking' + this.buildDots())
+            .fontSize(14)
+            .fontColor('#FFFFFF')
+            .fontStyle(FontStyle.Italic)
+        }
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(12)
+    .backgroundColor('#1A1A1A')
+    .borderRadius(12)
+    .borderWidth(1)
+    .borderColor('#2D2D2D')
+    .constraintSize({ maxWidth: '85%' })
+  }
+
+  @Builder
+  UserBubble(msg: ChatMessage) {
+    Column() {
+      Text(msg.content)
+        .fontSize(14)
+        .fontColor('#FFFFFF')
+        .lineHeight(22)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .alignItems(HorizontalAlign.End)
+    .padding(12)
+    .backgroundColor('#007DFF')
+    .borderRadius(12)
+    .constraintSize({ maxWidth: '85%' })
   }
 
   @Builder

@@ -874,6 +874,11 @@ export class LocalRuntimeService {
   /**
    * Sync providers from ProviderRegistry to LocalRuntimeService.
    * Called on startup to ensure local runtime has the latest provider configs.
+   *
+   * MED-6 修复:同步**所有** ProviderRegistry 中的 provider(包括 enabled=false),
+   * 不再过滤掉"已配置但未启用"的 provider / model。runtime 端用 `enabled`
+   * 字段控制是否参与调度,而不是直接删除配置。这样用户在 Provider 页面切换
+   * 启用状态时,Chat 端不会因为 provider 消失而需要重新走 sync 流程。
    */
   async syncFromProviderRegistry(): Promise<void> {
     await providerRegistry.init();
@@ -890,10 +895,10 @@ export class LocalRuntimeService {
       local.apiKey = cn.apiKey;
       local.protocol = 'openai-compatible'; // All current providers are OpenAI-compatible
 
-      // Sync models
+      // Sync models — preserve all (enabled or disabled),不再按 enabled 过滤。
+      // Runtime 调度时会再判断 local.enabled / local.models[*].enabled。
       local.models = [];
       for (const m of cn.models) {
-        if (m.enabled === false) continue;
         const mc = new LocalModelConfig();
         mc.id = m.id;
         mc.name = m.name;
@@ -907,7 +912,8 @@ export class LocalRuntimeService {
       }
     }
 
-    // Remove providers that no longer exist in registry
+    // Remove providers that no longer exist in registry (保留 custom-* 前缀,
+    // 那是用户在设置页手填的、不会进 ProviderRegistry 的临时供应商)
     const registryIds = cnProviders.map(p => p.id);
     this.providers = this.providers.filter(p => registryIds.includes(p.id) || p.id.startsWith('custom-'));
 

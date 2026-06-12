@@ -859,8 +859,11 @@ export class MainViewModel {
         if (assistantHasContent) {
           r.hasAssistant = true
         } else if (status === 'completed' || status === 'complete') {
-          r.hasError = true
-          if (r.errorText.length === 0) r.errorText = 'Runtime 返回了空 assistant 回复。'
+          // 空内容但已完成:不当作成功(hasAssistant 保持 false),
+          // 也不当作错误(避免 UI 显示"Runtime 错误"误导用户)。
+          // 让上层根据 messageCount/超时自行处理,空 assistant 消息
+          // 仍会通过 normalizeOpenCodeMessages 渲染为空气泡。
+          Logger.info(`inspectMessages: assistant completed with empty content (session raw index ${i})`)
         }
       }
     }

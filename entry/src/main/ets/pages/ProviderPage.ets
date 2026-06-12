@@ -57,24 +57,41 @@ export struct ProviderPage {
     this.providers = providerRegistry.getAll()
     // 读取 runtime 已保存的默认 provider/model
     try {
-      const cfg = localRuntimeService.getConfig()
-      const dp = (cfg['defaultProviderID'] as string) || ''
-      const dm = (cfg['defaultModelID'] as string) || ''
-      if (dp.length > 0 && dm.length > 0) {
-        this.defaultModel = `${dp}/${dm}`
-        this.smallModel = this.defaultModel
-      } else if (this.viewModel?.storageService !== null && this.viewModel?.storageService !== undefined) {
-        // 回退：直接从 Storage 读 KEY_MODEL
-        const storedModel = await this.viewModel.storageService.getString(Constants.KEY_MODEL, '')
-        if (storedModel.includes('/')) {
-          this.defaultModel = storedModel
-          this.smallModel = storedModel
+      // LOW-7 守卫:Runtime 未 start() 时,内存 config 仍是默认值,
+      // 直接 getConfig() 会拿到空 defaultProviderID/defaultModelID,
+      // 进而走 Storage 回退路径。Runtime 由用户在主页/Chat 端显式 start,
+      // 这里只在已 start 的情况下用 runtime config,否则只看 storage。
+      const runtimeHealth = localRuntimeService.health()
+      if (runtimeHealth.ok) {
+        const cfg = localRuntimeService.getConfig()
+        const dp = (cfg['defaultProviderID'] as string) || ''
+        const dm = (cfg['defaultModelID'] as string) || ''
+        if (dp.length > 0 && dm.length > 0) {
+          this.defaultModel = `${dp}/${dm}`
+          this.smallModel = this.defaultModel
+        } else {
+          await this.loadDefaultModelFromStorage()
         }
+      } else {
+        await this.loadDefaultModelFromStorage()
       }
     } catch (e) {
       Logger.warn(`aboutToAppear read runtime config failed: ${errStr(e)}`)
     }
     this.isInitialized = true
+  }
+
+  private async loadDefaultModelFromStorage(): Promise<void> {
+    if (this.viewModel?.storageService === null || this.viewModel?.storageService === undefined) return
+    try {
+      const storedModel = await this.viewModel.storageService.getString(Constants.KEY_MODEL, '')
+      if (storedModel.includes('/')) {
+        this.defaultModel = storedModel
+        this.smallModel = storedModel
+      }
+    } catch (e) {
+      Logger.warn(`loadDefaultModelFromStorage failed: ${errStr(e)}`)
+    }
   }
 
   private refreshProviders(): void {
