@@ -9,12 +9,44 @@ import { errStr } from '../utils/ErrorUtil';
 import { storageService } from './StorageService';
 import { providerRegistry } from './ProviderRegistry';
 import { CNProvider, CNModel } from '../models/Provider';
+import { http } from '@kit.NetworkKit';
+import { fileIo } from '@kit.CoreFileKit';
 import {
   RuntimeMode, LocalRuntimeConfig, RuntimeHealth,
   LocalProviderConfig, LocalModelConfig,
   LocalSession, LocalMessage, LocalPromptInput, LocalPromptResult,
   LocalProviderList, LocalModelRef, RuntimeEvent, LocalPermissionRequest
 } from './LocalRuntimeTypes';
+
+// Result classes for ArkTS (no inline object literal types)
+class ProviderCallResult {
+  ok: boolean = false;
+  content: string = '';
+  error: string = '';
+}
+
+class ReadFileResult {
+  ok: boolean = false;
+  content: string = '';
+  error: string = '';
+}
+
+class ListDirResult {
+  ok: boolean = false;
+  entries: Record<string, Object>[] = [];
+  error: string = '';
+}
+
+class SearchResult {
+  ok: boolean = false;
+  matches: Record<string, Object>[] = [];
+  error: string = '';
+}
+
+class WriteFileResult {
+  ok: boolean = false;
+  error: string = '';
+}
 
 // Event listener type
 type EventListener = (event: RuntimeEvent) => void;
@@ -27,7 +59,7 @@ export class LocalRuntimeService {
   private messages: Map<string, LocalMessage[]> = new Map();
   private listeners: EventListener[] = [];
   private startTime: number = 0;
-  private generatingSessions: Set<string> = new Set();
+  private generatingSessions: string[] = [];
 
   // ══════════ Lifecycle ══════════
 
@@ -50,7 +82,7 @@ export class LocalRuntimeService {
 
   async stop(): Promise<void> {
     this.started = false;
-    this.generatingSessions.clear();
+    this.generatingSessions = [];
     Logger.info('LocalRuntimeService stopped');
   }
 
@@ -303,7 +335,9 @@ export class LocalRuntimeService {
     provider: LocalProviderConfig,
     model: LocalModelConfig
   ): Promise<void> {
-    this.generatingSessions.add(session.id);
+    if (!this.generatingSessions.includes(session.id)) {
+      this.generatingSessions.push(session.id);
+    }
 
     try {
       // Build messages array for the API
@@ -320,7 +354,7 @@ export class LocalRuntimeService {
       }
 
       // Check if aborted before calling API
-      if (!this.generatingSessions.has(session.id)) {
+      if (!this.generatingSessions.includes(session.id)) {
         assistantMsg.status = 'aborted';
         assistantMsg.updatedAt = Date.now();
         return;
@@ -330,7 +364,7 @@ export class LocalRuntimeService {
       const response = await this.callProviderAPI(provider, model, apiMessages, session.id);
 
       // Check if aborted during API call
-      if (!this.generatingSessions.has(session.id)) {
+      if (!this.generatingSessions.includes(session.id)) {
         assistantMsg.status = 'aborted';
         assistantMsg.updatedAt = Date.now();
         return;
@@ -353,7 +387,7 @@ export class LocalRuntimeService {
       assistantMsg.updatedAt = Date.now();
       this.emit({ type: 'message.error', sessionID: session.id, messageID: assistantMsg.id, error: errStr(e), data: {} });
     } finally {
-      this.generatingSessions.delete(session.id);
+      this.generatingSessions = this.generatingSessions.filter(s => s !== session.id);
       this.saveMessages(session.id);
     }
   }
@@ -363,7 +397,7 @@ export class LocalRuntimeService {
     model: LocalModelConfig,
     messages: Record<string, Object>[],
     sessionID: string = ''
-  ): Promise<{ ok: boolean; content: string; error: string }> {
+  ): Promise<ProviderCallResult> {
     // Only support OpenAI-compatible for now
     if (provider.protocol !== 'openai-compatible') {
       return { ok: false, content: '', error: `Unsupported protocol: ${provider.protocol}` };
@@ -375,9 +409,9 @@ export class LocalRuntimeService {
     body['messages'] = messages;
     body['stream'] = false; // Non-streaming for v1
 
+    const result = new ProviderCallResult();
     try {
-      const http = await import('@kit.NetworkKit');
-      const req = http.http.createHttp();
+      const req = http.createHttp();
       try {
         const headers: Record<string, string> = {};
         headers['Content-Type'] = 'application/json';
@@ -390,12 +424,12 @@ export class LocalRuntimeService {
         }
 
         const response = await req.request(url, {
-          method: http.http.RequestMethod.POST,
+          method: http.RequestMethod.POST,
           header: headers,
           connectTimeout: 30000,
           readTimeout: 120000,
           extraData: JSON.stringify(body),
-          expectDataType: http.http.HttpDataType.STRING // Use STRING for better error handling
+          expectDataType: http.HttpDataType.STRING
         });
 
         if (response.responseCode >= 200 && response.responseCode < 300) {
@@ -404,7 +438,8 @@ export class LocalRuntimeService {
           try {
             data = JSON.parse(rawStr) as Record<string, Object>;
           } catch (parseErr) {
-            return { ok: false, content: '', error: `JSON parse error: ${String(parseErr)}` };
+            result.error = `JSON parse error: ${errStr(parseErr)}`;
+            return result;
           }
 
           const choices = data['choices'] as Object[];
@@ -413,12 +448,14 @@ export class LocalRuntimeService {
             const message = choice['message'] as Record<string, Object>;
             if (message !== undefined && message !== null) {
               const content = message['content'] as string;
-              return { ok: true, content: content || '', error: '' };
+              result.ok = true;
+              result.content = content || '';
+              return result;
             }
           }
-          return { ok: false, content: '', error: `No content in response: ${rawStr.substring(0, 200)}` };
+          result.error = `No content in response: ${rawStr.substring(0, 200)}`;
+          return result;
         } else {
-          // Try to parse error response
           let errorMsg = `HTTP ${response.responseCode}`;
           try {
             const rawStr = response.result as string;
@@ -428,21 +465,23 @@ export class LocalRuntimeService {
               errorMsg = (errObj['message'] as string) || errorMsg;
             }
           } catch (_) {}
-          return { ok: false, content: '', error: errorMsg };
+          result.error = errorMsg;
+          return result;
         }
       } finally {
         req.destroy();
       }
     } catch (e) {
-      return { ok: false, content: '', error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
   // ══════════ Abort ══════════
 
   abortSession(sessionID: string): boolean {
-    if (this.generatingSessions.has(sessionID)) {
-      this.generatingSessions.delete(sessionID);
+    if (this.generatingSessions.includes(sessionID)) {
+      this.generatingSessions = this.generatingSessions.filter(s => s !== sessionID);
       // Mark the last assistant message as aborted
       const msgs = this.messages.get(sessionID);
       if (msgs !== undefined) {
@@ -532,9 +571,13 @@ export class LocalRuntimeService {
    */
   listPendingPermissions(): LocalPermissionRequest[] {
     const result: LocalPermissionRequest[] = [];
-    const values = this.pendingPermissions.values();
-    for (const req of values) {
-      result.push(req);
+    const keys: string[] = [];
+    this.pendingPermissions.forEach((_value: LocalPermissionRequest, key: string) => { keys.push(key); });
+    for (let i = 0; i < keys.length; i++) {
+      const req = this.pendingPermissions.get(keys[i]);
+      if (req !== undefined) {
+        result.push(req);
+      }
     }
     return result;
   }
@@ -542,7 +585,8 @@ export class LocalRuntimeService {
   /**
    * Write file with permission check.
    */
-  async writeFile(filePath: string, content: string, sessionID: string = ''): Promise<{ ok: boolean; error: string }> {
+  async writeFile(filePath: string, content: string, sessionID: string = ''): Promise<WriteFileResult> {
+    const result = new WriteFileResult();
     // Request permission for write operations
     if (sessionID.length > 0) {
       const payload: Record<string, Object> = {};
@@ -554,27 +598,30 @@ export class LocalRuntimeService {
       for (let i = 0; i < 60; i++) {
         await this.delay(1000);
         if (perm.status === 'approved') break;
-        if (perm.status === 'denied') return { ok: false, error: 'Permission denied by user' };
-        if (perm.status === 'expired') return { ok: false, error: 'Permission request expired' };
+        if (perm.status === 'denied') { result.error = 'Permission denied by user'; return result; }
+        if (perm.status === 'expired') { result.error = 'Permission request expired'; return result; }
       }
       if (perm.status === 'pending') {
         perm.status = 'expired';
-        return { ok: false, error: 'Permission request timed out' };
+        result.error = 'Permission request timed out';
+        return result;
       }
     }
 
     try {
-      const fs = await import('@kit.CoreFileKit');
       const fullPath = this.resolvePath(filePath);
 
       if (fullPath.includes('..')) {
-        return { ok: false, error: 'Path traversal not allowed' };
+        result.error = 'Path traversal not allowed';
+        return result;
       }
 
-      fs.writeTextSync(fullPath, content);
-      return { ok: true, error: '' };
+      fileIo.writeTextSync(fullPath, content);
+      result.ok = true;
+      return result;
     } catch (e) {
-      return { ok: false, error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
@@ -583,90 +630,99 @@ export class LocalRuntimeService {
   /**
    * Read file content from the workspace.
    */
-  async readFile(filePath: string): Promise<{ ok: boolean; content: string; error: string }> {
+  async readFile(filePath: string): Promise<ReadFileResult> {
+    const result = new ReadFileResult();
     try {
-      const fs = await import('@kit.CoreFileKit');
       const fullPath = this.resolvePath(filePath);
 
-      // Security: prevent path traversal
       if (fullPath.includes('..')) {
-        return { ok: false, content: '', error: 'Path traversal not allowed' };
+        result.error = 'Path traversal not allowed';
+        return result;
       }
 
-      const stat = fs.statSync(fullPath);
+      const stat = fileIo.statSync(fullPath);
       if (!stat.isFile()) {
-        return { ok: false, content: '', error: 'Not a file' };
+        result.error = 'Not a file';
+        return result;
       }
 
-      // Read file content
-      const content = fs.readTextSync(fullPath);
-      return { ok: true, content: content, error: '' };
+      result.content = fileIo.readTextSync(fullPath);
+      result.ok = true;
+      return result;
     } catch (e) {
-      return { ok: false, content: '', error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
   /**
    * List directory contents.
    */
-  async listDirectory(dirPath: string): Promise<{ ok: boolean; entries: Record<string, Object>[]; error: string }> {
+  async listDirectory(dirPath: string): Promise<ListDirResult> {
+    const result = new ListDirResult();
     try {
-      const fs = await import('@kit.CoreFileKit');
       const fullPath = this.resolvePath(dirPath);
 
       if (fullPath.includes('..')) {
-        return { ok: false, entries: [], error: 'Path traversal not allowed' };
+        result.error = 'Path traversal not allowed';
+        return result;
       }
 
       const entries: Record<string, Object>[] = [];
-      const dir = fs.listFileSync(fullPath);
+      const dir = fileIo.listFileSync(fullPath);
 
-      for (const name of dir) {
+      for (let i = 0; i < dir.length; i++) {
+        const name = dir[i] as string;
         const entryPath = `${fullPath}/${name}`;
         try {
-          const stat = fs.statSync(entryPath);
+          const stat = statSync(entryPath);
           const entry: Record<string, Object> = {};
           entry['name'] = name;
           entry['path'] = entryPath;
           entry['type'] = stat.isDirectory() ? 'directory' : 'file';
           entry['size'] = stat.size;
           entries.push(entry);
-        } catch (_) {
-          // Skip entries we can't stat
-        }
+        } catch (_) {}
       }
 
-      return { ok: true, entries: entries, error: '' };
+      result.ok = true;
+      result.entries = entries;
+      return result;
     } catch (e) {
-      return { ok: false, entries: [], error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
   /**
    * Search for text in workspace files.
    */
-  async searchText(query: string, dirPath: string = ''): Promise<{ ok: boolean; matches: Record<string, Object>[]; error: string }> {
+  async searchText(query: string, dirPath: string = ''): Promise<SearchResult> {
+    const result = new SearchResult();
     try {
       const searchDir = dirPath.length > 0 ? this.resolvePath(dirPath) : this.config.workspace;
       if (searchDir.length === 0) {
-        return { ok: false, matches: [], error: 'No workspace configured' };
+        result.error = 'No workspace configured';
+        return result;
       }
 
       const matches: Record<string, Object>[] = [];
-      await this.searchInDir(searchDir, query, matches, 0, 50); // max depth 3, max 50 results
+      this.searchInDirSync(searchDir, query, matches, 0, 50);
 
-      return { ok: true, matches: matches, error: '' };
+      result.ok = true;
+      result.matches = matches;
+      return result;
     } catch (e) {
-      return { ok: false, matches: [], error: errStr(e) };
+      result.error = errStr(e);
+      return result;
     }
   }
 
-  private async searchInDir(dirPath: string, query: string, matches: Record<string, Object>[], depth: number, maxResults: number): Promise<void> {
+  private searchInDirSync(dirPath: string, query: string, matches: Record<string, Object>[], depth: number, maxResults: number): void {
     if (depth > 3 || matches.length >= maxResults) return;
 
     try {
-      const fs = await import('@kit.CoreFileKit');
-      const entries = fs.listFileSync(dirPath);
+      const entries = fileIo.listFileSync(dirPath);
 
       for (const name of entries) {
         if (matches.length >= maxResults) break;
@@ -674,11 +730,11 @@ export class LocalRuntimeService {
 
         const fullPath = `${dirPath}/${name}`;
         try {
-          const stat = fs.statSync(fullPath);
+          const stat = fileIo.statSync(fullPath);
           if (stat.isDirectory()) {
-            await this.searchInDir(fullPath, query, matches, depth + 1, maxResults);
+            this.searchInDirSync(fullPath, query, matches, depth + 1, maxResults);
           } else if (stat.isFile() && this.isTextFile(name)) {
-            const content = fs.readTextSync(fullPath);
+            const content = fileIo.readTextSync(fullPath);
             const lines = content.split('\n');
             for (let i = 0; i < lines.length; i++) {
               if (lines[i].toLowerCase().includes(query.toLowerCase())) {
