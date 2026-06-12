@@ -7,11 +7,13 @@
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { storageService } from './StorageService';
+import { providerRegistry } from './ProviderRegistry';
+import { CNProvider, CNModel } from '../models/Provider';
 import {
   RuntimeMode, LocalRuntimeConfig, RuntimeHealth,
   LocalProviderConfig, LocalModelConfig,
   LocalSession, LocalMessage, LocalPromptInput, LocalPromptResult,
-  LocalProviderList, LocalModelRef, RuntimeEvent
+  LocalProviderList, LocalModelRef, RuntimeEvent, LocalPermissionRequest
 } from './LocalRuntimeTypes';
 
 // Event listener type
@@ -37,6 +39,7 @@ export class LocalRuntimeService {
 
     // Load persisted data
     await this.loadProviders();
+    await this.syncFromProviderRegistry();
     await this.loadSessions();
 
     this.started = true;
@@ -316,8 +319,22 @@ export class LocalRuntimeService {
         }
       }
 
+      // Check if aborted before calling API
+      if (!this.generatingSessions.has(session.id)) {
+        assistantMsg.status = 'aborted';
+        assistantMsg.updatedAt = Date.now();
+        return;
+      }
+
       // Call the provider API
-      const response = await this.callProviderAPI(provider, model, apiMessages);
+      const response = await this.callProviderAPI(provider, model, apiMessages, session.id);
+
+      // Check if aborted during API call
+      if (!this.generatingSessions.has(session.id)) {
+        assistantMsg.status = 'aborted';
+        assistantMsg.updatedAt = Date.now();
+        return;
+      }
 
       if (response.ok) {
         assistantMsg.content = response.content;
@@ -344,7 +361,8 @@ export class LocalRuntimeService {
   private async callProviderAPI(
     provider: LocalProviderConfig,
     model: LocalModelConfig,
-    messages: Record<string, Object>[]
+    messages: Record<string, Object>[],
+    sessionID: string = ''
   ): Promise<{ ok: boolean; content: string; error: string }> {
     // Only support OpenAI-compatible for now
     if (provider.protocol !== 'openai-compatible') {
@@ -358,7 +376,6 @@ export class LocalRuntimeService {
     body['stream'] = false; // Non-streaming for v1
 
     try {
-      // Use ArkTS http module
       const http = await import('@kit.NetworkKit');
       const req = http.http.createHttp();
       try {
@@ -378,11 +395,18 @@ export class LocalRuntimeService {
           connectTimeout: 30000,
           readTimeout: 120000,
           extraData: JSON.stringify(body),
-          expectDataType: http.http.HttpDataType.OBJECT
+          expectDataType: http.http.HttpDataType.STRING // Use STRING for better error handling
         });
 
         if (response.responseCode >= 200 && response.responseCode < 300) {
-          const data = response.result as Record<string, Object>;
+          const rawStr = response.result as string;
+          let data: Record<string, Object> = {};
+          try {
+            data = JSON.parse(rawStr) as Record<string, Object>;
+          } catch (parseErr) {
+            return { ok: false, content: '', error: `JSON parse error: ${String(parseErr)}` };
+          }
+
           const choices = data['choices'] as Object[];
           if (choices !== undefined && choices !== null && choices.length > 0) {
             const choice = choices[0] as Record<string, Object>;
@@ -392,9 +416,19 @@ export class LocalRuntimeService {
               return { ok: true, content: content || '', error: '' };
             }
           }
-          return { ok: false, content: '', error: 'No content in response' };
+          return { ok: false, content: '', error: `No content in response: ${rawStr.substring(0, 200)}` };
         } else {
-          return { ok: false, content: '', error: `HTTP ${response.responseCode}: ${JSON.stringify(response.result)}` };
+          // Try to parse error response
+          let errorMsg = `HTTP ${response.responseCode}`;
+          try {
+            const rawStr = response.result as string;
+            const errData = JSON.parse(rawStr) as Record<string, Object>;
+            const errObj = errData['error'] as Record<string, Object>;
+            if (errObj !== undefined && errObj !== null) {
+              errorMsg = (errObj['message'] as string) || errorMsg;
+            }
+          } catch (_) {}
+          return { ok: false, content: '', error: errorMsg };
         }
       } finally {
         req.destroy();
@@ -442,6 +476,301 @@ export class LocalRuntimeService {
       } catch (e) {
         Logger.warn(`Event listener error: ${errStr(e)}`);
       }
+    }
+  }
+
+  // ══════════ Permission Engine (Step 7) ══════════
+
+  private pendingPermissions: Map<string, LocalPermissionRequest> = new Map();
+
+  /**
+   * Request permission for a tool operation.
+   * Returns a permission request that must be approved before execution.
+   */
+  requestPermission(sessionID: string, toolName: string, summary: string, payload: Record<string, Object>): LocalPermissionRequest {
+    const req = new LocalPermissionRequest();
+    req.id = `perm_${Date.now()}_${Math.floor(Math.random() * 999999)}`;
+    req.sessionID = sessionID;
+    req.toolName = toolName;
+    req.summary = summary;
+    req.payload = payload;
+    req.status = 'pending';
+    req.createdAt = Date.now();
+
+    this.pendingPermissions.set(req.id, req);
+    this.emit({ type: 'permission.requested', sessionID: sessionID, messageID: req.id, error: '', data: {} });
+
+    return req;
+  }
+
+  /**
+   * Approve a permission request.
+   */
+  approvePermission(permissionID: string): boolean {
+    const req = this.pendingPermissions.get(permissionID);
+    if (req === undefined) return false;
+    req.status = 'approved';
+    this.pendingPermissions.delete(permissionID);
+    this.emit({ type: 'permission.approved', sessionID: req.sessionID, messageID: permissionID, error: '', data: {} });
+    return true;
+  }
+
+  /**
+   * Deny a permission request.
+   */
+  denyPermission(permissionID: string): boolean {
+    const req = this.pendingPermissions.get(permissionID);
+    if (req === undefined) return false;
+    req.status = 'denied';
+    this.pendingPermissions.delete(permissionID);
+    this.emit({ type: 'permission.denied', sessionID: req.sessionID, messageID: permissionID, error: '', data: {} });
+    return true;
+  }
+
+  /**
+   * List pending permission requests.
+   */
+  listPendingPermissions(): LocalPermissionRequest[] {
+    const result: LocalPermissionRequest[] = [];
+    const values = this.pendingPermissions.values();
+    for (const req of values) {
+      result.push(req);
+    }
+    return result;
+  }
+
+  /**
+   * Write file with permission check.
+   */
+  async writeFile(filePath: string, content: string, sessionID: string = ''): Promise<{ ok: boolean; error: string }> {
+    // Request permission for write operations
+    if (sessionID.length > 0) {
+      const payload: Record<string, Object> = {};
+      payload['path'] = filePath;
+      payload['contentLength'] = content.length;
+      const perm = this.requestPermission(sessionID, 'write_file', `Write to ${filePath}`, payload);
+
+      // Wait for approval (up to 60 seconds)
+      for (let i = 0; i < 60; i++) {
+        await this.delay(1000);
+        if (perm.status === 'approved') break;
+        if (perm.status === 'denied') return { ok: false, error: 'Permission denied by user' };
+        if (perm.status === 'expired') return { ok: false, error: 'Permission request expired' };
+      }
+      if (perm.status === 'pending') {
+        perm.status = 'expired';
+        return { ok: false, error: 'Permission request timed out' };
+      }
+    }
+
+    try {
+      const fs = await import('@kit.CoreFileKit');
+      const fullPath = this.resolvePath(filePath);
+
+      if (fullPath.includes('..')) {
+        return { ok: false, error: 'Path traversal not allowed' };
+      }
+
+      fs.writeTextSync(fullPath, content);
+      return { ok: true, error: '' };
+    } catch (e) {
+      return { ok: false, error: errStr(e) };
+    }
+  }
+
+  // ══════════ Tools (Read-only, Step 6) ══════════
+
+  /**
+   * Read file content from the workspace.
+   */
+  async readFile(filePath: string): Promise<{ ok: boolean; content: string; error: string }> {
+    try {
+      const fs = await import('@kit.CoreFileKit');
+      const fullPath = this.resolvePath(filePath);
+
+      // Security: prevent path traversal
+      if (fullPath.includes('..')) {
+        return { ok: false, content: '', error: 'Path traversal not allowed' };
+      }
+
+      const stat = fs.statSync(fullPath);
+      if (!stat.isFile()) {
+        return { ok: false, content: '', error: 'Not a file' };
+      }
+
+      // Read file content
+      const content = fs.readTextSync(fullPath);
+      return { ok: true, content: content, error: '' };
+    } catch (e) {
+      return { ok: false, content: '', error: errStr(e) };
+    }
+  }
+
+  /**
+   * List directory contents.
+   */
+  async listDirectory(dirPath: string): Promise<{ ok: boolean; entries: Record<string, Object>[]; error: string }> {
+    try {
+      const fs = await import('@kit.CoreFileKit');
+      const fullPath = this.resolvePath(dirPath);
+
+      if (fullPath.includes('..')) {
+        return { ok: false, entries: [], error: 'Path traversal not allowed' };
+      }
+
+      const entries: Record<string, Object>[] = [];
+      const dir = fs.listFileSync(fullPath);
+
+      for (const name of dir) {
+        const entryPath = `${fullPath}/${name}`;
+        try {
+          const stat = fs.statSync(entryPath);
+          const entry: Record<string, Object> = {};
+          entry['name'] = name;
+          entry['path'] = entryPath;
+          entry['type'] = stat.isDirectory() ? 'directory' : 'file';
+          entry['size'] = stat.size;
+          entries.push(entry);
+        } catch (_) {
+          // Skip entries we can't stat
+        }
+      }
+
+      return { ok: true, entries: entries, error: '' };
+    } catch (e) {
+      return { ok: false, entries: [], error: errStr(e) };
+    }
+  }
+
+  /**
+   * Search for text in workspace files.
+   */
+  async searchText(query: string, dirPath: string = ''): Promise<{ ok: boolean; matches: Record<string, Object>[]; error: string }> {
+    try {
+      const searchDir = dirPath.length > 0 ? this.resolvePath(dirPath) : this.config.workspace;
+      if (searchDir.length === 0) {
+        return { ok: false, matches: [], error: 'No workspace configured' };
+      }
+
+      const matches: Record<string, Object>[] = [];
+      await this.searchInDir(searchDir, query, matches, 0, 50); // max depth 3, max 50 results
+
+      return { ok: true, matches: matches, error: '' };
+    } catch (e) {
+      return { ok: false, matches: [], error: errStr(e) };
+    }
+  }
+
+  private async searchInDir(dirPath: string, query: string, matches: Record<string, Object>[], depth: number, maxResults: number): Promise<void> {
+    if (depth > 3 || matches.length >= maxResults) return;
+
+    try {
+      const fs = await import('@kit.CoreFileKit');
+      const entries = fs.listFileSync(dirPath);
+
+      for (const name of entries) {
+        if (matches.length >= maxResults) break;
+        if (name.startsWith('.') || name === 'node_modules' || name === '.git') continue;
+
+        const fullPath = `${dirPath}/${name}`;
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+            await this.searchInDir(fullPath, query, matches, depth + 1, maxResults);
+          } else if (stat.isFile() && this.isTextFile(name)) {
+            const content = fs.readTextSync(fullPath);
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].toLowerCase().includes(query.toLowerCase())) {
+                const match: Record<string, Object> = {};
+                match['file'] = fullPath;
+                match['line'] = i + 1;
+                match['content'] = lines[i].trim();
+                matches.push(match);
+                if (matches.length >= maxResults) break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  private isTextFile(name: string): boolean {
+    const textExts = ['.ts', '.js', '.json', '.md', '.txt', '.py', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.css', '.html', '.xml', '.yaml', '.yml', '.toml', '.ets', '.arkts'];
+    const lower = name.toLowerCase();
+    for (const ext of textExts) {
+      if (lower.endsWith(ext)) return true;
+    }
+    return !lower.includes('.');
+  }
+
+  private resolvePath(path: string): string {
+    if (path.startsWith('/')) return path;
+    if (this.config.workspace.length > 0) return `${this.config.workspace}/${path}`;
+    return path;
+  }
+
+  // ══════════ ProviderRegistry Sync ══════════
+
+  /**
+   * Sync providers from ProviderRegistry to LocalRuntimeService.
+   * Called on startup to ensure local runtime has the latest provider configs.
+   */
+  async syncFromProviderRegistry(): Promise<void> {
+    await providerRegistry.init();
+    const cnProviders = providerRegistry.getEnabled();
+
+    for (const cn of cnProviders) {
+      const existing = this.findProvider(cn.id);
+      const local = existing !== null ? existing : new LocalProviderConfig();
+
+      local.id = cn.id;
+      local.name = cn.name;
+      local.enabled = cn.enabled;
+      local.baseURL = cn.baseURL;
+      local.apiKey = cn.apiKey;
+      local.protocol = 'openai-compatible'; // All current providers are OpenAI-compatible
+
+      // Sync models
+      local.models = [];
+      for (const m of cn.models) {
+        if (m.enabled === false) continue;
+        const mc = new LocalModelConfig();
+        mc.id = m.id;
+        mc.name = m.name;
+        mc.contextLength = m.context || 128000;
+        mc.maxOutputTokens = m.maxTokens || 8192;
+        local.models.push(mc);
+      }
+
+      if (existing === null) {
+        this.providers.push(local);
+      }
+    }
+
+    // Remove providers that no longer exist in registry
+    const registryIds = cnProviders.map(p => p.id);
+    this.providers = this.providers.filter(p => registryIds.includes(p.id) || p.id.startsWith('custom-'));
+
+    await this.saveProviders();
+    Logger.info(`syncFromProviderRegistry: ${this.providers.length} providers synced`);
+  }
+
+  /**
+   * Save API key back to ProviderRegistry.
+   */
+  async syncApiKeyToRegistry(providerID: string, apiKey: string): Promise<void> {
+    try {
+      await providerRegistry.setApiKey(providerID, apiKey, 'direct');
+      // Also update local provider
+      const p = this.findProvider(providerID);
+      if (p !== null) {
+        p.apiKey = apiKey;
+        await this.saveProviders();
+      }
+    } catch (e) {
+      Logger.warn(`syncApiKeyToRegistry failed: ${errStr(e)}`);
     }
   }
 

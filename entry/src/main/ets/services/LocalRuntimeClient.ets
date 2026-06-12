@@ -143,6 +143,56 @@ export class LocalRuntimeClient {
     localRuntimeService.setDefaultModel(providerID, modelID);
   }
 
+  // ══════════ Permissions ══════════
+
+  listPendingPermissions(): Object[] {
+    const perms = localRuntimeService.listPendingPermissions();
+    const result: Object[] = [];
+    for (let i = 0; i < perms.length; i++) {
+      const p = perms[i];
+      const obj: Record<string, Object> = {};
+      obj['id'] = p.id;
+      obj['sessionID'] = p.sessionID;
+      obj['toolName'] = p.toolName;
+      obj['summary'] = p.summary;
+      obj['status'] = p.status;
+      obj['createdAt'] = p.createdAt;
+      result.push(obj);
+    }
+    return result;
+  }
+
+  approvePermission(permissionID: string): boolean {
+    return localRuntimeService.approvePermission(permissionID);
+  }
+
+  denyPermission(permissionID: string): boolean {
+    return localRuntimeService.denyPermission(permissionID);
+  }
+
+  // ══════════ Tools ══════════
+
+  async readFile(filePath: string): Promise<Record<string, Object>> {
+    const result = await localRuntimeService.readFile(filePath);
+    const response: Record<string, Object> = {};
+    response['ok'] = result.ok;
+    response['content'] = result.content;
+    response['error'] = result.error;
+    return response;
+  }
+
+  async listDirectory(dirPath: string): Promise<Object[]> {
+    const result = await localRuntimeService.listDirectory(dirPath);
+    if (!result.ok) return [];
+    return result.entries;
+  }
+
+  async searchText(query: string, dirPath: string = ''): Promise<Object[]> {
+    const result = await localRuntimeService.searchText(query, dirPath);
+    if (!result.ok) return [];
+    return result.matches;
+  }
+
   // ══════════ Format Converters ══════════
 
   private sessionToApi(s: LocalSession): Record<string, Object> {

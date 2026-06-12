@@ -425,6 +425,35 @@ export class OpenCodeApiAdapter {
   }
 
   // ══════════════════════════════════════════════════════════
+  //  Tools (local-embedded only)
+  // ══════════════════════════════════════════════════════════
+  async readFile(filePath: string): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.readFile(filePath);
+    // Remote: use file API
+    try {
+      const data = await this.get(`/file/content?path=${encodeURIComponent(filePath)}`);
+      return data;
+    } catch (e) {
+      return { ok: false, content: '', error: errStr(e) };
+    }
+  }
+
+  async listDirectory(dirPath: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listDirectory(dirPath);
+    try {
+      const data = await this.get(`/file?path=${encodeURIComponent(dirPath)}`);
+      return this.asArray(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async searchText(query: string, dirPath: string = ''): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.searchText(query, dirPath);
+    return []; // Remote search not yet implemented
+  }
+
+  // ══════════════════════════════════════════════════════════
   //  Event Stream URL
   // ══════════════════════════════════════════════════════════
   getEventUrl(): string {
