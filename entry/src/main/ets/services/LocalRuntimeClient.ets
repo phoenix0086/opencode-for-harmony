@@ -1,280 +1,194 @@
 /**
  * LocalRuntimeClient — wraps LocalRuntimeService to expose a unified API
  * that OpenCodeApiAdapter can route to in local-embedded mode.
- *
- * This is the "local backend" that replaces the remote HTTP calls
- * when the app runs in local-embedded mode.
  */
 
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localRuntimeService } from './LocalRuntimeService';
-import {
-  RuntimeMode, RuntimeHealth, LocalProviderList,
-  LocalSession, LocalMessage, LocalPromptInput, LocalPromptResult,
-  LocalModelRef, RuntimeEvent
-} from './LocalRuntimeTypes';
+import { SessionInfo, PromptInput, PromptResult } from './OpenCodeApiAdapter';
 
 export class LocalRuntimeClient {
 
-  // ══════════ Lifecycle ╂═════════
-
-  async start(): Promise<RuntimeHealth> {
-    return await localRuntimeService.start();
+  async start(): Promise<Record<string, Object>> {
+    const h = await localRuntimeService.start();
+    const r: Record<string, Object> = {};
+    r['ok'] = h.ok; r['version'] = h.version; r['mode'] = h.mode; r['message'] = h.message;
+    return r;
   }
 
-  async stop(): Promise<void> {
-    await localRuntimeService.stop();
-  }
+  async stop(): Promise<void> { await localRuntimeService.stop(); }
 
   // ══════════ Health ══════════
-
   health(): Record<string, Object> {
     const h = localRuntimeService.health();
-    const result: Record<string, Object> = {};
-    result['healthy'] = h.ok;
-    result['version'] = h.version;
-    result['mode'] = h.mode;
-    result['message'] = h.message;
-    result['uptime'] = h.uptime;
-    return result;
+    const r: Record<string, Object> = {};
+    r['healthy'] = h.ok; r['version'] = h.version; r['mode'] = h.mode; r['message'] = h.message;
+    return r;
   }
 
   // ══════════ Config ══════════
-
-  getConfig(): Record<string, Object> {
-    return localRuntimeService.getConfig();
-  }
-
-  updateConfig(patch: Record<string, Object>): Record<string, Object> {
-    return localRuntimeService.updateConfig(patch);
-  }
+  getConfig(): Record<string, Object> { return localRuntimeService.getConfig(); }
+  patchConfig(body: Record<string, Object>): void { localRuntimeService.updateConfig(body); }
 
   // ══════════ Providers ══════════
-
   listProviders(): Record<string, Object> {
     const list = localRuntimeService.listProviders();
-    const result: Record<string, Object> = {};
-    result['all'] = list.all as Object;
-    result['connected'] = list.connected as Object;
-    result['defaults'] = list.defaults as Object;
-    return result;
+    const r: Record<string, Object> = {};
+    r['all'] = list.all as Object;
+    r['connected'] = list.connected as Object;
+    r['defaults'] = list.defaults as Object;
+    return r;
   }
-
-  async setProviderAuth(providerID: string, apiKey: string): Promise<boolean> {
-    return await localRuntimeService.setProviderAuth(providerID, apiKey);
-  }
-
-  async removeProviderAuth(providerID: string): Promise<boolean> {
-    return await localRuntimeService.removeProviderAuth(providerID);
-  }
+  listModels(): Object[] { return []; }
 
   // ══════════ Sessions ══════════
-
-  listSessions(): Object[] {
+  listSessions(): SessionInfo[] {
     const sessions = localRuntimeService.listSessions();
-    const result: Object[] = [];
+    const out: SessionInfo[] = [];
     for (let i = 0; i < sessions.length; i++) {
-      result.push(this.sessionToApi(sessions[i]));
+      out.push(this.toSessionInfo(sessions[i]));
     }
-    return result;
+    return out;
   }
 
-  createSession(input?: Record<string, Object>): Record<string, Object> {
-    const session = localRuntimeService.createSession(input);
-    return this.sessionToApi(session);
+  createSession(input?: Record<string, Object>): SessionInfo {
+    const s = localRuntimeService.createSession(input);
+    return this.toSessionInfo(s);
   }
 
-  deleteSession(sessionID: string): boolean {
-    return localRuntimeService.deleteSession(sessionID);
+  getSession(sessionId: string): SessionInfo {
+    const sessions = localRuntimeService.listSessions();
+    for (let i = 0; i < sessions.length; i++) {
+      if (sessions[i].id === sessionId) return this.toSessionInfo(sessions[i]);
+    }
+    return new SessionInfo();
   }
+
+  deleteSession(sessionId: string): boolean { return localRuntimeService.deleteSession(sessionId); }
 
   // ══════════ Messages ══════════
-
-  listMessages(sessionID: string): Object[] {
-    const messages = localRuntimeService.listMessages(sessionID);
-    const result: Object[] = [];
-    for (let i = 0; i < messages.length; i++) {
-      result.push(this.messageToApi(messages[i]));
-    }
-    return result;
+  listMessages(sessionId: string): Object[] {
+    const msgs = localRuntimeService.listMessages(sessionId);
+    const out: Object[] = [];
+    for (let i = 0; i < msgs.length; i++) { out.push(this.toApiMessage(msgs[i])); }
+    return out;
   }
 
   // ══════════ Prompt ══════════
-
-  async sendPrompt(sessionID: string, text: string, modelRef?: LocalModelRef): Promise<Record<string, Object>> {
-    const input = new LocalPromptInput();
-    input.text = text;
-    if (modelRef !== undefined) {
-      input.model = modelRef;
-    }
-
-    const result = await localRuntimeService.sendPrompt(sessionID, input);
-    const response: Record<string, Object> = {};
-    response['ok'] = result.ok;
-    response['messageID'] = result.messageID;
-    response['error'] = result.error;
-    return response;
+  async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
+    const result = new PromptResult();
+    const localInput = { text: input.text, model: { providerID: '', id: input.model, variant: '' } };
+    const r = await localRuntimeService.sendPrompt(sessionId, localInput);
+    result.ok = r.ok;
+    result.error = r.error;
+    return result;
   }
 
-  // ══════════ Abort ══════════
+  // ══════════ Wait / Context ══════════
+  waitSession(_sessionId: string): Record<string, Object> { return {}; }
+  getSessionContext(_sessionId: string): Record<string, Object> { return {}; }
 
-  abortSession(sessionID: string): boolean {
-    return localRuntimeService.abortSession(sessionID);
+  // ══════════ Abort ══════════
+  abortSession(sessionId: string): boolean { return localRuntimeService.abortSession(sessionId); }
+
+  // ══════════ Permissions ══════════
+  listPermissionRequests(): Object[] { return localRuntimeService.listPendingPermissions() as Object[]; }
+  listSavedPermissions(): Object[] { return []; }
+  deleteSavedPermission(_id: string): boolean { return false; }
+  listSessionPermissions(_sessionId: string): Object[] { return []; }
+  replyPermission(_sessionId: string, requestId: string, reply: string): boolean {
+    if (reply === 'deny') return localRuntimeService.denyPermission(requestId);
+    return localRuntimeService.approvePermission(requestId);
+  }
+
+  // ══════════ Questions ══════════
+  listQuestions(_sessionId: string): Object[] { return []; }
+  replyQuestion(_sessionId: string, _requestId: string, _optionIDs: string[]): boolean { return false; }
+  rejectQuestion(_sessionId: string, _requestId: string): boolean { return false; }
+
+  // ══════════ Commands / Skills ══════════
+  listCommands(): Object[] { return []; }
+  listSkills(): Object[] { return []; }
+
+  // ══════════ Files ══════════
+  listFiles(path: string): Object[] {
+    // Synchronous wrapper — returns empty, actual calls go through readFile/listDirectory
+    return [];
+  }
+  findFiles(_query: string): Object[] { return []; }
+  async readFile(filePath: string): Promise<Record<string, Object>> {
+    const r = await localRuntimeService.readFile(filePath);
+    const out: Record<string, Object> = {};
+    out['ok'] = r.ok; out['content'] = r.content; out['error'] = r.error;
+    return out;
+  }
+  async listDirectory(dirPath: string): Promise<Object[]> {
+    const r = await localRuntimeService.listDirectory(dirPath);
+    return r.entries;
+  }
+  async searchText(query: string, dirPath: string = ''): Promise<Object[]> {
+    const r = await localRuntimeService.searchText(query, dirPath);
+    return r.matches;
   }
 
   // ══════════ Events ══════════
-
-  addEventListener(listener: (event: RuntimeEvent) => void): void {
-    localRuntimeService.addEventListener(listener);
-  }
-
-  removeEventListener(listener: (event: RuntimeEvent) => void): void {
-    localRuntimeService.removeEventListener(listener);
-  }
+  getEventUrl(): string { return ''; }
 
   // ══════════ Model Management ══════════
-
-  getDefaultModelRef(): LocalModelRef {
-    return localRuntimeService.getDefaultModelRef();
+  getDefaultModelRef(): Record<string, Object> {
+    const ref = localRuntimeService.getDefaultModelRef();
+    const r: Record<string, Object> = {};
+    r['providerID'] = ref.providerID; r['id'] = ref.id;
+    return r;
   }
-
   setDefaultModel(providerID: string, modelID: string): void {
     localRuntimeService.setDefaultModel(providerID, modelID);
   }
 
-  // ══════════ Permissions ══════════
-
-  listPendingPermissions(): Object[] {
-    const perms = localRuntimeService.listPendingPermissions();
-    const result: Object[] = [];
-    for (let i = 0; i < perms.length; i++) {
-      const p = perms[i];
-      const obj: Record<string, Object> = {};
-      obj['id'] = p.id;
-      obj['sessionID'] = p.sessionID;
-      obj['toolName'] = p.toolName;
-      obj['summary'] = p.summary;
-      obj['status'] = p.status;
-      obj['createdAt'] = p.createdAt;
-      result.push(obj);
-    }
-    return result;
+  // ══════════ Converters ══════════
+  private toSessionInfo(s: Record<string, Object>): SessionInfo {
+    const info = new SessionInfo();
+    info.id = (s['id'] as string) || '';
+    info.name = (s['title'] as string) || (s['name'] as string) || '';
+    info.createdAt = String((s['createdAt'] as number) || 0);
+    info.updatedAt = String((s['updatedAt'] as number) || 0);
+    info.model = (s['modelID'] as string) || '';
+    info.agent = 'build';
+    return info;
   }
 
-  approvePermission(permissionID: string): boolean {
-    return localRuntimeService.approvePermission(permissionID);
-  }
-
-  denyPermission(permissionID: string): boolean {
-    return localRuntimeService.denyPermission(permissionID);
-  }
-
-  // ══════════ Tools ══════════
-
-  async readFile(filePath: string): Promise<Record<string, Object>> {
-    const result = await localRuntimeService.readFile(filePath);
-    const response: Record<string, Object> = {};
-    response['ok'] = result.ok;
-    response['content'] = result.content;
-    response['error'] = result.error;
-    return response;
-  }
-
-  async listDirectory(dirPath: string): Promise<Object[]> {
-    const result = await localRuntimeService.listDirectory(dirPath);
-    if (!result.ok) return [];
-    return result.entries;
-  }
-
-  async searchText(query: string, dirPath: string = ''): Promise<Object[]> {
-    const result = await localRuntimeService.searchText(query, dirPath);
-    if (!result.ok) return [];
-    return result.matches;
-  }
-
-  // ══════════ Format Converters ══════════
-
-  private sessionToApi(s: LocalSession): Record<string, Object> {
-    const result: Record<string, Object> = {};
-    result['id'] = s.id;
-    result['title'] = s.title;
-    result['name'] = s.title;
-    result['directory'] = s.workspace;
-    result['agent'] = 'build';
-    result['cost'] = 0;
-
-    const model: Record<string, Object> = {};
-    model['id'] = s.modelID;
-    model['providerID'] = s.providerID;
-    model['variant'] = 'default';
-    result['model'] = model;
-
-    const time: Record<string, Object> = {};
-    time['created'] = s.createdAt;
-    time['updated'] = s.updatedAt;
-    result['time'] = time;
-
-    const tokens: Record<string, Object> = {};
-    tokens['input'] = 0;
-    tokens['output'] = 0;
-    tokens['reasoning'] = 0;
-    result['tokens'] = tokens;
-
-    result['messageCount'] = s.messageCount;
-
-    return result;
-  }
-
-  private messageToApi(m: LocalMessage): Record<string, Object> {
-    const result: Record<string, Object> = {};
-
+  private toApiMessage(m: Record<string, Object>): Record<string, Object> {
+    const r: Record<string, Object> = {};
     const info: Record<string, Object> = {};
-    info['id'] = m.id;
-    info['role'] = m.role;
-    info['sessionID'] = m.sessionID;
+    info['id'] = (m['id'] as string) || '';
+    info['role'] = (m['role'] as string) || 'user';
+    info['sessionID'] = (m['sessionID'] as string) || '';
     info['agent'] = 'build';
-
     const model: Record<string, Object> = {};
-    model['id'] = m.modelID;
-    model['providerID'] = m.providerID;
+    model['id'] = (m['modelID'] as string) || '';
+    model['providerID'] = (m['providerID'] as string) || '';
     info['model'] = model;
-
     const time: Record<string, Object> = {};
-    time['created'] = m.createdAt;
+    time['created'] = (m['createdAt'] as number) || 0;
     info['time'] = time;
-
-    result['info'] = info;
+    r['info'] = info;
 
     const parts: Object[] = [];
-
-    if (m.role === 'assistant' && m.status === 'streaming') {
-      // Streaming indicator
+    const content = (m['content'] as string) || '';
+    if (content.length > 0) {
       const part: Record<string, Object> = {};
-      part['type'] = 'step-start';
-      part['text'] = '';
+      part['type'] = 'text'; part['text'] = content; part['id'] = `prt_${info['id']}_text`;
       parts.push(part);
     }
-
-    if (m.content.length > 0 || m.role === 'user') {
+    const error = (m['error'] as string) || '';
+    if (error.length > 0) {
       const part: Record<string, Object> = {};
-      part['type'] = 'text';
-      part['text'] = m.content;
-      part['id'] = `prt_${m.id}_text`;
+      part['type'] = 'error'; part['text'] = error; part['id'] = `prt_${info['id']}_error`;
       parts.push(part);
     }
-
-    if (m.error.length > 0) {
-      const part: Record<string, Object> = {};
-      part['type'] = 'error';
-      part['text'] = m.error;
-      part['id'] = `prt_${m.id}_error`;
-      parts.push(part);
-    }
-
-    result['parts'] = parts;
-
-    return result;
+    r['parts'] = parts;
+    return r;
   }
 }
 

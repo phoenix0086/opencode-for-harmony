@@ -7,10 +7,12 @@
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { storageService } from './StorageService';
+import { preferences } from '@kit.ArkData';
 import { providerRegistry } from './ProviderRegistry';
 import { CNProvider, CNModel } from '../models/Provider';
 import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
+import { util } from '@kit.ArkTS';
 import {
   RuntimeMode, LocalRuntimeConfig, RuntimeHealth,
   LocalProviderConfig, LocalModelConfig,
@@ -53,6 +55,11 @@ type EventListener = (event: RuntimeEvent) => void;
 
 export class LocalRuntimeService {
   private started: boolean = false;
+  private prefs: preferences.Preferences | null = null;
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => { setTimeout(() => resolve(), ms); });
+  }
   private config: LocalRuntimeConfig = new LocalRuntimeConfig();
   private providers: LocalProviderConfig[] = [];
   private sessions: LocalSession[] = [];
@@ -62,6 +69,37 @@ export class LocalRuntimeService {
   private generatingSessions: string[] = [];
 
   // ══════════ Lifecycle ══════════
+
+  private async initPrefs(): Promise<void> {
+    if (this.prefs !== null) return;
+    try {
+      // Use a context from AppStorage if available, otherwise skip
+      const ctx = AppStorage.get<Context>('appContext');
+      if (ctx !== undefined && ctx !== null) {
+        this.prefs = await preferences.getPreferences(ctx, 'local_runtime_prefs');
+      }
+    } catch (e) {
+      Logger.warn(`initPrefs failed: ${errStr(e)}`);
+    }
+  }
+
+  private async prefsGet(key: string, defaultVal: string): Promise<string> {
+    await this.initPrefs();
+    if (this.prefs === null) return defaultVal;
+    try {
+      const val = await this.prefs.get(key, defaultVal);
+      return val as string;
+    } catch (_) { return defaultVal; }
+  }
+
+  private async prefsSet(key: string, value: string): Promise<void> {
+    await this.initPrefs();
+    if (this.prefs === null) return;
+    try {
+      await this.prefs.put(key, value);
+      await this.prefs.flush();
+    } catch (_) {}
+  }
 
   async start(config?: LocalRuntimeConfig): Promise<RuntimeHealth> {
     if (config !== undefined) {
@@ -616,7 +654,11 @@ export class LocalRuntimeService {
         return result;
       }
 
-      fileIo.writeTextSync(fullPath, content);
+      const fd = fileIo.openSync(fullPath, fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      const encoder = new util.TextEncoder();
+      const encoded = encoder.encodeInto(content);
+      fileIo.writeSync(fd.fd, encoded.buffer as ArrayBuffer);
+      fileIo.closeSync(fd);
       result.ok = true;
       return result;
     } catch (e) {
@@ -675,7 +717,7 @@ export class LocalRuntimeService {
         const name = dir[i] as string;
         const entryPath = `${fullPath}/${name}`;
         try {
-          const stat = statSync(entryPath);
+          const stat = fileIo.statSync(entryPath);
           const entry: Record<string, Object> = {};
           entry['name'] = name;
           entry['path'] = entryPath;
@@ -795,8 +837,8 @@ export class LocalRuntimeService {
         const mc = new LocalModelConfig();
         mc.id = m.id;
         mc.name = m.name;
-        mc.contextLength = m.context || 128000;
-        mc.maxOutputTokens = m.maxTokens || 8192;
+        mc.contextLength = m.contextWindow || 128000;
+        mc.maxOutputTokens = m.maxOutput || 8192;
         local.models.push(mc);
       }
 
@@ -834,7 +876,7 @@ export class LocalRuntimeService {
 
   private async loadProviders(): Promise<void> {
     try {
-      const raw = await storageService.getString('local_providers', '[]');
+      const raw = await this.prefsGet('local_providers', '[]');
       const arr = JSON.parse(raw) as Object[];
       this.providers = [];
       for (const item of arr) {
@@ -930,7 +972,7 @@ export class LocalRuntimeService {
 
   private async saveProviders(): Promise<void> {
     try {
-      await storageService.setString('local_providers', JSON.stringify(this.providers));
+      await this.prefsSet('local_providers', JSON.stringify(this.providers));
     } catch (e) {
       Logger.warn(`saveProviders failed: ${errStr(e)}`);
     }
@@ -938,7 +980,7 @@ export class LocalRuntimeService {
 
   private async loadSessions(): Promise<void> {
     try {
-      const raw = await storageService.getString('local_sessions', '[]');
+      const raw = await this.prefsGet('local_sessions', '[]');
       const arr = JSON.parse(raw) as Object[];
       this.sessions = [];
       for (const item of arr) {
@@ -966,7 +1008,7 @@ export class LocalRuntimeService {
 
   private async saveSessions(): Promise<void> {
     try {
-      await storageService.setString('local_sessions', JSON.stringify(this.sessions));
+      await this.prefsSet('local_sessions', JSON.stringify(this.sessions));
     } catch (e) {
       Logger.warn(`saveSessions failed: ${errStr(e)}`);
     }
@@ -974,7 +1016,7 @@ export class LocalRuntimeService {
 
   private async loadMessages(sessionID: string): Promise<void> {
     try {
-      const raw = await storageService.getString(`local_messages_${sessionID}`, '[]');
+      const raw = await this.prefsGet(`local_messages_${sessionID}`, '[]');
       const arr = JSON.parse(raw) as Object[];
       const msgs: LocalMessage[] = [];
       for (const item of arr) {
@@ -1001,7 +1043,7 @@ export class LocalRuntimeService {
   private async saveMessages(sessionID: string): Promise<void> {
     try {
       const msgs = this.messages.get(sessionID) || [];
-      await storageService.setString(`local_messages_${sessionID}`, JSON.stringify(msgs));
+      await this.prefsSet(`local_messages_${sessionID}`, JSON.stringify(msgs));
     } catch (e) {
       Logger.warn(`saveMessages failed: ${errStr(e)}`);
     }
