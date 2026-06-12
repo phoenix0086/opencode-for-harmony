@@ -11,6 +11,7 @@ import { ChatMessage, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
+import { AiConfigPage } from './AiConfigPage';
 import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
 import { RuntimePage } from './RuntimePage';
 import { Runner } from '../models/Runner';
@@ -514,12 +515,13 @@ struct Index {
         } else if (this.currentView === AppView.Files) {
           this.FilesContent()
         } else if (this.currentView === AppView.Models) {
-          // AI 配置:模型选择(PR 2 会再抽成 AiConfigPage,加 Provider 配置 Tab)
-          this.ModelsContent()
+          // PR 2:AI 配置页独立为 AiConfigPage,两个 Tab(模型选择 / 供应商配置)
+          AiConfigPage()
         } else if (this.currentView === AppView.Settings) {
           // 菜单收口后,Settings 走 NavItem → 路由,不再走 overlay
           this.SettingsContent()
         } else if (this.currentView === AppView.Provider) {
+          // 菜单已隐藏 Provider,保留路由入口以便深链接 / 后续 PR 4 清理
           ProviderPage({ activeRunner: null })
         } else if (this.currentView === AppView.WebView) {
           this.WebViewContent()
@@ -1363,56 +1365,7 @@ struct Index {
     .height('100%')
   }
 
-  @Builder
-  ModelsContent() {
-    Column() {
-      Text('Models')
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .margin({ bottom: 24 })
-
-      Text('Current Model')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
-        .margin({ bottom: 8 })
-
-      TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
-        .width('100%')
-        .height(40)
-        .backgroundColor('#2D2D2D')
-        .borderRadius(8)
-        .fontColor('#FFFFFF')
-        .onChange((value: string) => {
-          this.viewModel.selectedModel = value
-        })
-
-      Button('保存模型')
-        .height(40)
-        .backgroundColor('#007DFF')
-        .fontColor('#FFFFFF')
-        .borderRadius(8)
-        .margin({ top: 16 })
-        .onClick(async () => {
-          await this.viewModel.saveServerConfig()
-          await this.viewModel.syncModelToRuntime()
-        })
-
-      Button('从 Provider 页面选择模型')
-        .height(40)
-        .backgroundColor('#2D2D2D')
-        .fontColor('#FFFFFF')
-        .borderRadius(8)
-        .margin({ top: 12 })
-        .onClick(() => {
-          this.currentView = AppView.Provider
-        })
-    }
-    .width('100%')
-    .height('100%')
-    .padding(32)
-    .alignItems(HorizontalAlign.Start)
-  }
+  // ── ModelsContent 已迁出到 AiConfigPage 的"模型选择"Tab(PR 2) ──
 
   @Builder
   SettingsContent() {
