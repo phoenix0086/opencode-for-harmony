@@ -102,6 +102,10 @@ export class LocalRuntimeService {
   }
 
   async start(config?: LocalRuntimeConfig): Promise<RuntimeHealth> {
+    if (this.started) {
+      Logger.warn('LocalRuntimeService already started, returning current health');
+      return this.health();
+    }
     if (config !== undefined) {
       this.config = config;
     }
@@ -228,7 +232,9 @@ export class LocalRuntimeService {
   // ══════════ Sessions ══════════
 
   listSessions(): LocalSession[] {
-    return this.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    const copy: LocalSession[] = [];
+    for (let i = 0; i < this.sessions.length; i++) { copy.push(this.sessions[i]); }
+    return copy.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   createSession(input?: Record<string, Object>): LocalSession {
@@ -261,7 +267,7 @@ export class LocalRuntimeService {
 
     this.sessions.push(s);
     this.messages.set(s.id, []);
-    this.saveSessions();
+    await this.saveSessions();
 
     this.emit({ type: 'session.created', sessionID: s.id, messageID: '', error: '', data: {} });
     return s;
@@ -288,6 +294,12 @@ export class LocalRuntimeService {
 
   async sendPrompt(sessionID: string, input: LocalPromptInput): Promise<LocalPromptResult> {
     const result = new LocalPromptResult();
+
+    // Guard: prevent concurrent prompts on same session
+    if (this.generatingSessions.includes(sessionID)) {
+      result.error = 'Session is already generating a response';
+      return result;
+    }
 
     // Find session
     const session = this.findSession(sessionID);

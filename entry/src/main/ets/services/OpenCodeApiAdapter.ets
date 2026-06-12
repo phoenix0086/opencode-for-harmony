@@ -613,6 +613,17 @@ export class OpenCodeApiAdapter {
     return {};
   }
 
+  private toSessionInfo(s: Record<string, Object>): SessionInfo {
+    const info = new SessionInfo();
+    info.id = (s['id'] as string) ?? (s['sessionId'] as string) ?? '';
+    info.name = (s['name'] as string) ?? (s['title'] as string) ?? 'New Session';
+    info.createdAt = (s['createdAt'] as string) ?? (s['created_at'] as string) ?? '';
+    info.updatedAt = (s['updatedAt'] as string) ?? (s['updated_at'] as string) ?? '';
+    info.model = (s['model'] as string) ?? '';
+    info.agent = (s['agent'] as string) ?? '';
+    return info;
+  }
+
   private asArray(data: Record<string, Object>): Object[] {
     if (Array.isArray(data)) return data as Object[];
     // Try common keys

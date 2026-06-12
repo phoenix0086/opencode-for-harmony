@@ -168,7 +168,7 @@ export class MainViewModel {
     try {
       await this.connect();
 
-      if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
+      if (this.connectionStatus === ConnectionStatus.Connected) {
         this.serverStatusMessage = '本机 Runtime 已启动';
         Logger.info('[Auto-start] local-embedded runtime connected');
         return;
@@ -184,7 +184,7 @@ export class MainViewModel {
 
     try {
       await this.connect();
-      if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
+      if (this.connectionStatus === ConnectionStatus.Connected) {
         this.serverStatusMessage = '已连接外部 Runtime';
         return;
       }
@@ -679,17 +679,32 @@ export class MainViewModel {
 
   async syncModelToRuntime(): Promise<void> {
     if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; }
-    // P0-3: api-v2 mode uses per-session model, skip global config patch
-    if (this.serverMode === 'api-v2') {
-      Logger.info(`syncModelToRuntime: skipped for api-v2 (model=${this.selectedModel})`)
-      await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel)
-      return
+    await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel);
+
+    if (this.runtimeMode === 'local-embedded') {
+      // Update local runtime's default model config
+      const parts = this.selectedModel.split('/');
+      const patchBody: Record<string, Object> = {};
+      if (parts.length >= 2) {
+        patchBody['defaultProviderID'] = parts[0];
+        patchBody['defaultModelID'] = parts[1];
+      } else {
+        patchBody['defaultModelID'] = this.selectedModel;
+      }
+      await this.apiAdapter.patchConfig(patchBody);
+      Logger.info(`syncModelToRuntime (local): ${this.selectedModel}`);
+      return;
     }
-    // Legacy: PATCH /config with model
+
+    // dev-pc / remote: PATCH /config with model string
+    if (this.serverMode === 'api-v2') {
+      Logger.info(`syncModelToRuntime: skipped for api-v2 (model=${this.selectedModel})`);
+      return;
+    }
     const patchBody: Record<string, Object> = {};
     patchBody['model'] = this.selectedModel;
     await this.apiAdapter.patchConfig(patchBody);
-    await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel);
+    Logger.info(`syncModelToRuntime (remote): ${this.selectedModel}`);
   }
   private async getRawMessages(sessionId: string): Promise<Object[]> {
     return this.apiAdapter.listMessages(sessionId);

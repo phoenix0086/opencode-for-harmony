@@ -54,7 +54,24 @@ export class LocalRuntimeClient {
     r['defaults'] = list.defaults as Object;
     return r;
   }
-  listModels(): Object[] { return []; }
+  listModels(): Object[] {
+    const providers = localRuntimeService.listProviders();
+    const out: Object[] = [];
+    for (let i = 0; i < providers.all.length; i++) {
+      const p = providers.all[i];
+      for (let j = 0; j < p.models.length; j++) {
+        const m = p.models[j];
+        const obj: Record<string, Object> = {};
+        obj['id'] = m.id;
+        obj['name'] = m.name;
+        obj['providerID'] = p.id;
+        obj['contextLength'] = m.contextLength;
+        obj['maxOutputTokens'] = m.maxOutputTokens;
+        out.push(obj);
+      }
+    }
+    return out;
+  }
 
   // ══════════ Sessions ══════════
   listSessions(): LocalSessionInfo[] {
@@ -92,7 +109,14 @@ export class LocalRuntimeClient {
   // ══════════ Prompt ══════════
   async sendPrompt(sessionId: string, text: string, model: string = ''): Promise<LocalPromptResult> {
     const result = new LocalPromptResult();
-    const localInput = { text: text, model: { providerID: '', id: model, variant: '' } };
+    let providerID = '';
+    let modelID = model;
+    if (model.includes('/')) {
+      const parts = model.split('/');
+      providerID = parts[0];
+      modelID = parts.length > 1 ? parts[1] : model;
+    }
+    const localInput = { text: text, model: { providerID: providerID, id: modelID, variant: '' } };
     const r = await localRuntimeService.sendPrompt(sessionId, localInput);
     result.ok = r.ok;
     result.error = r.error;
@@ -186,6 +210,7 @@ export class LocalRuntimeClient {
     const time: Record<string, Object> = {};
     time['created'] = (m['createdAt'] as number) || 0;
     info['time'] = time;
+    info['status'] = (m['status'] as string) || 'completed';
     r['info'] = info;
 
     const parts: Object[] = [];
