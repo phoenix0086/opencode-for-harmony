@@ -475,7 +475,9 @@ export class OpenCodeApiAdapter {
       const data = await this.get(`/file/content?path=${encodeURIComponent(filePath)}`);
       return data;
     } catch (e) {
-      return { ok: false, content: '', error: errStr(e) };
+      const errResult: Record<string, Object> = {};
+      errResult['ok'] = false; errResult['content'] = ''; errResult['error'] = errStr(e);
+      return errResult;
     }
   }
 
