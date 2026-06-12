@@ -94,12 +94,12 @@ export class OpenCodeApiAdapter {
       for (let i = 0; i < localSessions.length; i++) {
         const s = localSessions[i];
         const info = new SessionInfo();
-        info.id = s['id'] as string || '';
-        info.name = s['name'] as string || '';
-        info.createdAt = s['createdAt'] as string || '';
-        info.updatedAt = s['updatedAt'] as string || '';
-        info.model = s['model'] as string || '';
-        info.agent = s['agent'] as string || '';
+        info.id = s.id || '';
+        info.name = s.name || '';
+        info.createdAt = s.createdAt || '';
+        info.updatedAt = s.updatedAt || '';
+        info.model = s.model || '';
+        info.agent = s.agent || '';
         out.push(info);
       }
       return out;
@@ -115,14 +115,14 @@ export class OpenCodeApiAdapter {
 
   async createSession(input?: Record<string, Object>): Promise<SessionInfo> {
     if (this.isLocal) {
-      const s = localRuntimeClient.createSession(input);
+      const s = await localRuntimeClient.createSession(input);
       const info = new SessionInfo();
-      info.id = s['id'] as string || '';
-      info.name = s['name'] as string || '';
-      info.createdAt = s['createdAt'] as string || '';
-      info.updatedAt = s['updatedAt'] as string || '';
-      info.model = s['model'] as string || '';
-      info.agent = s['agent'] as string || '';
+      info.id = s.id || '';
+      info.name = s.name || '';
+      info.createdAt = s.createdAt || '';
+      info.updatedAt = s.updatedAt || '';
+      info.model = s.model || '';
+      info.agent = s.agent || '';
       return info;
     }
     const body = input ?? {};
@@ -138,12 +138,12 @@ export class OpenCodeApiAdapter {
     if (this.isLocal) {
       const s = localRuntimeClient.getSession(sessionId);
       const info = new SessionInfo();
-      info.id = s['id'] as string || '';
-      info.name = s['name'] as string || '';
-      info.createdAt = s['createdAt'] as string || '';
-      info.updatedAt = s['updatedAt'] as string || '';
-      info.model = s['model'] as string || '';
-      info.agent = s['agent'] as string || '';
+      info.id = s.id || '';
+      info.name = s.name || '';
+      info.createdAt = s.createdAt || '';
+      info.updatedAt = s.updatedAt || '';
+      info.model = s.model || '';
+      info.agent = s.agent || '';
       return info;
     }
     if (this.mode === 'api-v2') {
@@ -173,10 +173,10 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
     if (this.isLocal) {
-      const r = await localRuntimeClient.sendPrompt(sessionId, input.text, input.model);
+      const r = await localRuntimeClient.sendPrompt(sessionId, input.text, input.model, input.agent);
       const out = new PromptResult();
-      out.ok = r['ok'] === true;
-      out.error = (r['error'] as string) || '';
+      out.ok = r.ok;
+      out.error = r.error || '';
       return out;
     }
     const result = new PromptResult();

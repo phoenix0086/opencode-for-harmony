@@ -1,6 +1,7 @@
 import { ServerEvent, EventTypes, NormalizedMessage, NormalizedPart, QuestionRequest } from '../models/Event'
 import { OpenCodeClient } from './OpenCodeClient'
 import { errStr } from '../utils/ErrorUtil'
+import { Logger } from '../utils/Logger'
 
 /**
  * Polling-based event client for ArkTS.
@@ -395,14 +396,14 @@ export class EventStreamClient {
     const list = this.listeners.get(eventType)
     if (list) {
       for (const cb of list) {
-        try { cb(event) } catch (e) {}
+        try { cb(event) } catch (e) { Logger.warn(`EventStreamClient listener error (${eventType}): ${errStr(e)}`) }
       }
     }
 
     const wildcardList = this.listeners.get('*')
     if (wildcardList) {
       for (const cb of wildcardList) {
-        try { cb(event) } catch (e) {}
+        try { cb(event) } catch (e) { Logger.warn(`EventStreamClient wildcard listener error (${eventType}): ${errStr(e)}`) }
       }
     }
   }

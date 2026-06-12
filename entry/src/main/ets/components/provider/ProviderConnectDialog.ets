@@ -14,6 +14,7 @@ const API_MODE_OPTIONS: SelectOption[] = [
 @Component
 export struct ProviderConnectDialog {
   @Prop @Watch('onVisibleChanged') visible: boolean = false
+  @Prop prefill: ProviderConnectInput | null = null
   onCancel: () => void = () => {}
   onSubmit: (input: ProviderConnectInput) => void = () => {}
 
@@ -42,8 +43,41 @@ export struct ProviderConnectDialog {
 
   onVisibleChanged(): void {
     if (this.visible) {
-      this.resetForm()
+      if (this.prefill !== null) {
+        this.applyPrefill(this.prefill)
+      } else {
+        this.resetForm()
+      }
     }
+  }
+
+  private applyPrefill(p: ProviderConnectInput): void {
+    this.providerName = p.displayName
+    this.notes = ''
+    this.websiteURL = ''
+    this.apiModeIndex = this.apiTypeToIndex(p.apiType)
+    this.apiEndpoint = p.baseURL
+    this.apiKey = p.apiKey
+    this.modelId = ''
+    this.modelName = ''
+    this.models = []
+    for (const m of p.models) {
+      const copy = new ProviderModelInput()
+      copy.id = m.id
+      copy.name = m.name
+      this.models.push(copy)
+    }
+    this.errorText = ''
+    this.testing = false
+    this.testResult = null
+    this.fetchingModels = false
+  }
+
+  private apiTypeToIndex(apiType: string): number {
+    if (apiType === 'anthropic') return 1
+    if (apiType === 'openai_responses') return 2
+    if (apiType === 'bedrock_converse') return 3
+    return 0
   }
 
   private resetForm(): void {
@@ -182,7 +216,7 @@ export struct ProviderConnectDialog {
         .borderRadius(8)
         .onClick(() => this.onCancel())
 
-      Text('添加新供应商')
+      Text(this.prefill !== null ? '编辑供应商' : '添加新供应商')
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.TEXT_PRIMARY)
@@ -567,7 +601,7 @@ export struct ProviderConnectDialog {
         .margin({ left: 10 })
         .onClick(() => this.onCancel())
 
-      Text('+ 添加')
+      Text(this.prefill !== null ? '保存' : '+ 添加')
         .fontSize(Theme.fs.sm)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.TEXT_INVERSE)

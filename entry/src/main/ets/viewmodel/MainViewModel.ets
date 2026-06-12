@@ -168,7 +168,8 @@ export class MainViewModel {
     try {
       await this.connect();
 
-      if (this.connectionStatus === ConnectionStatus.Connected) {
+      const status1: string = this.connectionStatus;
+      if (status1 === ConnectionStatus.Connected) {
         this.serverStatusMessage = '本机 Runtime 已启动';
         Logger.info('[Auto-start] local-embedded runtime connected');
         return;
@@ -184,7 +185,8 @@ export class MainViewModel {
 
     try {
       await this.connect();
-      if (this.connectionStatus === ConnectionStatus.Connected) {
+      const status2: string = this.connectionStatus;
+      if (status2 === ConnectionStatus.Connected) {
         this.serverStatusMessage = '已连接外部 Runtime';
         return;
       }
@@ -336,20 +338,13 @@ export class MainViewModel {
     // 生成新 turnId，发送前中止上一轮 stale run
     const turnId = this.newTurnId()
     this.activeTurnId = turnId
-    if (this.isGenerating && this.currentSessionId.length > 0) {
-      await this.stopGeneration()
-      await this.delay(500)
-    }
-
     this.sendLock = true
     this.isGenerating = true
     this.errorMessage = ''
 
     const userMsg = ChatMessage.createUserMessage(text)
     userMsg.sessionId = sessionId
-    const assistantMsg = ChatMessage.createAssistantMessage('等待 Runtime 响应...')
-    assistantMsg.sessionId = sessionId
-    this.messages = [...this.messages, userMsg, assistantMsg]
+    this.messages = [...this.messages, userMsg]
 
     try {
       try {
@@ -357,8 +352,7 @@ export class MainViewModel {
         Logger.info(`Runtime model synced: ${this.selectedModel}`)
       } catch (syncErr) {
         const msg = `同步 Runtime model 失败：${errStr(syncErr)}`
-        assistantMsg.setError(msg)
-        this.messages = [...this.messages]
+        this.messages = [...this.messages, ChatMessage.createErrorMessage(msg)]
         this.errorMessage = msg
         return
       }
@@ -381,8 +375,9 @@ export class MainViewModel {
             const hint = isDisabled
               ? `Provider "${providerId}" 已被禁用。请在 OpenCode 配置中启用该 provider，或切换到已连接的 provider 的模型。`
               : `Provider "${providerId}" 未连接。当前已连接：${connectedList.join(', ')}。请连接该 provider 或切换模型。`
-            assistantMsg.setError(`模型 ${this.selectedModel} 的 provider 不可用。\n${hint}`)
-            this.messages = [...this.messages]
+            this.messages = [...this.messages, ChatMessage.createErrorMessage(
+              `模型 ${this.selectedModel} 的 provider 不可用。\n${hint}`
+            )]
             this.errorMessage = `Provider ${providerId} not connected`
             return
           }
@@ -406,8 +401,7 @@ export class MainViewModel {
       promptInput.agent = 'build';
       const promptResult = await this.apiAdapter.sendPrompt(sessionId, promptInput);
       if (!promptResult.ok) {
-        assistantMsg.setError(`prompt 发送失败：${promptResult.error}`)
-        this.messages = [...this.messages]
+        this.messages = [...this.messages, ChatMessage.createErrorMessage(`prompt 发送失败：${promptResult.error}`)]
         this.errorMessage = promptResult.error ?? 'unknown'
         return
       }
@@ -460,9 +454,8 @@ export class MainViewModel {
 
       await this.loadSessions()
     } catch (err) {
-      assistantMsg.setError(errStr(err))
+      this.messages = [...this.messages, ChatMessage.createErrorMessage(errStr(err))]
       this.errorMessage = errStr(err)
-      this.messages = [...this.messages]
       Logger.error(`sendMessage failed: ${errStr(err)}`)
     } finally {
       this.isGenerating = false

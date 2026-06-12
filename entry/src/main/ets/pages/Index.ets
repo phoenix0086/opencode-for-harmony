@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { MainViewModel, PendingPermission, PendingQuestion, QuestionOption } from '../viewmodel/MainViewModel';
 import { StorageService } from '../service/StorageService';
@@ -16,6 +16,9 @@ import { RuntimePage } from './RuntimePage';
 import { Runner } from '../models/Runner';
 import { ProjectEntry } from '../components/DirectoryPicker';
 import { DirectoryPicker } from '../components/DirectoryPicker';
+import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog';
+import { providerConnectionService, ProviderConnectInput, ProviderModelInput } from '../services/ProviderConnectionService';
+import { providerRegistry } from '../services/ProviderRegistry';
 
 /**
  * Main page of the OpenCode app.
@@ -70,6 +73,12 @@ struct Index {
   @State settingSoundAgent: string = '斯泰普博普斯 01'
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
+
+  // ── Provider dialog 状态 ──
+  @State showProviderDialog: boolean = false
+  @State editingProviderId: string = ''
+  @State providerDialogPrefill: ProviderConnectInput | null = null
+  @State providerDialogSubmitting: boolean = false
 
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
@@ -305,7 +314,7 @@ struct Index {
           this.currentView = AppView.Chat
         },
         onOpenSettings: () => {
-          this.showSettings = true
+          this.showSettings = !this.showSettings
         },
         onOpenHelp: () => {
           this.showHelpDialog = true
@@ -343,6 +352,29 @@ struct Index {
       // ── Help 弹层 ──
       if (this.showHelpDialog) {
         this.HelpDialog()
+      }
+
+      // ── Settings 全屏覆盖 (从 Home 齿轮按钮进入) ──
+      if (this.showSettings) {
+        Column() {
+          Row() {
+            Text('← 返回')
+              .fontSize(13)
+              .fontColor('#FFFFFF')
+              .padding({ left: 16, top: 12, bottom: 12 })
+              .onClick(() => {
+                this.showSettings = false
+              })
+          }
+          .width('100%')
+          .height(44)
+          .backgroundColor('#1A1A1A')
+
+          this.SettingsContent()
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#111111')
       }
     }
     .width('100%')
@@ -421,8 +453,7 @@ struct Index {
           // Settings button
           Button() {
             Row() {
-              Text('⚙️').fontSize(18)
-                .fontSize(16)
+              Text('⚙️').fontSize(16)
                 .fontColor('#FFFFFF')
               Text('Settings')
                 .fontSize(14)
@@ -2015,21 +2046,124 @@ struct Index {
   }
 
   // ══════════════════════════════════════════════════════════
-  //  提供商 (Providers) — 内联显示提供商列表
+  //  提供商 (Providers) — 增 / 改 入口
   // ══════════════════════════════════════════════════════════
+
+  private openAddProviderDialog(): void {
+    this.editingProviderId = ''
+    this.providerDialogPrefill = null
+    this.showProviderDialog = true
+  }
+
+  private openEditProviderDialog(p: ProviderInfo): void {
+    this.editingProviderId = p.id
+    this.providerDialogPrefill = this.buildProviderPrefill(p)
+    this.showProviderDialog = true
+  }
+
+  private buildProviderPrefill(p: ProviderInfo): ProviderConnectInput | null {
+    const cn = providerRegistry.getById(p.id)
+    if (cn === undefined) {
+      const input = new ProviderConnectInput()
+      input.providerId = p.id
+      input.displayName = p.name
+      input.apiType = 'openai_compatible'
+      input.baseURL = ''
+      input.apiKey = ''
+      for (const id of p.models) {
+        const mi = new ProviderModelInput()
+        mi.id = id
+        mi.name = id
+        input.models.push(mi)
+      }
+      return input
+    }
+    const input = new ProviderConnectInput()
+    input.providerId = cn.id
+    input.displayName = cn.name
+    input.apiType = this.detectApiTypeFromNpm(cn.npm)
+    input.baseURL = cn.baseURL
+    input.apiKey = cn.apiKey
+    for (const m of cn.models) {
+      const mi = new ProviderModelInput()
+      mi.id = m.id
+      mi.name = m.name
+      input.models.push(mi)
+    }
+    return input
+  }
+
+  private detectApiTypeFromNpm(npm: string): string {
+    if (npm.includes('anthropic')) return 'anthropic'
+    if (npm.includes('aws-bedrock')) return 'bedrock_converse'
+    if (npm === '@ai-sdk/openai') return 'openai_responses'
+    return 'openai_compatible'
+  }
+
+  private async onProviderDialogSubmit(input: ProviderConnectInput): Promise<void> {
+    if (this.providerDialogSubmitting) return
+    this.providerDialogSubmitting = true
+    try {
+      // 编辑现有 provider 时保留 providerId(避免与已有 id 冲突校验失败)
+      if (this.editingProviderId.length > 0) {
+        input.providerId = this.editingProviderId
+      }
+      const result = await providerConnectionService.connectProvider(input, null)
+      this.showProviderDialog = false
+      await this.viewModel.loadProviders()
+      const message = result.ok
+        ? (result.message.length > 0 ? result.message : '提供商已保存')
+        : (result.error.length > 0 ? result.error : '保存失败')
+      promptAction.showToast({ message, duration: 2500 })
+    } catch (e) {
+      promptAction.showToast({ message: '保存失败: ' + errStr(e), duration: 3000 })
+    } finally {
+      this.providerDialogSubmitting = false
+    }
+  }
+
+  private closeProviderDialog(): void {
+    this.showProviderDialog = false
+    this.editingProviderId = ''
+    this.providerDialogPrefill = null
+  }
+
   @Builder
   SettingsProvidersContent() {
-    Text('提供商')
-      .fontSize(22)
-      .fontWeight(FontWeight.Bold)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 20 })
+    Row() {
+      Text('提供商')
+        .fontSize(22)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+
+      Blank()
+
+      Text('+ 添加提供商')
+        .fontSize(13)
+        .fontColor('#FFFFFF')
+        .fontWeight(FontWeight.Medium)
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(8)
+        .backgroundColor('#3B82F6')
+        .onClick(() => this.openAddProviderDialog())
+    }
+    .width('100%')
+    .margin({ bottom: 20 })
 
     if (this.viewModel.providers.length === 0) {
-      Text('未检测到任何提供商。请先连接 Runtime。')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
-        .padding(20)
+      Column() {
+        Text('未检测到任何提供商。请先连接 Runtime。')
+          .fontSize(14)
+          .fontColor('#999999')
+          .margin({ bottom: 12 })
+        Text('或点击右上角"添加提供商"手动新增。')
+          .fontSize(12)
+          .fontColor('#666666')
+      }
+      .width('100%')
+      .padding(24)
+      .alignItems(HorizontalAlign.Center)
     } else {
       ForEach(this.viewModel.providers, (p: ProviderInfo) => {
         Row() {
@@ -2046,7 +2180,7 @@ struct Index {
               .fontColor('#FFFFFF')
             Text(`${p.id} · ${p.models.length} 个模型`)
               .fontSize(12)
-              .fontColor('#FFFFFF')
+              .fontColor('#999999')
               .margin({ top: 4 })
           }
           .alignItems(HorizontalAlign.Start)
@@ -2054,18 +2188,41 @@ struct Index {
 
           Text(p.connected ? '已连接' : '未连接')
             .fontSize(12)
-            .fontColor('#FFFFFF')
+            .fontColor(p.connected ? '#00C853' : '#999999')
             .backgroundColor(p.connected ? '#1A3D2A' : '#2A2A2A')
             .borderRadius(4)
             .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+
+          Text('编辑')
+            .fontSize(12)
+            .fontColor('#FFFFFF')
+            .height(32)
+            .padding({ left: 14, right: 14 })
+            .borderRadius(6)
+            .backgroundColor('#2D2D2D')
+            .margin({ left: 12 })
+            .onClick(() => this.openEditProviderDialog(p))
         }
         .width('100%')
         .padding(16)
         .backgroundColor('#1E1E1E')
         .borderRadius(8)
         .margin({ bottom: 8 })
+        .onClick(() => this.openEditProviderDialog(p))
       }, (p: ProviderInfo) => p.id)
     }
+
+    Stack() {
+      ProviderConnectDialog({
+        visible: this.showProviderDialog,
+        prefill: this.providerDialogPrefill,
+        onCancel: () => this.closeProviderDialog(),
+        onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
+      })
+    }
+    .position({ x: 0, y: 0 })
+    .width('100%')
+    .height('100%')
   }
 
   // ══════════════════════════════════════════════════════════

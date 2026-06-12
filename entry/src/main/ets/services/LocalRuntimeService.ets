@@ -237,7 +237,7 @@ export class LocalRuntimeService {
     return copy.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  createSession(input?: Record<string, Object>): LocalSession {
+  async createSession(input?: Record<string, Object>): Promise<LocalSession> {
     const s = new LocalSession();
     s.id = `ses_${Date.now()}_${Math.floor(Math.random() * 999999)}`;
     s.title = (input?.['title'] as string) || `Session ${new Date().toLocaleString()}`;

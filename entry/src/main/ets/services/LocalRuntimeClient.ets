@@ -6,9 +6,9 @@
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localRuntimeService } from './LocalRuntimeService';
+import { LocalSession, LocalMessage, LocalPromptInput, LocalModelRef } from './LocalRuntimeTypes';
 
-// Local type definitions to avoid circular dependency with OpenCodeApiAdapter
-class LocalLocalSessionInfo {
+class LocalSessionInfo {
   id: string = '';
   name: string = '';
   createdAt: string = '';
@@ -17,7 +17,7 @@ class LocalLocalSessionInfo {
   agent: string = '';
 }
 
-class LocalLocalPromptResult {
+class LocalPromptResult {
   ok: boolean = false;
   error: string = '';
 }
@@ -83,8 +83,8 @@ export class LocalRuntimeClient {
     return out;
   }
 
-  createSession(input?: Record<string, Object>): LocalSessionInfo {
-    const s = localRuntimeService.createSession(input);
+  async createSession(input?: Record<string, Object>): Promise<LocalSessionInfo> {
+    const s = await localRuntimeService.createSession(input);
     return this.toSessionInfo(s);
   }
 
@@ -107,7 +107,7 @@ export class LocalRuntimeClient {
   }
 
   // ══════════ Prompt ══════════
-  async sendPrompt(sessionId: string, text: string, model: string = ''): Promise<LocalPromptResult> {
+  async sendPrompt(sessionId: string, text: string, model: string = '', agent: string = 'build'): Promise<LocalPromptResult> {
     const result = new LocalPromptResult();
     let providerID = '';
     let modelID = model;
@@ -116,7 +116,13 @@ export class LocalRuntimeClient {
       providerID = parts[0];
       modelID = parts.length > 1 ? parts[1] : model;
     }
-    const localInput = { text: text, model: { providerID: providerID, id: modelID, variant: '' } };
+    const modelRef = new LocalModelRef();
+    modelRef.providerID = providerID;
+    modelRef.id = modelID;
+    modelRef.variant = '';
+    const localInput = new LocalPromptInput();
+    localInput.text = text;
+    localInput.model = modelRef;
     const r = await localRuntimeService.sendPrompt(sessionId, localInput);
     result.ok = r.ok;
     result.error = r.error;
@@ -185,42 +191,42 @@ export class LocalRuntimeClient {
   }
 
   // ══════════ Converters ══════════
-  private toSessionInfo(s: Record<string, Object>): LocalSessionInfo {
+  private toSessionInfo(s: LocalSession): LocalSessionInfo {
     const info = new LocalSessionInfo();
-    info.id = (s['id'] as string) || '';
-    info.name = (s['title'] as string) || (s['name'] as string) || '';
-    info.createdAt = String((s['createdAt'] as number) || 0);
-    info.updatedAt = String((s['updatedAt'] as number) || 0);
-    info.model = (s['modelID'] as string) || '';
+    info.id = s.id || '';
+    info.name = s.title || '';
+    info.createdAt = String(s.createdAt || 0);
+    info.updatedAt = String(s.updatedAt || 0);
+    info.model = s.modelID || '';
     info.agent = 'build';
     return info;
   }
 
-  private toApiMessage(m: Record<string, Object>): Record<string, Object> {
+  private toApiMessage(m: LocalMessage): Record<string, Object> {
     const r: Record<string, Object> = {};
     const info: Record<string, Object> = {};
-    info['id'] = (m['id'] as string) || '';
-    info['role'] = (m['role'] as string) || 'user';
-    info['sessionID'] = (m['sessionID'] as string) || '';
+    info['id'] = m.id || '';
+    info['role'] = m.role || 'user';
+    info['sessionID'] = m.sessionID || '';
     info['agent'] = 'build';
     const model: Record<string, Object> = {};
-    model['id'] = (m['modelID'] as string) || '';
-    model['providerID'] = (m['providerID'] as string) || '';
+    model['id'] = m.modelID || '';
+    model['providerID'] = m.providerID || '';
     info['model'] = model;
     const time: Record<string, Object> = {};
-    time['created'] = (m['createdAt'] as number) || 0;
+    time['created'] = m.createdAt || 0;
     info['time'] = time;
-    info['status'] = (m['status'] as string) || 'completed';
+    info['status'] = m.status || 'completed';
     r['info'] = info;
 
     const parts: Object[] = [];
-    const content = (m['content'] as string) || '';
+    const content = m.content || '';
     if (content.length > 0) {
       const part: Record<string, Object> = {};
       part['type'] = 'text'; part['text'] = content; part['id'] = `prt_${info['id']}_text`;
       parts.push(part);
     }
-    const error = (m['error'] as string) || '';
+    const error = m.error || '';
     if (error.length > 0) {
       const part: Record<string, Object> = {};
       part['type'] = 'error'; part['text'] = error; part['id'] = `prt_${info['id']}_error`;

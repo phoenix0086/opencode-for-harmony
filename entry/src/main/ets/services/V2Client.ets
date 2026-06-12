@@ -698,10 +698,8 @@ export class V2StreamPoller {
       return
     }
     // Exponential backoff: 500ms, 1s, 2s, 4s, 8s, 16s, capped at maxIntervalMs
-    let next = this.minIntervalMs
-    for (let i = 1; i < this.consecutiveFailures && next < this.maxIntervalMs; i++) {
-      next *= 2
-    }
+    const shift = Math.min(this.consecutiveFailures - 1, 6)
+    let next = this.minIntervalMs * (1 << shift)
     if (next > this.maxIntervalMs) next = this.maxIntervalMs
     this.currentIntervalMs = next
     this.transientError = true

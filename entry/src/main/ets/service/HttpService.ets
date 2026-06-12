@@ -70,10 +70,10 @@ export class HttpService {
   async checkHealth(): Promise<boolean> {
     try {
       const result = await this.get<Record<string, Object>>(Constants.API_HEALTH);
-      if (!result) return true;
+      if (!result) return false;
       const healthy = result['healthy'];
       if (typeof healthy === 'boolean') return healthy;
-      return true;
+      return false;
     } catch (e) { return false; }
   }
 }

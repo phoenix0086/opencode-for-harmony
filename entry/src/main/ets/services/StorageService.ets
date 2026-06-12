@@ -187,14 +187,14 @@ export class StorageService {
     if (this.store === null) return new AppSettings()
     try {
       const raw = await this.store.get(SETTINGS_KEY, '{}') as string
-      const parsed = JSON.parse(raw) as AppSettings
+      const parsed = JSON.parse(raw) as Record<string, Object>
       const s = new AppSettings()
-      if (parsed.fontSize) s.fontSize = parsed.fontSize
-      if (parsed.darkMode !== undefined) s.darkMode = parsed.darkMode
-      if (parsed.defaultAgent) s.defaultAgent = parsed.defaultAgent
-      if (parsed.defaultModel) s.defaultModel = parsed.defaultModel
-      if (parsed.defaultSmallModel) s.defaultSmallModel = parsed.defaultSmallModel
-      if (parsed.networkTimeout) s.networkTimeout = parsed.networkTimeout
+      if (typeof parsed['fontSize'] === 'number') s.fontSize = parsed['fontSize'] as number
+      if (typeof parsed['darkMode'] === 'boolean') s.darkMode = parsed['darkMode'] as boolean
+      if (typeof parsed['defaultAgent'] === 'string') s.defaultAgent = parsed['defaultAgent'] as string
+      if (typeof parsed['defaultModel'] === 'string') s.defaultModel = parsed['defaultModel'] as string
+      if (typeof parsed['defaultSmallModel'] === 'string') s.defaultSmallModel = parsed['defaultSmallModel'] as string
+      if (typeof parsed['networkTimeout'] === 'number') s.networkTimeout = parsed['networkTimeout'] as number
       return s
     } catch {
       return new AppSettings()
