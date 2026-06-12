@@ -7,7 +7,7 @@ import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
 import { ProcessBridge } from '../services/ProcessBridge';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
-import { ChatMessage, ToolCall } from '../model/ChatMessage';
+import { ChatMessage, MessageRole, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
@@ -19,6 +19,66 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog';
 import { providerConnectionService, ProviderConnectInput, ProviderModelInput } from '../services/ProviderConnectionService';
 import { providerRegistry } from '../services/ProviderRegistry';
+
+/**
+ * PickerDialog — 通用 TextPicker 弹窗
+ */
+@CustomDialog
+struct PickerDialog {
+  controller: CustomDialogController
+  @Prop title: string = ''
+  @Prop options: string[] = []
+  @Prop selectedIndex: number = 0
+  onConfirm: (value: string) => void = () => {}
+
+  // 用本地 @State 镜像 prop,避免 @CustomDialog 复用同一实例时 prop
+  // 重新打开时不同步导致"上次的选项"残留
+  @State currentIndex: number = 0
+
+  aboutToAppear(): void {
+    this.currentIndex = this.selectedIndex
+  }
+
+  build() {
+    Column() {
+      Row() {
+        Text(this.title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+        Blank()
+        Text('取消')
+          .fontSize(14)
+          .fontColor('#999999')
+          .onClick(() => this.controller.close())
+      }
+      .width('100%')
+      .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+      TextPicker({ range: this.options, selected: this.currentIndex })
+        .width('100%')
+        .height(220)
+        .onChange((value: string | string[], index: number | number[]) => {
+          this.currentIndex = Array.isArray(index) ? index[0] : index
+        })
+
+      Button('确定')
+        .width('90%')
+        .height(40)
+        .fontSize(15)
+        .backgroundColor('#3B82F6')
+        .fontColor('#FFFFFF')
+        .margin({ top: 8, bottom: 16 })
+        .onClick(() => {
+          this.onConfirm(this.options[this.currentIndex])
+          this.controller.close()
+        })
+    }
+    .width('100%')
+    .backgroundColor('#1E1E1E')
+    .borderRadius(12)
+  }
+}
 
 /**
  * Main page of the OpenCode app.
@@ -39,6 +99,42 @@ struct Index {
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
   @State inputText: string = '';
+
+  // ── AI 思考态动态省略号 ──
+  @State thinkingDots: number = 0
+  private thinkingTimerId: number = -1
+
+  aboutToDisappear(): void {
+    this.stopThinkingAnimation();
+    // 不要在页面消失时自动关闭 Runtime。
+    // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
+    // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
+    // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
+    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
+  }
+
+  private startThinkingAnimation(): void {
+    this.stopThinkingAnimation();
+    this.thinkingDots = 0;
+    this.thinkingTimerId = setInterval(() => {
+      this.thinkingDots = (this.thinkingDots + 1) % 4;
+    }, 500);
+  }
+
+  private stopThinkingAnimation(): void {
+    if (this.thinkingTimerId !== -1) {
+      clearInterval(this.thinkingTimerId);
+      this.thinkingTimerId = -1;
+    }
+  }
+
+  private buildDots(): string {
+    let s = '';
+    for (let i = 0; i < this.thinkingDots; i++) {
+      s += '.';
+    }
+    return s;
+  }
 
   // ── Settings 页面状态 ──
   @State settingsTab: string = 'general'
@@ -63,6 +159,7 @@ struct Index {
   @State serverMode: string = 'unknown'
   // Runtime 连接模式: dev-pc | local | remote
   @State runtimeConnectionMode: string = 'dev-pc'
+  @State aiSettingsMode: string = 'runtime' // runtime | config
   @State settingLanguage: string = '简体中文'
   @State settingShell: string = 'Auto (Default)'
   @State settingColorScheme: string = '系统'
@@ -74,15 +171,42 @@ struct Index {
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
 
+  // ── Picker dialog 动态状态 ──
+  @State pickerTitle: string = ''
+  @State pickerOptions: string[] = []
+  @State pickerSelected: number = 0
+  private pickerOnConfirm: (v: string) => void = () => {}
+  private pickerDialog: CustomDialogController = new CustomDialogController({
+    builder: PickerDialog({
+      title: this.pickerTitle,
+      options: this.pickerOptions,
+      selectedIndex: this.pickerSelected,
+      onConfirm: (v: string) => { this.pickerOnConfirm(v) }
+    }),
+    alignment: DialogAlignment.Bottom,
+    customStyle: true
+  })
+
   // ── Provider dialog 状态 ──
   @State showProviderDialog: boolean = false
   @State editingProviderId: string = ''
   @State providerDialogPrefill: ProviderConnectInput | null = null
   @State providerDialogSubmitting: boolean = false
 
+  private openPicker(title: string, options: string[], current: string, onConfirm: (v: string) => void): void {
+    this.pickerTitle = title
+    this.pickerOptions = options
+    this.pickerSelected = options.indexOf(current)
+    if (this.pickerSelected < 0) this.pickerSelected = 0
+    this.pickerOnConfirm = onConfirm
+    this.pickerDialog.open()
+  }
+
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
   async aboutToAppear(): Promise<void> {
+    // 启动 AI 思考态动态省略号定时器
+    this.startThinkingAnimation();
     if (!this.initialized) {
       // Initialize the services/ StorageService singleton (used by ProviderRegistry)
       await initStorageService(this.context);
@@ -127,14 +251,6 @@ struct Index {
         this.loadRecentProjects()
       ])
     }
-  }
-
-  aboutToDisappear(): void {
-    // 不要在页面消失时自动关闭 Runtime。
-    // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
-    // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
-    // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
-    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
   }
 
   /**
@@ -425,6 +541,7 @@ struct Index {
           Column() {
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
             this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
+            this.NavItem(AppView.Models, $r('app.media.home'), 'AI 设置')
           }
           .width('100%')
           .layoutWeight(1)
@@ -507,6 +624,8 @@ struct Index {
           this.FilesContent()
         } else if (this.currentView === AppView.Provider) {
           ProviderPage({ activeRunner: null })
+        } else if (this.currentView === AppView.Models) {
+          this.AiSettingsContent()
         } else if (this.currentView === AppView.WebView) {
           this.WebViewContent()
         } else if (this.currentView === AppView.Terminal) {
@@ -837,9 +956,8 @@ struct Index {
         List() {
           ForEach(this.viewModel.messages, (msg: ChatMessage) => {
             ListItem() {
-              Column() {
-                if (msg.isError) {
-                // Error message
+              if (msg.isError) {
+                // Error message — full width centered
                 Column() {
                   Text('Error')
                     .fontSize(12)
@@ -858,61 +976,17 @@ struct Index {
                 .borderWidth(1)
                 .borderColor('#FF525240')
                 .margin({ left: 16, right: 16, top: 4, bottom: 4 })
-              } else if (msg.role === 'assistant') {
-                // Assistant message
-                Row() {
-                  Column() {
-                    Row() {
-                      Text('AI')
-                        .fontSize(12)
-                        .fontColor('#FFFFFF')
-                        .margin({ bottom: 4 })
-                      if (msg.isStreaming) {
-                        Text(' (streaming...)')
-                          .fontSize(11)
-                          .fontColor('#FFFFFF')
-                          .margin({ bottom: 4, left: 4 })
-                      }
-                    }
-                    // Tool calls
-                    if (msg.toolCalls.length > 0) {
-                      ForEach(msg.toolCalls, (tool: ToolCall) => {
-                        Row() {
-                          Text(tool.name)
-                            .fontSize(12)
-                            .fontColor('#FFFFFF')
-                            .fontFamily('monospace')
-                            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-                            .backgroundColor('#007DFF15')
-                            .borderRadius(4)
-                          if (tool.status === 'error') {
-                            Text('error')
-                              .fontSize(11)
-                              .fontColor('#FFFFFF')
-                              .margin({ left: 6 })
-                          } else if (tool.status === 'complete') {
-                            Text('done')
-                              .fontSize(11)
-                              .fontColor('#FFFFFF')
-                              .margin({ left: 6 })
-                          }
-                        }
-                        .margin({ bottom: 4 })
-                      }, (tool: ToolCall) => tool.id)
-                    }
-                    if (msg.content.length > 0) {
-                      Text(msg.content)
-                        .fontSize(14)
-                        .fontColor('#FFFFFF')
-                    }
-                  }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
+              } else if (msg.role === MessageRole.Assistant) {
+                // Assistant message — LEFT side, AI avatar ABOVE the message bubble
+                Column() {
+                  this.AvatarHeader()
+                  this.AssistantBubble(msg)
                 }
                 .width('100%')
-                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-              } else if (msg.role === 'system') {
-                // System message
+                .alignItems(HorizontalAlign.Start)
+                .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+              } else if (msg.role === MessageRole.System) {
+                // System message — centered
                 Text(msg.content)
                   .fontSize(12)
                   .fontColor('#FFFFFF')
@@ -921,19 +995,16 @@ struct Index {
                   .width('100%')
                   .padding({ left: 32, right: 32, top: 4, bottom: 4 })
               } else {
-                // User message
-                Blank()
-                Column() {
-                  Text(msg.content)
-                    .fontSize(14)
-                    .fontColor('#FFFFFF')
-                    .textAlign(TextAlign.End)
+                // User message — RIGHT side, bubble
+                Row() {
+                  Blank()
+                  this.UserBubble(msg)
                 }
-                .alignItems(HorizontalAlign.End)
-                .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                .alignItems(VerticalAlign.Top)
               }
-              } // Column
-            } // ListItem
+            }
           }, (msg: ChatMessage) => msg.id)
         }
         .layoutWeight(1)
@@ -1135,6 +1206,98 @@ struct Index {
   }
 
   @Builder
+  AvatarHeader() {
+    Row() {
+      // AI avatar circle
+      Column() {
+        Text('AI')
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+      }
+      .width(28)
+      .height(28)
+      .borderRadius(14)
+      .backgroundColor('#007DFF')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+    .margin({ bottom: 6 })
+  }
+
+  @Builder
+  AssistantBubble(msg: ChatMessage) {
+    Column() {
+      // Tool calls
+      if (msg.toolCalls.length > 0) {
+        ForEach(msg.toolCalls, (tool: ToolCall) => {
+          Row() {
+            Text(tool.name)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .fontFamily('monospace')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#007DFF15')
+              .borderRadius(4)
+            if (tool.status === 'error') {
+              Text('error')
+                .fontSize(11)
+                .fontColor('#FF5252')
+                .margin({ left: 6 })
+            } else if (tool.status === 'complete') {
+              Text('done')
+                .fontSize(11)
+                .fontColor('#3DDC84')
+                .margin({ left: 6 })
+            }
+          }
+          .margin({ bottom: 4 })
+        }, (tool: ToolCall) => tool.id)
+      }
+
+      // Message body — show "Thinking..." with animated dots when streaming and empty
+      if (msg.content.length > 0) {
+        Text(msg.content)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+          .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
+      } else if (msg.isStreaming) {
+        Row() {
+          Text('Thinking' + this.buildDots())
+            .fontSize(14)
+            .fontColor('#FFFFFF')
+            .fontStyle(FontStyle.Italic)
+        }
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(12)
+    .backgroundColor('#1A1A1A')
+    .borderRadius(12)
+    .borderWidth(1)
+    .borderColor('#2D2D2D')
+    .constraintSize({ maxWidth: '85%' })
+  }
+
+  @Builder
+  UserBubble(msg: ChatMessage) {
+    Column() {
+      Text(msg.content)
+        .fontSize(14)
+        .fontColor('#FFFFFF')
+        .lineHeight(22)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .alignItems(HorizontalAlign.End)
+    .padding(12)
+    .backgroundColor('#007DFF')
+    .borderRadius(12)
+    .constraintSize({ maxWidth: '85%' })
+  }
+
+  @Builder
   WebViewContent() {
     Column() {
       Text('Web View')
@@ -1317,10 +1480,14 @@ struct Index {
                         .fontColor('#FFFFFF')
                         .borderRadius(6)
                         .margin({ right: 8, top: 8 })
-                        .onClick(() => {
+                        .onClick(async () => {
                           this.viewModel.selectedModel = `${provider.id}/${modelId}`
-                          this.viewModel.saveServerConfig()
-                          this.viewModel.syncModelToRuntime()
+                          try {
+                            await this.viewModel.saveServerConfig()
+                            await this.viewModel.syncModelToRuntime()
+                          } catch (e) {
+                            promptAction.showToast({ message: '切换失败: ' + errStr(e) })
+                          }
                         })
                     }, (modelId: string) => `${provider.id}/${modelId}`)
                   }
@@ -1415,9 +1582,6 @@ struct Index {
         this.SettingNavItem('桌面', 'desktop')
         this.SettingNavItem('通用', 'general')
         this.SettingNavItem('快捷键', 'shortcuts')
-        this.SettingNavItem('服务器', 'servers')
-        this.SettingNavItem('提供商', 'providers')
-        this.SettingNavItem('模型', 'models')
 
         Blank()
 
@@ -1439,12 +1603,6 @@ struct Index {
             this.SettingsDesktopContent()
           } else if (this.settingsTab === 'shortcuts') {
             this.SettingsShortcutsContent()
-          } else if (this.settingsTab === 'servers') {
-            this.SettingsServerContent()
-          } else if (this.settingsTab === 'providers') {
-            this.SettingsProvidersContent()
-          } else if (this.settingsTab === 'models') {
-            this.SettingsModelsContent()
           }
         }
         .padding({ left: 32, right: 32, top: 24, bottom: 40 })
@@ -1513,7 +1671,7 @@ struct Index {
 
   // ── Select row (dropdown-style) ──
   @Builder
-  SSelect(title: string, desc: string, value: string) {
+  SSelect(title: string, desc: string, value: string, options: string[], onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1538,6 +1696,9 @@ struct Index {
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
       .borderRadius(6)
+      .onClick(() => {
+        this.openPicker(title, options, value, onSelect)
+      })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
@@ -1545,7 +1706,7 @@ struct Index {
 
   // ── Font select row ──
   @Builder
-  SFontSelect(title: string, desc: string, value: string) {
+  SFontSelect(title: string, desc: string, value: string, onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1565,6 +1726,12 @@ struct Index {
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .backgroundColor('#2D2D2D')
         .borderRadius(6)
+        .onClick(() => {
+          const fonts: string[] = ['System Sans', 'System Serif', 'System Mono',
+            'HarmonyOS Sans', 'Noto Sans CJK', 'Noto Serif CJK',
+            'JetBrainsMono Nerd Font M', 'Menlo', 'Courier New']
+          this.openPicker(title, fonts, value, onSelect)
+        })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
@@ -1598,7 +1765,7 @@ struct Index {
 
   // ── Sound select row ──
   @Builder
-  SSoundRow(title: string, desc: string, value: string) {
+  SSoundRow(title: string, desc: string, value: string, onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1623,9 +1790,209 @@ struct Index {
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
       .borderRadius(6)
+      .onClick(() => {
+        const sounds: string[] = ['否', '斯泰普博普斯 01', '斯泰普博普斯 02',
+          '否 03', '清脆', '柔和', '提醒音']
+        this.openPicker(title, sounds, value, onSelect)
+      })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  AI 设置 — Runtime 模型 / Provider 配置
+  // ══════════════════════════════════════════════════════════
+
+  @Builder
+  AiSettingsContent() {
+    Column() {
+      Row() {
+        Text('AI 设置')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+
+        Blank()
+
+        Text(this.aiSettingsMode === 'runtime' ? 'Runtime 模型' : 'Provider 配置')
+          .fontSize(13)
+          .fontColor('#888888')
+      }
+      .width('100%')
+      .height(64)
+      .padding({ left: 24, right: 24 })
+      .alignItems(VerticalAlign.Center)
+
+      Row() {
+        this.AiSettingsTab('runtime', 'Runtime 模型')
+        this.AiSettingsTab('config', 'Provider 配置')
+      }
+      .padding({ left: 24, right: 24, bottom: 12 })
+
+      if (this.aiSettingsMode === 'runtime') {
+        this.RuntimeProviderModelContent()
+      } else {
+        ProviderPage({ activeRunner: null })
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#111111')
+  }
+
+  @Builder
+  AiSettingsTab(id: string, label: string) {
+    Text(label)
+      .fontSize(14)
+      .fontColor(this.aiSettingsMode === id ? '#FFFFFF' : '#999999')
+      .fontWeight(this.aiSettingsMode === id ? FontWeight.Bold : FontWeight.Normal)
+      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      .backgroundColor(this.aiSettingsMode === id ? '#2D2D2D' : Color.Transparent)
+      .borderRadius(8)
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.aiSettingsMode = id
+      })
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Runtime Provider 模型选择页
+  // ══════════════════════════════════════════════════════════
+
+  @Builder
+  RuntimeProviderModelContent() {
+    Column() {
+      Row() {
+        Text('当前模型')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+
+        Blank()
+
+        Button('刷新 Provider')
+          .height(34)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .onClick(() => {
+            this.viewModel.loadProviders()
+          })
+      }
+      .width('100%')
+      .margin({ bottom: 10 })
+
+      TextInput({
+        placeholder: 'providerId/modelId，例如 xiaomi-mimo/mimo-v2.5-pro',
+        text: this.viewModel.selectedModel
+      })
+        .width('100%')
+        .height(42)
+        .backgroundColor('#2D2D2D')
+        .borderRadius(8)
+        .fontColor('#FFFFFF')
+        .onChange((value: string) => {
+          this.viewModel.selectedModel = value
+        })
+
+      Row() {
+        Button('保存模型')
+          .height(38)
+          .backgroundColor('#007DFF')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .onClick(async () => {
+            try {
+              await this.viewModel.saveServerConfig()
+              await this.viewModel.syncModelToRuntime()
+              promptAction.showToast({ message: '已保存并同步到 Runtime' })
+            } catch (e) {
+              promptAction.showToast({ message: '保存失败: ' + errStr(e) })
+            }
+          })
+
+        Button('测试模型')
+          .height(38)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .margin({ left: 10 })
+          .onClick(async () => {
+            const result = await this.viewModel.testModel()
+            this.viewModel.serverLogs = [result]
+          })
+      }
+      .margin({ top: 12, bottom: 24 })
+
+      if (this.viewModel.providers.length === 0) {
+        Text('未读取到 Provider。请确认 Runtime 已连接，然后点击刷新 Provider。')
+          .fontSize(13)
+          .fontColor('#888888')
+      } else {
+        List() {
+          ForEach(this.viewModel.providers, (provider: ProviderInfo) => {
+            ListItem() {
+              Column() {
+                Row() {
+                  Text(provider.name.length > 0 ? provider.name : provider.id)
+                    .fontSize(15)
+                    .fontColor('#FFFFFF')
+                    .fontWeight(FontWeight.Medium)
+
+                  Blank()
+
+                  Text(provider.connected ? 'connected' : 'not connected')
+                    .fontSize(12)
+                    .fontColor(provider.connected ? '#3DDC84' : '#FFB020')
+                }
+
+                Text(provider.id)
+                  .fontSize(12)
+                  .fontColor('#777777')
+                  .margin({ top: 4, bottom: 8 })
+
+                if (provider.models.length > 0) {
+                  Flex({ wrap: FlexWrap.Wrap }) {
+                    ForEach(provider.models, (modelId: string) => {
+                      Text(modelId)
+                        .fontSize(12)
+                        .fontColor('#FFFFFF')
+                        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                        .backgroundColor(this.viewModel.selectedModel === `${provider.id}/${modelId}` ? '#007DFF' : '#2D2D2D')
+                        .borderRadius(6)
+                        .margin({ right: 8, top: 8 })
+                        .onClick(async () => {
+                          this.viewModel.selectedModel = `${provider.id}/${modelId}`
+                          try {
+                            await this.viewModel.saveServerConfig()
+                            await this.viewModel.syncModelToRuntime()
+                          } catch (e) {
+                            promptAction.showToast({ message: '切换失败: ' + errStr(e) })
+                          }
+                        })
+                    })
+                  }
+                } else {
+                  Text('No models')
+                    .fontSize(12)
+                    .fontColor('#666666')
+                }
+              }
+              .width('100%')
+              .padding(14)
+              .backgroundColor('#1A1A1A')
+              .borderRadius(10)
+              .margin({ bottom: 10 })
+            }
+          })
+        }
+        .layoutWeight(1)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding(24)
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1641,13 +2008,15 @@ struct Index {
       .fontColor('#FFFFFF')
       .margin({ bottom: 20 })
 
-    this.SSelect('语言', '更改 OpenCode 的显示语言', this.settingLanguage)
+    this.SSelect('语言', '更改 OpenCode 的显示语言', this.settingLanguage,
+      ['简体中文', 'English', '日本語', '한국어'], (v: string) => { this.settingLanguage = v })
     Divider().color('#222222')
     this.SToggle('自动接受权限', '权限请求将被自动批准', this.settingAutoAllow, () => {
       this.settingAutoAllow = !this.settingAutoAllow
     })
     Divider().color('#222222')
-    this.SSelect('Terminal Shell', 'Choose the shell used for your terminal. Compatible shells are also used for agent tool calls.', this.settingShell)
+    this.SSelect('Terminal Shell', 'Choose the shell used for your terminal. Compatible shells are also used for agent tool calls.', this.settingShell,
+      ['Auto (Default)', '/bin/zsh', '/bin/bash', '/bin/fish', '/usr/local/bin/fish'], (v: string) => { this.settingShell = v })
 
     // ── 时间线显示偏好 ──
     this.SSection('时间线')
@@ -1677,15 +2046,17 @@ struct Index {
 
     // ── 外观 ──
     this.SSection('外观')
-    this.SSelect('配色方案', '选择 OpenCode 跟随系统、浅色或深色主题', this.settingColorScheme)
+    this.SSelect('配色方案', '选择 OpenCode 跟随系统、浅色或深色主题', this.settingColorScheme,
+      ['系统', '浅色', '深色'], (v: string) => { this.settingColorScheme = v })
     Divider().color('#222222')
-    this.SSelect('主题', '自定义 OpenCode 的主题。了解更多', this.settingThemeName)
+    this.SSelect('主题', '自定义 OpenCode 的主题。了解更多', this.settingThemeName,
+      ['OC-1', 'OC-2', 'OC-3', 'Monokai', 'Solarized', 'Dracula'], (v: string) => { this.settingThemeName = v })
     Divider().color('#222222')
-    this.SFontSelect('界面字体', '自定义整个界面使用的字体', this.settingUiFont)
+    this.SFontSelect('界面字体', '自定义整个界面使用的字体', this.settingUiFont, (v: string) => { this.settingUiFont = v })
     Divider().color('#222222')
-    this.SFontSelect('代码字体', '自定义代码块使用的字体', this.settingCodeFont)
+    this.SFontSelect('代码字体', '自定义代码块使用的字体', this.settingCodeFont, (v: string) => { this.settingCodeFont = v })
     Divider().color('#222222')
-    this.SFontSelect('Terminal Font', 'Customise the font used in the terminal', this.settingTermFont)
+    this.SFontSelect('Terminal Font', 'Customise the font used in the terminal', this.settingTermFont, (v: string) => { this.settingTermFont = v })
 
     // ── 系统通知 ──
     this.SSection('系统通知')
@@ -1703,11 +2074,11 @@ struct Index {
 
     // ── 音效 ──
     this.SSection('音效')
-    this.SSoundRow('智能体', '当智能体完成或需要注意时播放声音', this.settingSoundAgent)
+    this.SSoundRow('智能体', '当智能体完成或需要注意时播放声音', this.settingSoundAgent, (v: string) => { this.settingSoundAgent = v })
     Divider().color('#222222')
-    this.SSoundRow('权限', '当需要权限时播放声音', this.settingSoundPermission)
+    this.SSoundRow('权限', '当需要权限时播放声音', this.settingSoundPermission, (v: string) => { this.settingSoundPermission = v })
     Divider().color('#222222')
-    this.SSoundRow('错误', '发生错误时播放声音', this.settingSoundError)
+    this.SSoundRow('错误', '发生错误时播放声音', this.settingSoundError, (v: string) => { this.settingSoundError = v })
 
     // ── 更新 ──
     this.SSection('更新')

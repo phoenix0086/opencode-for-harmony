@@ -43,7 +43,9 @@ export class LocalRuntimeClient {
 
   // ══════════ Config ══════════
   getConfig(): Record<string, Object> { return localRuntimeService.getConfig(); }
-  patchConfig(body: Record<string, Object>): void { localRuntimeService.updateConfig(body); }
+  async patchConfig(body: Record<string, Object>): Promise<Record<string, Object>> {
+    return await localRuntimeService.updateConfigAsync(body);
+  }
 
   // ══════════ Providers ══════════
   listProviders(): Record<string, Object> {

@@ -1,10 +1,14 @@
 import { CNProvider, CNModel, ProviderHeader } from '../models/Provider'
 import { http } from '@kit.NetworkKit'
 import { providerRegistry } from '../services/ProviderRegistry'
+import { localRuntimeService } from '../services/LocalRuntimeService'
 import { Runner } from '../models/Runner'
 import { Theme } from '../components/Theme'
 import { TestConnectionResult } from '../services/ProviderConnectionService'
 import { errStr } from '../utils/ErrorUtil'
+import { Logger } from '../utils/Logger'
+import { Constants } from '../utils/Constants'
+import { MainViewModel } from '../viewmodel/MainViewModel'
 
 /**
  * OpenCode-style Provider / Model settings page.
@@ -16,6 +20,8 @@ import { errStr } from '../utils/ErrorUtil'
 export struct ProviderPage {
   @StorageProp('themeId') themeId: string = 'catppuccin'
   @Prop activeRunner: Runner | null = null
+  // 通过 StorageLink 拿到主 viewModel，里面有 storageService（带 getString/setString）
+  @StorageLink('viewModel') viewModel: MainViewModel = new MainViewModel()
 
   @State providers: CNProvider[] = []
   @State isInitialized: boolean = false
@@ -49,11 +55,76 @@ export struct ProviderPage {
   async aboutToAppear(): Promise<void> {
     await providerRegistry.init()
     this.providers = providerRegistry.getAll()
+    // 读取 runtime 已保存的默认 provider/model
+    try {
+      // LOW-7 守卫:Runtime 未 start() 时,内存 config 仍是默认值,
+      // 直接 getConfig() 会拿到空 defaultProviderID/defaultModelID,
+      // 进而走 Storage 回退路径。Runtime 由用户在主页/Chat 端显式 start,
+      // 这里只在已 start 的情况下用 runtime config,否则只看 storage。
+      const runtimeHealth = localRuntimeService.health()
+      if (runtimeHealth.ok) {
+        const cfg = localRuntimeService.getConfig()
+        const dp = (cfg['defaultProviderID'] as string) || ''
+        const dm = (cfg['defaultModelID'] as string) || ''
+        if (dp.length > 0 && dm.length > 0) {
+          this.defaultModel = `${dp}/${dm}`
+          this.smallModel = this.defaultModel
+        } else {
+          await this.loadDefaultModelFromStorage()
+        }
+      } else {
+        await this.loadDefaultModelFromStorage()
+      }
+    } catch (e) {
+      Logger.warn(`aboutToAppear read runtime config failed: ${errStr(e)}`)
+    }
     this.isInitialized = true
+  }
+
+  private async loadDefaultModelFromStorage(): Promise<void> {
+    if (this.viewModel?.storageService === null || this.viewModel?.storageService === undefined) return
+    try {
+      const storedModel = await this.viewModel.storageService.getString(Constants.KEY_MODEL, '')
+      if (storedModel.includes('/')) {
+        this.defaultModel = storedModel
+        this.smallModel = storedModel
+      }
+    } catch (e) {
+      Logger.warn(`loadDefaultModelFromStorage failed: ${errStr(e)}`)
+    }
   }
 
   private refreshProviders(): void {
     this.providers = providerRegistry.getAll()
+  }
+
+  /**
+   * 同步 ProviderRegistry → LocalRuntimeService.providers。
+   * 关键修复：设置页保存/删除/添加模型/添加头之后必须调用，
+   * 否则 Chat 端 LocalRuntimeService.providers 里 apiKey 仍是空的。
+   */
+  private async syncRuntime(): Promise<void> {
+    try {
+      await localRuntimeService.syncFromProviderRegistry()
+    } catch (e) {
+      Logger.warn(`syncRuntime failed: ${errStr(e)}`)
+    }
+  }
+
+  private async persistDefaultModel(providerId: string, modelId: string): Promise<void> {
+    const modelRef = `${providerId}/${modelId}`
+    const patch: Record<string, Object> = {}
+    patch['defaultProviderID'] = providerId
+    patch['defaultModelID'] = modelId
+    await localRuntimeService.updateConfigAsync(patch)
+    // 同步到 Storage(让 viewModel.selectedModel 之外的回退路径也能读)
+    if (this.viewModel?.storageService) {
+      try {
+        await this.viewModel.storageService.setString(Constants.KEY_MODEL, modelRef)
+      } catch (e) {
+        Logger.warn(`persistDefaultModel setString failed: ${errStr(e)}`)
+      }
+    }
   }
 
   private getEditingProvider(): CNProvider | undefined {
@@ -264,6 +335,15 @@ export struct ProviderPage {
         .padding({ left: 10, right: 10, top: 4, bottom: 4 })
         .borderRadius(4)
         .backgroundColor(p.authStatus === 'configured' ? Theme.SUCCESS_DIM : Theme.ACTIVE_BG)
+
+      Text('编辑')
+        .fontSize(Theme.fs.xs)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .borderRadius(6)
+        .backgroundColor(Theme.ACTIVE_BG)
+        .margin({ left: 8 })
+        .onClick(() => this.openEditDialog(p))
     }
     .width('100%')
     .padding(16)
@@ -533,6 +613,7 @@ export struct ProviderPage {
     }
     .width('100%')
     .height('100%')
+    .zIndex(999)
   }
 
   @Builder
@@ -605,9 +686,21 @@ export struct ProviderPage {
         .padding({ left: 10, right: 10, top: 6, bottom: 6 })
         .borderRadius(6)
         .backgroundColor(Theme.ACTIVE_BG)
-        .onClick(() => {
+        .onClick(async () => {
           this.defaultModel = `${this.editId}/${m.id}`
           if (this.smallModel.length === 0) this.smallModel = this.defaultModel
+          // 真正持久化到 LocalRuntimeService.config + Storage,并同步 viewModel.selectedModel
+          try {
+            await this.persistDefaultModel(this.editId, m.id)
+            // 关键修复（HIGH-3）：让 Chat 当前 viewModel 也立刻知道默认模型变了
+            if (this.viewModel) {
+              this.viewModel.selectedModel = this.defaultModel
+              await this.viewModel.syncModelToRuntime()
+            }
+            this.statusMsg = `已设为默认模型：${this.defaultModel}`
+          } catch (e) {
+            this.statusMsg = `默认模型保存失败: ${errStr(e)}`
+          }
         })
 
       Text('删除')
@@ -711,6 +804,7 @@ export struct ProviderPage {
     }
     .width('100%')
     .height('100%')
+    .zIndex(999)
   }
 
   // ══════════════════════════════════════════════════
@@ -773,6 +867,7 @@ export struct ProviderPage {
     }
     .width('100%')
     .height('100%')
+    .zIndex(999)
   }
 
   // ══════════════════════════════════════════════════
@@ -847,6 +942,26 @@ export struct ProviderPage {
       this.statusMsg = '已保存提供商'
     }
 
+    // 自动设第一个模型为默认（仅当未设过）
+    const saved = providerRegistry.getById(this.editId)
+    if (saved && saved.models.length > 0 && this.defaultModel.length === 0) {
+      const first = saved.models[0]
+      this.defaultModel = `${saved.id}/${first.id}`
+      this.smallModel = this.defaultModel
+      try {
+        await this.persistDefaultModel(saved.id, first.id)
+        // 关键修复（HIGH-3）：让 Chat 当前 viewModel 立刻知道默认模型变了
+        if (this.viewModel) {
+          this.viewModel.selectedModel = this.defaultModel
+          await this.viewModel.syncModelToRuntime()
+        }
+      } catch (e) {
+        Logger.warn(`auto-set default model failed: ${errStr(e)}`)
+      }
+    }
+
+    // 关键：把最新 apiKey 推到 runtime 内存
+    await this.syncRuntime()
     this.refreshProviders()
     this.showEditDialog = false
   }
@@ -854,6 +969,7 @@ export struct ProviderPage {
   private async deleteProvider(): Promise<void> {
     if (this.editId.length === 0) return
     await providerRegistry.removeProvider(this.editId)
+    await this.syncRuntime()
     this.refreshProviders()
     this.showEditDialog = false
     this.statusMsg = '已删除提供商'
@@ -927,6 +1043,8 @@ export struct ProviderPage {
                 await providerRegistry.addOrUpdateModel(this.editId, modelId, modelId, true)
               }
             }
+            // 测试成功只代表 ProviderRegistry 里有 key，仍需推给 runtime 内存
+            await this.syncRuntime()
             this.refreshProviders()
           }
         } catch (e) {
@@ -1052,6 +1170,8 @@ export struct ProviderPage {
         await providerRegistry.setApiKey(this.editId, this.editApiKey, this.editApiKeyMode)
       }
     }
+    // 关键：静默保存也要推给 runtime
+    await this.syncRuntime()
     this.refreshProviders()
   }
 
@@ -1068,11 +1188,13 @@ export struct ProviderPage {
     this.statusMsg = ok ? '模型已添加' : '模型添加失败'
     this.editModelId = ''
     this.editModelName = ''
+    await this.syncRuntime()
     this.refreshProviders()
   }
 
   private async removeModel(modelId: string): Promise<void> {
     await providerRegistry.removeModel(this.editId, modelId)
+    await this.syncRuntime()
     this.refreshProviders()
   }
 
@@ -1088,11 +1210,13 @@ export struct ProviderPage {
     this.statusMsg = ok ? '请求头已保存' : '请求头保存失败'
     this.editHeaderName = ''
     this.editHeaderValue = ''
+    await this.syncRuntime()
     this.refreshProviders()
   }
 
   private async removeHeader(name: string): Promise<void> {
     await providerRegistry.removeHeader(this.editId, name)
+    await this.syncRuntime()
     this.refreshProviders()
   }
 
@@ -1108,6 +1232,7 @@ export struct ProviderPage {
   private async executeReset(): Promise<void> {
     this.showResetDialog = false
     await providerRegistry.resetToDefaults()
+    await this.syncRuntime()
     this.refreshProviders()
     this.statusMsg = '已重置为默认提供商'
   }

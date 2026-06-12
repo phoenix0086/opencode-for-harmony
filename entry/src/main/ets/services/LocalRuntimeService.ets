@@ -111,7 +111,8 @@ export class LocalRuntimeService {
     }
     this.startTime = Date.now();
 
-    // Load persisted data
+    // Load persisted data (config first, so subsequent loads can use default model)
+    await this.loadConfig();
     await this.loadProviders();
     await this.syncFromProviderRegistry();
     await this.loadSessions();
@@ -164,6 +165,53 @@ export class LocalRuntimeService {
       this.config.defaultModelID = patch['defaultModelID'] as string;
     }
     return this.getConfig();
+  }
+
+  /**
+   * 异步更新配置并持久化到 preferences。
+   * 修复：旧 updateConfig 只改内存，重启或切换后默认值丢失。
+   */
+  async updateConfigAsync(patch: Record<string, Object>): Promise<Record<string, Object>> {
+    const result = this.updateConfig(patch);
+    await this.saveConfig();
+    return result;
+  }
+
+  /**
+   * 从 preferences 恢复 workspace / defaultProviderID / defaultModelID。
+   */
+  private async loadConfig(): Promise<void> {
+    try {
+      const raw = await this.prefsGet('local_runtime_config', '');
+      if (raw.length === 0) return;
+      const data = JSON.parse(raw) as Record<string, Object>;
+      if (typeof data['workspace'] === 'string') {
+        this.config.workspace = data['workspace'] as string;
+      }
+      if (typeof data['defaultProviderID'] === 'string') {
+        this.config.defaultProviderID = data['defaultProviderID'] as string;
+      }
+      if (typeof data['defaultModelID'] === 'string') {
+        this.config.defaultModelID = data['defaultModelID'] as string;
+      }
+    } catch (e) {
+      Logger.warn(`loadConfig failed: ${errStr(e)}`);
+    }
+  }
+
+  /**
+   * 持久化 workspace / defaultProviderID / defaultModelID 到 preferences。
+   */
+  private async saveConfig(): Promise<void> {
+    try {
+      const data: Record<string, Object> = {};
+      data['workspace'] = this.config.workspace;
+      data['defaultProviderID'] = this.config.defaultProviderID;
+      data['defaultModelID'] = this.config.defaultModelID;
+      await this.prefsSet('local_runtime_config', JSON.stringify(data));
+    } catch (e) {
+      Logger.warn(`saveConfig failed: ${errStr(e)}`);
+    }
   }
 
   // ══════════ Providers ══════════
@@ -826,10 +874,15 @@ export class LocalRuntimeService {
   /**
    * Sync providers from ProviderRegistry to LocalRuntimeService.
    * Called on startup to ensure local runtime has the latest provider configs.
+   *
+   * MED-6 修复:同步**所有** ProviderRegistry 中的 provider(包括 enabled=false),
+   * 不再过滤掉"已配置但未启用"的 provider / model。runtime 端用 `enabled`
+   * 字段控制是否参与调度,而不是直接删除配置。这样用户在 Provider 页面切换
+   * 启用状态时,Chat 端不会因为 provider 消失而需要重新走 sync 流程。
    */
   async syncFromProviderRegistry(): Promise<void> {
     await providerRegistry.init();
-    const cnProviders = providerRegistry.getEnabled();
+    const cnProviders = providerRegistry.getAll();
 
     for (const cn of cnProviders) {
       const existing = this.findProvider(cn.id);
@@ -842,10 +895,10 @@ export class LocalRuntimeService {
       local.apiKey = cn.apiKey;
       local.protocol = 'openai-compatible'; // All current providers are OpenAI-compatible
 
-      // Sync models
+      // Sync models — preserve all (enabled or disabled),不再按 enabled 过滤。
+      // Runtime 调度时会再判断 local.enabled / local.models[*].enabled。
       local.models = [];
       for (const m of cn.models) {
-        if (m.enabled === false) continue;
         const mc = new LocalModelConfig();
         mc.id = m.id;
         mc.name = m.name;
@@ -859,7 +912,8 @@ export class LocalRuntimeService {
       }
     }
 
-    // Remove providers that no longer exist in registry
+    // Remove providers that no longer exist in registry (保留 custom-* 前缀,
+    // 那是用户在设置页手填的、不会进 ProviderRegistry 的临时供应商)
     const registryIds = cnProviders.map(p => p.id);
     this.providers = this.providers.filter(p => registryIds.includes(p.id) || p.id.startsWith('custom-'));
 
@@ -1096,6 +1150,10 @@ export class LocalRuntimeService {
   setDefaultModel(providerID: string, modelID: string): void {
     this.config.defaultProviderID = providerID;
     this.config.defaultModelID = modelID;
+    // 持久化（fire-and-forget；失败由 saveConfig 内部 Logger 记录）
+    this.saveConfig().catch((e: Object) => {
+      Logger.warn(`setDefaultModel saveConfig failed: ${errStr(e)}`);
+    });
   }
 }
 

@@ -12,7 +12,40 @@ struct Session {
   @StorageLink('viewModel') viewModel: MainViewModel = new MainViewModel();
   @State inputText: string = '';
   @State autoScroll: boolean = true;
+  @State thinkingDots: number = 0;
   private scroller: Scroller = new Scroller();
+  private thinkingTimerId: number = -1;
+
+  aboutToAppear(): void {
+    this.startThinkingAnimation();
+  }
+
+  aboutToDisappear(): void {
+    this.stopThinkingAnimation();
+  }
+
+  private startThinkingAnimation(): void {
+    this.stopThinkingAnimation();
+    this.thinkingDots = 0;
+    this.thinkingTimerId = setInterval(() => {
+      this.thinkingDots = (this.thinkingDots + 1) % 4;
+    }, 500);
+  }
+
+  private stopThinkingAnimation(): void {
+    if (this.thinkingTimerId !== -1) {
+      clearInterval(this.thinkingTimerId);
+      this.thinkingTimerId = -1;
+    }
+  }
+
+  private buildDots(): string {
+    let s = '';
+    for (let i = 0; i < this.thinkingDots; i++) {
+      s += '.';
+    }
+    return s;
+  }
 
   build() {
     Column() {
@@ -136,66 +169,95 @@ struct Session {
 
   @Builder
   MessageBubble(msg: ChatMessage) {
-    Row() {
-      if (msg.role === MessageRole.Assistant) {
-        Column() {
-          Row() {
-            Circle()
-              .width(24)
-              .height(24)
-              .fill('#007DFF')
-            Text('AI')
-              .fontSize(12)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#FFFFFF')
-              .margin({ left: 8 })
-            if (msg.isStreaming) {
-              LoadingProgress()
-                .width(16)
-                .height(16)
-                .color('#007DFF')
-                .margin({ left: 8 })
-            }
-          }
-          .margin({ bottom: 6 })
-
-          Text(msg.content)
-            .fontSize(14)
-            .fontColor('#FFFFFF')
-            .copyOption(CopyOptions.LocalDevice)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .padding(12)
-        .backgroundColor('#1A1A1A')
-        .borderRadius(12)
-        .constraintSize({ maxWidth: '80%' })
-      } else if (msg.role === MessageRole.User) {
+    if (msg.role === MessageRole.Assistant) {
+      // Assistant — LEFT side, AI avatar ABOVE the message bubble
+      Column() {
+        this.AvatarHeader()
+        this.AssistantBubble(msg)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    } else if (msg.role === MessageRole.User) {
+      // User — RIGHT side bubble
+      Row() {
         Blank()
-        Column() {
-          Text(msg.content)
-            .fontSize(14)
-            .fontColor('#FFFFFF')
-            .copyOption(CopyOptions.LocalDevice)
-        }
-        .alignItems(HorizontalAlign.End)
-        .padding(12)
-        .backgroundColor('#007DFF')
-        .borderRadius(12)
-        .constraintSize({ maxWidth: '80%' })
-      } else {
-        // System message
+        this.UserBubble(msg)
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+      .alignItems(VerticalAlign.Top)
+    } else {
+      // System message
+      Text(msg.content)
+        .fontSize(12)
+        .fontColor('#FFFFFF')
+        .fontStyle(FontStyle.Italic)
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .padding({ top: 8, bottom: 8 })
+    }
+  }
+
+  @Builder
+  AvatarHeader() {
+    Row() {
+      Column() {
+        Text('AI')
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+      }
+      .width(28)
+      .height(28)
+      .borderRadius(14)
+      .backgroundColor('#007DFF')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+    }
+    .margin({ bottom: 6 })
+  }
+
+  @Builder
+  AssistantBubble(msg: ChatMessage) {
+    Column() {
+      if (msg.content.length > 0) {
         Text(msg.content)
-          .fontSize(12)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+          .lineHeight(22)
+          .copyOption(CopyOptions.LocalDevice)
+      } else if (msg.isStreaming) {
+        Text('Thinking' + this.buildDots())
+          .fontSize(14)
           .fontColor('#FFFFFF')
           .fontStyle(FontStyle.Italic)
-          .textAlign(TextAlign.Center)
-          .width('100%')
-          .padding({ top: 8, bottom: 8 })
       }
     }
-    .width('100%')
-    .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-    .alignItems(VerticalAlign.Top)
+    .alignItems(HorizontalAlign.Start)
+    .padding(12)
+    .backgroundColor('#1A1A1A')
+    .borderRadius(12)
+    .borderWidth(1)
+    .borderColor('#2D2D2D')
+    .constraintSize({ maxWidth: '85%' })
+  }
+
+  @Builder
+  UserBubble(msg: ChatMessage) {
+    Column() {
+      Text(msg.content)
+        .fontSize(14)
+        .fontColor('#FFFFFF')
+        .lineHeight(22)
+        .textAlign(TextAlign.Start)
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .alignItems(HorizontalAlign.End)
+    .padding(12)
+    .backgroundColor('#007DFF')
+    .borderRadius(12)
+    .constraintSize({ maxWidth: '85%' })
   }
 
   private send(): void {
