@@ -1,4 +1,18 @@
-# OpenCode Harmony — Smoke Matrix (M21-M23)
+# OpenCode Harmony — Smoke Matrix (M21-M23 + Local Runtime)
+
+## Runtime Architecture
+
+The app now supports three runtime modes:
+
+| Mode | Description | How it works |
+|------|-------------|--------------|
+| `local-embedded` | In-process runtime (default) | LocalRuntimeService runs in the app process. No external server needed. |
+| `dev-pc` | Development PC | Connects to `opencode serve` running on your computer via LAN. |
+| `remote` | Remote server | Connects to a remote OpenCode server. |
+
+**Default mode on app launch:** `local-embedded`
+
+The old "sidecar" approach (forking a Linux/musl opencode binary) is deprecated and no longer the default.
 
 This document tracks the runtime API parity between the Harmony client and the
 OpenCode Runtime, divided into three tiers:

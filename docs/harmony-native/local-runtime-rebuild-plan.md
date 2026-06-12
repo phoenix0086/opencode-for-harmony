@@ -781,4 +781,56 @@ Provider 配置要变成 Runtime 单一事实源。
 4. 第二阶段再加事件、abort、只读工具。
 5. 第三阶段再加写文件、权限、diff、PTY、插件。
 
-这样可以最快让“我要用本机”可用，同时避免继续被二进制兼容性卡住。
+这样可以最快让"我要用本机"可用，同时避免继续被二进制兼容性卡住。
+
+---
+
+## 15. 实施进度
+
+| Step | 任务 | 状态 | 说明 |
+|------|------|------|------|
+| 1 | RuntimeMode + Adapter 分流 | ✅ | `local-embedded` / `dev-pc` / `remote` 三路分流 |
+| 2 | Provider/Model 本地管理 | ✅ | ProviderRegistry 同步 + 本地存储 |
+| 3 | Session/Message 存储 | ✅ | StorageService 持久化 |
+| 4 | OpenAI-compatible 调用 | ✅ | 非流式调用 + 错误处理 |
+| 5 | Abort + 事件总线 | ✅ | 生成中可取消 + 事件推送 |
+| 6 | 只读工具 | ✅ | 文件读取、目录列表、文本搜索 |
+| 7 | 权限引擎 + 写文件 | ✅ | 权限审批 + 写文件保护 |
+| 8 | Sidecar 清理 | ✅ | 默认 local-embedded，sidecar 标记为实验 |
+
+### 架构总结
+
+```text
+UI (Index.ets / AppShell)
+    ↓
+MainViewModel
+    ↓
+OpenCodeApiAdapter (isLocal → localRuntimeClient)
+    ↓
+LocalRuntimeClient → LocalRuntimeService
+    ↓
+ProviderEngine (OpenAI-compatible HTTP)
+SessionStore (StorageService)
+ToolEngine (File read/write with permission)
+PermissionEngine (approve/deny flow)
+EventBus (message lifecycle events)
+```
+
+### 关键文件
+
+| 文件 | 职责 |
+|------|------|
+| `LocalRuntimeTypes.ets` | 所有类型定义 |
+| `LocalRuntimeService.ets` | 进程内 Runtime 核心 |
+| `LocalRuntimeClient.ets` | 包装 LocalRuntimeService 给 Adapter |
+| `RuntimeMode.ets` | RuntimeMode 类型和工具函数 |
+| `OpenCodeApiAdapter.ets` | 统一 API 适配器（28 个方法三路分流） |
+
+### 下一步优化
+
+1. 流式响应（SSE parsing）
+2. 工具调用（模型触发 read_file/write_file）
+3. 上下文管理（消息窗口、token 计数）
+4. 数据库存储（替代 JSON StorageService）
+5. 插件系统
+
