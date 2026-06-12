@@ -111,7 +111,8 @@ export class LocalRuntimeService {
     }
     this.startTime = Date.now();
 
-    // Load persisted data
+    // Load persisted data (config first, so subsequent loads can use default model)
+    await this.loadConfig();
     await this.loadProviders();
     await this.syncFromProviderRegistry();
     await this.loadSessions();
@@ -164,6 +165,53 @@ export class LocalRuntimeService {
       this.config.defaultModelID = patch['defaultModelID'] as string;
     }
     return this.getConfig();
+  }
+
+  /**
+   * 异步更新配置并持久化到 preferences。
+   * 修复：旧 updateConfig 只改内存，重启或切换后默认值丢失。
+   */
+  async updateConfigAsync(patch: Record<string, Object>): Promise<Record<string, Object>> {
+    const result = this.updateConfig(patch);
+    await this.saveConfig();
+    return result;
+  }
+
+  /**
+   * 从 preferences 恢复 workspace / defaultProviderID / defaultModelID。
+   */
+  private async loadConfig(): Promise<void> {
+    try {
+      const raw = await this.prefsGet('local_runtime_config', '');
+      if (raw.length === 0) return;
+      const data = JSON.parse(raw) as Record<string, Object>;
+      if (typeof data['workspace'] === 'string') {
+        this.config.workspace = data['workspace'] as string;
+      }
+      if (typeof data['defaultProviderID'] === 'string') {
+        this.config.defaultProviderID = data['defaultProviderID'] as string;
+      }
+      if (typeof data['defaultModelID'] === 'string') {
+        this.config.defaultModelID = data['defaultModelID'] as string;
+      }
+    } catch (e) {
+      Logger.warn(`loadConfig failed: ${errStr(e)}`);
+    }
+  }
+
+  /**
+   * 持久化 workspace / defaultProviderID / defaultModelID 到 preferences。
+   */
+  private async saveConfig(): Promise<void> {
+    try {
+      const data: Record<string, Object> = {};
+      data['workspace'] = this.config.workspace;
+      data['defaultProviderID'] = this.config.defaultProviderID;
+      data['defaultModelID'] = this.config.defaultModelID;
+      await this.prefsSet('local_runtime_config', JSON.stringify(data));
+    } catch (e) {
+      Logger.warn(`saveConfig failed: ${errStr(e)}`);
+    }
   }
 
   // ══════════ Providers ══════════
@@ -829,7 +877,7 @@ export class LocalRuntimeService {
    */
   async syncFromProviderRegistry(): Promise<void> {
     await providerRegistry.init();
-    const cnProviders = providerRegistry.getEnabled();
+    const cnProviders = providerRegistry.getAll();
 
     for (const cn of cnProviders) {
       const existing = this.findProvider(cn.id);
@@ -1096,6 +1144,10 @@ export class LocalRuntimeService {
   setDefaultModel(providerID: string, modelID: string): void {
     this.config.defaultProviderID = providerID;
     this.config.defaultModelID = modelID;
+    // 持久化（fire-and-forget；失败由 saveConfig 内部 Logger 记录）
+    this.saveConfig().catch((e: Object) => {
+      Logger.warn(`setDefaultModel saveConfig failed: ${errStr(e)}`);
+    });
   }
 }
 

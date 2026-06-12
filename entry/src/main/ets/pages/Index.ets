@@ -21,6 +21,59 @@ import { providerConnectionService, ProviderConnectInput, ProviderModelInput } f
 import { providerRegistry } from '../services/ProviderRegistry';
 
 /**
+ * PickerDialog — 通用 TextPicker 弹窗
+ */
+@CustomDialog
+struct PickerDialog {
+  controller: CustomDialogController
+  @Prop title: string = ''
+  @Prop options: string[] = []
+  @Prop selectedIndex: number = 0
+  onConfirm: (value: string) => void = () => {}
+
+  build() {
+    Column() {
+      Row() {
+        Text(this.title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+        Blank()
+        Text('取消')
+          .fontSize(14)
+          .fontColor('#999999')
+          .onClick(() => this.controller.close())
+      }
+      .width('100%')
+      .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+      TextPicker({ range: this.options, selected: this.selectedIndex })
+        .width('100%')
+        .height(220)
+        .onChange((value: string | string[], index: number | number[]) => {
+          const idx: number = Array.isArray(index) ? index[0] : index
+          this.selectedIndex = idx
+        })
+
+      Button('确定')
+        .width('90%')
+        .height(40)
+        .fontSize(15)
+        .backgroundColor('#3B82F6')
+        .fontColor('#FFFFFF')
+        .margin({ top: 8, bottom: 16 })
+        .onClick(() => {
+          this.onConfirm(this.options[this.selectedIndex])
+          this.controller.close()
+        })
+    }
+    .width('100%')
+    .backgroundColor('#1E1E1E')
+    .borderRadius(12)
+  }
+}
+
+/**
  * Main page of the OpenCode app.
  * Provides the primary navigation shell with a sidebar and content area.
  */
@@ -63,6 +116,7 @@ struct Index {
   @State serverMode: string = 'unknown'
   // Runtime 连接模式: dev-pc | local | remote
   @State runtimeConnectionMode: string = 'dev-pc'
+  @State aiSettingsMode: string = 'runtime' // runtime | config
   @State settingLanguage: string = '简体中文'
   @State settingShell: string = 'Auto (Default)'
   @State settingColorScheme: string = '系统'
@@ -74,11 +128,36 @@ struct Index {
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
 
+  // ── Picker dialog 动态状态 ──
+  @State pickerTitle: string = ''
+  @State pickerOptions: string[] = []
+  @State pickerSelected: number = 0
+  private pickerOnConfirm: (v: string) => void = () => {}
+  private pickerDialog: CustomDialogController = new CustomDialogController({
+    builder: PickerDialog({
+      title: this.pickerTitle,
+      options: this.pickerOptions,
+      selectedIndex: this.pickerSelected,
+      onConfirm: (v: string) => { this.pickerOnConfirm(v) }
+    }),
+    alignment: DialogAlignment.Bottom,
+    customStyle: true
+  })
+
   // ── Provider dialog 状态 ──
   @State showProviderDialog: boolean = false
   @State editingProviderId: string = ''
   @State providerDialogPrefill: ProviderConnectInput | null = null
   @State providerDialogSubmitting: boolean = false
+
+  private openPicker(title: string, options: string[], current: string, onConfirm: (v: string) => void): void {
+    this.pickerTitle = title
+    this.pickerOptions = options
+    this.pickerSelected = options.indexOf(current)
+    if (this.pickerSelected < 0) this.pickerSelected = 0
+    this.pickerOnConfirm = onConfirm
+    this.pickerDialog.open()
+  }
 
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
@@ -425,6 +504,7 @@ struct Index {
           Column() {
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
             this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
+            this.NavItem(AppView.Models, $r('app.media.home'), 'AI 设置')
           }
           .width('100%')
           .layoutWeight(1)
@@ -507,6 +587,8 @@ struct Index {
           this.FilesContent()
         } else if (this.currentView === AppView.Provider) {
           ProviderPage({ activeRunner: null })
+        } else if (this.currentView === AppView.Models) {
+          this.AiSettingsContent()
         } else if (this.currentView === AppView.WebView) {
           this.WebViewContent()
         } else if (this.currentView === AppView.Terminal) {
@@ -1317,10 +1399,14 @@ struct Index {
                         .fontColor('#FFFFFF')
                         .borderRadius(6)
                         .margin({ right: 8, top: 8 })
-                        .onClick(() => {
+                        .onClick(async () => {
                           this.viewModel.selectedModel = `${provider.id}/${modelId}`
-                          this.viewModel.saveServerConfig()
-                          this.viewModel.syncModelToRuntime()
+                          try {
+                            await this.viewModel.saveServerConfig()
+                            await this.viewModel.syncModelToRuntime()
+                          } catch (e) {
+                            promptAction.showToast({ message: '切换失败: ' + errStr(e) })
+                          }
                         })
                     }, (modelId: string) => `${provider.id}/${modelId}`)
                   }
@@ -1415,9 +1501,6 @@ struct Index {
         this.SettingNavItem('桌面', 'desktop')
         this.SettingNavItem('通用', 'general')
         this.SettingNavItem('快捷键', 'shortcuts')
-        this.SettingNavItem('服务器', 'servers')
-        this.SettingNavItem('提供商', 'providers')
-        this.SettingNavItem('模型', 'models')
 
         Blank()
 
@@ -1439,12 +1522,6 @@ struct Index {
             this.SettingsDesktopContent()
           } else if (this.settingsTab === 'shortcuts') {
             this.SettingsShortcutsContent()
-          } else if (this.settingsTab === 'servers') {
-            this.SettingsServerContent()
-          } else if (this.settingsTab === 'providers') {
-            this.SettingsProvidersContent()
-          } else if (this.settingsTab === 'models') {
-            this.SettingsModelsContent()
           }
         }
         .padding({ left: 32, right: 32, top: 24, bottom: 40 })
@@ -1513,7 +1590,7 @@ struct Index {
 
   // ── Select row (dropdown-style) ──
   @Builder
-  SSelect(title: string, desc: string, value: string) {
+  SSelect(title: string, desc: string, value: string, options: string[], onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1538,6 +1615,9 @@ struct Index {
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
       .borderRadius(6)
+      .onClick(() => {
+        this.openPicker(title, options, value, onSelect)
+      })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
@@ -1545,7 +1625,7 @@ struct Index {
 
   // ── Font select row ──
   @Builder
-  SFontSelect(title: string, desc: string, value: string) {
+  SFontSelect(title: string, desc: string, value: string, onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1565,6 +1645,12 @@ struct Index {
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .backgroundColor('#2D2D2D')
         .borderRadius(6)
+        .onClick(() => {
+          const fonts: string[] = ['System Sans', 'System Serif', 'System Mono',
+            'HarmonyOS Sans', 'Noto Sans CJK', 'Noto Serif CJK',
+            'JetBrainsMono Nerd Font M', 'Menlo', 'Courier New']
+          this.openPicker(title, fonts, value, onSelect)
+        })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
@@ -1598,7 +1684,7 @@ struct Index {
 
   // ── Sound select row ──
   @Builder
-  SSoundRow(title: string, desc: string, value: string) {
+  SSoundRow(title: string, desc: string, value: string, onSelect: (v: string) => void) {
     Row() {
       Column() {
         Text(title)
@@ -1623,9 +1709,209 @@ struct Index {
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
       .borderRadius(6)
+      .onClick(() => {
+        const sounds: string[] = ['否', '斯泰普博普斯 01', '斯泰普博普斯 02',
+          '否 03', '清脆', '柔和', '提醒音']
+        this.openPicker(title, sounds, value, onSelect)
+      })
     }
     .width('100%')
     .padding({ top: 13, bottom: 13 })
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  AI 设置 — Runtime 模型 / Provider 配置
+  // ══════════════════════════════════════════════════════════
+
+  @Builder
+  AiSettingsContent() {
+    Column() {
+      Row() {
+        Text('AI 设置')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+
+        Blank()
+
+        Text(this.aiSettingsMode === 'runtime' ? 'Runtime 模型' : 'Provider 配置')
+          .fontSize(13)
+          .fontColor('#888888')
+      }
+      .width('100%')
+      .height(64)
+      .padding({ left: 24, right: 24 })
+      .alignItems(VerticalAlign.Center)
+
+      Row() {
+        this.AiSettingsTab('runtime', 'Runtime 模型')
+        this.AiSettingsTab('config', 'Provider 配置')
+      }
+      .padding({ left: 24, right: 24, bottom: 12 })
+
+      if (this.aiSettingsMode === 'runtime') {
+        this.RuntimeProviderModelContent()
+      } else {
+        ProviderPage({ activeRunner: null })
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#111111')
+  }
+
+  @Builder
+  AiSettingsTab(id: string, label: string) {
+    Text(label)
+      .fontSize(14)
+      .fontColor(this.aiSettingsMode === id ? '#FFFFFF' : '#999999')
+      .fontWeight(this.aiSettingsMode === id ? FontWeight.Bold : FontWeight.Normal)
+      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      .backgroundColor(this.aiSettingsMode === id ? '#2D2D2D' : Color.Transparent)
+      .borderRadius(8)
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.aiSettingsMode = id
+      })
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  Runtime Provider 模型选择页
+  // ══════════════════════════════════════════════════════════
+
+  @Builder
+  RuntimeProviderModelContent() {
+    Column() {
+      Row() {
+        Text('当前模型')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+
+        Blank()
+
+        Button('刷新 Provider')
+          .height(34)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .onClick(() => {
+            this.viewModel.loadProviders()
+          })
+      }
+      .width('100%')
+      .margin({ bottom: 10 })
+
+      TextInput({
+        placeholder: 'providerId/modelId，例如 xiaomi-mimo/mimo-v2.5-pro',
+        text: this.viewModel.selectedModel
+      })
+        .width('100%')
+        .height(42)
+        .backgroundColor('#2D2D2D')
+        .borderRadius(8)
+        .fontColor('#FFFFFF')
+        .onChange((value: string) => {
+          this.viewModel.selectedModel = value
+        })
+
+      Row() {
+        Button('保存模型')
+          .height(38)
+          .backgroundColor('#007DFF')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .onClick(async () => {
+            try {
+              await this.viewModel.saveServerConfig()
+              await this.viewModel.syncModelToRuntime()
+              promptAction.showToast({ message: '已保存并同步到 Runtime' })
+            } catch (e) {
+              promptAction.showToast({ message: '保存失败: ' + errStr(e) })
+            }
+          })
+
+        Button('测试模型')
+          .height(38)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(8)
+          .margin({ left: 10 })
+          .onClick(async () => {
+            const result = await this.viewModel.testModel()
+            this.viewModel.serverLogs = [result]
+          })
+      }
+      .margin({ top: 12, bottom: 24 })
+
+      if (this.viewModel.providers.length === 0) {
+        Text('未读取到 Provider。请确认 Runtime 已连接，然后点击刷新 Provider。')
+          .fontSize(13)
+          .fontColor('#888888')
+      } else {
+        List() {
+          ForEach(this.viewModel.providers, (provider: ProviderInfo) => {
+            ListItem() {
+              Column() {
+                Row() {
+                  Text(provider.name.length > 0 ? provider.name : provider.id)
+                    .fontSize(15)
+                    .fontColor('#FFFFFF')
+                    .fontWeight(FontWeight.Medium)
+
+                  Blank()
+
+                  Text(provider.connected ? 'connected' : 'not connected')
+                    .fontSize(12)
+                    .fontColor(provider.connected ? '#3DDC84' : '#FFB020')
+                }
+
+                Text(provider.id)
+                  .fontSize(12)
+                  .fontColor('#777777')
+                  .margin({ top: 4, bottom: 8 })
+
+                if (provider.models.length > 0) {
+                  Flex({ wrap: FlexWrap.Wrap }) {
+                    ForEach(provider.models, (modelId: string) => {
+                      Text(modelId)
+                        .fontSize(12)
+                        .fontColor('#FFFFFF')
+                        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                        .backgroundColor(this.viewModel.selectedModel === `${provider.id}/${modelId}` ? '#007DFF' : '#2D2D2D')
+                        .borderRadius(6)
+                        .margin({ right: 8, top: 8 })
+                        .onClick(async () => {
+                          this.viewModel.selectedModel = `${provider.id}/${modelId}`
+                          try {
+                            await this.viewModel.saveServerConfig()
+                            await this.viewModel.syncModelToRuntime()
+                          } catch (e) {
+                            promptAction.showToast({ message: '切换失败: ' + errStr(e) })
+                          }
+                        })
+                    })
+                  }
+                } else {
+                  Text('No models')
+                    .fontSize(12)
+                    .fontColor('#666666')
+                }
+              }
+              .width('100%')
+              .padding(14)
+              .backgroundColor('#1A1A1A')
+              .borderRadius(10)
+              .margin({ bottom: 10 })
+            }
+          })
+        }
+        .layoutWeight(1)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding(24)
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1641,13 +1927,15 @@ struct Index {
       .fontColor('#FFFFFF')
       .margin({ bottom: 20 })
 
-    this.SSelect('语言', '更改 OpenCode 的显示语言', this.settingLanguage)
+    this.SSelect('语言', '更改 OpenCode 的显示语言', this.settingLanguage,
+      ['简体中文', 'English', '日本語', '한국어'], (v: string) => { this.settingLanguage = v })
     Divider().color('#222222')
     this.SToggle('自动接受权限', '权限请求将被自动批准', this.settingAutoAllow, () => {
       this.settingAutoAllow = !this.settingAutoAllow
     })
     Divider().color('#222222')
-    this.SSelect('Terminal Shell', 'Choose the shell used for your terminal. Compatible shells are also used for agent tool calls.', this.settingShell)
+    this.SSelect('Terminal Shell', 'Choose the shell used for your terminal. Compatible shells are also used for agent tool calls.', this.settingShell,
+      ['Auto (Default)', '/bin/zsh', '/bin/bash', '/bin/fish', '/usr/local/bin/fish'], (v: string) => { this.settingShell = v })
 
     // ── 时间线显示偏好 ──
     this.SSection('时间线')
@@ -1677,15 +1965,17 @@ struct Index {
 
     // ── 外观 ──
     this.SSection('外观')
-    this.SSelect('配色方案', '选择 OpenCode 跟随系统、浅色或深色主题', this.settingColorScheme)
+    this.SSelect('配色方案', '选择 OpenCode 跟随系统、浅色或深色主题', this.settingColorScheme,
+      ['系统', '浅色', '深色'], (v: string) => { this.settingColorScheme = v })
     Divider().color('#222222')
-    this.SSelect('主题', '自定义 OpenCode 的主题。了解更多', this.settingThemeName)
+    this.SSelect('主题', '自定义 OpenCode 的主题。了解更多', this.settingThemeName,
+      ['OC-1', 'OC-2', 'OC-3', 'Monokai', 'Solarized', 'Dracula'], (v: string) => { this.settingThemeName = v })
     Divider().color('#222222')
-    this.SFontSelect('界面字体', '自定义整个界面使用的字体', this.settingUiFont)
+    this.SFontSelect('界面字体', '自定义整个界面使用的字体', this.settingUiFont, (v: string) => { this.settingUiFont = v })
     Divider().color('#222222')
-    this.SFontSelect('代码字体', '自定义代码块使用的字体', this.settingCodeFont)
+    this.SFontSelect('代码字体', '自定义代码块使用的字体', this.settingCodeFont, (v: string) => { this.settingCodeFont = v })
     Divider().color('#222222')
-    this.SFontSelect('Terminal Font', 'Customise the font used in the terminal', this.settingTermFont)
+    this.SFontSelect('Terminal Font', 'Customise the font used in the terminal', this.settingTermFont, (v: string) => { this.settingTermFont = v })
 
     // ── 系统通知 ──
     this.SSection('系统通知')
@@ -1703,11 +1993,11 @@ struct Index {
 
     // ── 音效 ──
     this.SSection('音效')
-    this.SSoundRow('智能体', '当智能体完成或需要注意时播放声音', this.settingSoundAgent)
+    this.SSoundRow('智能体', '当智能体完成或需要注意时播放声音', this.settingSoundAgent, (v: string) => { this.settingSoundAgent = v })
     Divider().color('#222222')
-    this.SSoundRow('权限', '当需要权限时播放声音', this.settingSoundPermission)
+    this.SSoundRow('权限', '当需要权限时播放声音', this.settingSoundPermission, (v: string) => { this.settingSoundPermission = v })
     Divider().color('#222222')
-    this.SSoundRow('错误', '发生错误时播放声音', this.settingSoundError)
+    this.SSoundRow('错误', '发生错误时播放声音', this.settingSoundError, (v: string) => { this.settingSoundError = v })
 
     // ── 更新 ──
     this.SSection('更新')

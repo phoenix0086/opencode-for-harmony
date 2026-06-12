@@ -11,6 +11,7 @@ import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
 import { RuntimeMode, toRuntimeMode, needsServerUrl } from '../services/RuntimeMode';
 import { localRuntimeClient } from '../services/LocalRuntimeClient';
+import { localRuntimeService } from '../services/LocalRuntimeService';
 import { OpenCodeApiAdapter, PromptInput } from '../services/OpenCodeApiAdapter';
 import { ServerMode } from '../services/OpenCodeCapabilities';
 
@@ -347,6 +348,15 @@ export class MainViewModel {
     this.messages = [...this.messages, userMsg]
 
     try {
+      // 关键修复：发送前强制把 ProviderRegistry 最新 apiKey 推到 LocalRuntimeService，
+      // 避免"设置页保存成功但 Chat 仍报 no API key"的问题。
+      if (this.runtimeMode === 'local-embedded') {
+        try {
+          await localRuntimeService.syncFromProviderRegistry()
+        } catch (syncErr) {
+          Logger.warn(`sendMessage: resync ProviderRegistry failed: ${errStr(syncErr)}`)
+        }
+      }
       try {
         await this.syncModelToRuntime()
         Logger.info(`Runtime model synced: ${this.selectedModel}`)
@@ -570,8 +580,11 @@ export class MainViewModel {
    * 找不到返回空字符串。
    */
   private pickModelFromServerDefaults(providerData: Record<string, Object>, connectedList: string[]): string {
-    // 1. server `default` 字段 (e.g. {"xiaomi-mimo": "mimo-v2.5-pro", ...})
-    const defaults = providerData['default']
+    // 关键修复：服务端 listProviders 写的是 `defaults`，旧版可能写 `default`，两个都要兼容。
+    let defaults: Object | undefined = providerData['defaults']
+    if (defaults === undefined) {
+      defaults = providerData['default']
+    }
     if (defaults && typeof defaults === 'object') {
       const map = defaults as Record<string, Object>
       for (const provId of Object.keys(map)) {
@@ -668,7 +681,61 @@ export class MainViewModel {
 
     return out.join('\n')
   }
-  async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const oldSid = this.currentSessionId; const oldMsgs = this.messages; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${errStr(err)}`; } finally { if (oldSid.length > 0) { this.currentSessionId = oldSid; this.messages = oldMsgs; } } }
+  /**
+   * 关键修复：旧版本 testModel() 用 `httpService.post('/session/:id/prompt_async')` 直接打 HTTP server，
+   * 在 local-embedded 模式下没有 HTTP server，会直接失败或导致 split-brain。
+   * 改为全 adapter 路径：createSession → sendPrompt → waitSession → listMessages，
+   * 这样 local 走 localRuntimeClient,远端走 api-v2,行为统一。
+   */
+  async testModel(): Promise<string> {
+    if (this.selectedModel.length === 0) return '未设置模型。'
+    const oldSid = this.currentSessionId
+    const oldMsgs = this.messages
+    try {
+      // 1. 同步默认模型到 runtime
+      await this.syncModelToRuntime()
+      // 2. 走 adapter 创建 session(本地/localRuntimeClient;远端/api-v2)
+      const sess = await this.apiAdapter.createSession()
+      const sid = sess.id
+      if (sid.length === 0) return '创建测试 session 失败。'
+      // 3. 走 adapter 发送 prompt
+      const input = new PromptInput()
+      input.text = 'Say OK.'
+      input.model = this.selectedModel
+      const sendRes = await this.apiAdapter.sendPrompt(sid, input)
+      if (!sendRes.ok) return `模型测试失败：${sendRes.error}`
+      // 4. 走 adapter 等 session 结束(localRuntimeClient 内部轮询;远端 /wait)
+      await this.apiAdapter.waitSession(sid)
+      // 5. 走 adapter 拉 messages 来判断是否真有回复
+      const msgs = await this.apiAdapter.listMessages(sid)
+      const hasAssistantText = msgs.some((m: Object) => {
+        const item = m as Record<string, Object>
+        const info = item['info'] as Record<string, Object>
+        const role = (info?.['role'] as string) || (item['role'] as string) || ''
+        if (role !== 'assistant') return false
+        const parts = (item['parts'] as Object[]) || []
+        for (const raw of parts) {
+          const part = raw as Record<string, Object>
+          const type = (part['type'] as string) || ''
+          if (type === 'text' || type === 'reasoning') {
+            const t = (part['text'] as string) || ''
+            if (t.length > 0) return true
+          }
+          if (type === 'tool') return true
+        }
+        return false
+      })
+      if (!hasAssistantText) return `模型测试失败：空回复（provider 返回 completed 但无文本）`
+      return `模型测试成功：${this.selectedModel}`
+    } catch (err) {
+      return `模型测试失败：${errStr(err)}`
+    } finally {
+      if (oldSid.length > 0) {
+        this.currentSessionId = oldSid
+        this.messages = oldMsgs
+      }
+    }
+  }
 
   async syncModelToRuntime(): Promise<void> {
     if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; }
@@ -761,7 +828,44 @@ export class MainViewModel {
     r.message = `等待 assistant/tool/error/permission 超时。\n当前模型：${this.selectedModel}\nmessageCount=${r.messageCount}\n\nRaw messages preview:\n${rawText}`;
     return r;
   }
-  private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult { const r = new ExecutionPollResult(); for(let i=beforeCount;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const role=info?(info['role'] as string):''; if(role==='assistant') r.hasAssistant=true; const parts=item['parts'] as Object[]; if(!parts) continue; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(this.isToolType(type)) r.hasTool=true; if(this.isPermissionType(type)) r.hasPermission=true; if(this.isErrorType(type)){r.hasError=true; if(r.errorText.length===0) r.errorText=text.length>0?text:`Runtime error part: ${type}`;} }} return r; }
+  private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult {
+    const r = new ExecutionPollResult()
+    for (let i = beforeCount; i < raw.length; i++) {
+      const item = raw[i] as Record<string, Object>
+      const info = item['info'] as Record<string, Object>
+      let role = info ? ((info['role'] as string) ?? '') : ''
+      if (role.length === 0) role = (item['role'] as string) ?? ''
+      const status = info ? ((info['status'] as string) ?? '') : ((item['status'] as string) ?? '')
+      const parts = (item['parts'] as Object[]) ?? []
+      let assistantHasContent = false
+
+      for (const pa of parts) {
+        const part = pa as Record<string, Object>
+        const type = (part['type'] as string) ?? ''
+        const text = this.extractPartText(part)
+        if (text.length > 0) assistantHasContent = true
+        if (this.isToolType(type)) r.hasTool = true
+        if (this.isPermissionType(type)) r.hasPermission = true
+        if (this.isErrorType(type)) {
+          r.hasError = true
+          if (r.errorText.length === 0) r.errorText = text.length > 0 ? text : `Runtime error part: ${type}`
+        }
+      }
+
+      const directContent = item['content']
+      if (typeof directContent === 'string' && directContent.length > 0) assistantHasContent = true
+
+      if (role === 'assistant') {
+        if (assistantHasContent) {
+          r.hasAssistant = true
+        } else if (status === 'completed' || status === 'complete') {
+          r.hasError = true
+          if (r.errorText.length === 0) r.errorText = 'Runtime 返回了空 assistant 回复。'
+        }
+      }
+    }
+    return r
+  }
   private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] {
     const out: ChatMessage[] = []
     for (let i = 0; i < raw.length; i++) {
