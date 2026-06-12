@@ -421,10 +421,17 @@ struct Index {
             .color('#404040')
             .width('100%')
 
-          // Nav items — simplified menu v21
+          // Nav items — 菜单收口,只保留 4 个一级入口
+          // Chat / Projects (Files) / AI 配置 (Models) / Settings
+          // Home / Provider / Runtime / WebView / Terminal 不再作为一级路由:
+          //   - Home 仍是启动页(currentView 默认值,走 FullScreenHome)
+          //   - Provider 配置在 PR 2 抽到 AiConfigPage
+          //   - Runtime/WebView/Terminal 在 PR 3 移到 Settings → Advanced
           Column() {
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
             this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
+            this.NavItem(AppView.Models, $r('app.media.settings'), 'AI 配置')
+            this.NavItem(AppView.Settings, $r('app.media.settings'), 'Settings')
           }
           .width('100%')
           .layoutWeight(1)
@@ -498,6 +505,7 @@ struct Index {
       // Main content area
       Column() {
         if (this.showSettings) {
+          // 兼容 FullScreenHome 齿轮按钮触发的 overlay 形态
           this.SettingsContent()
         } else if (this.currentView === AppView.Home) {
           this.HomeContent()
@@ -505,6 +513,12 @@ struct Index {
           this.ChatContent()
         } else if (this.currentView === AppView.Files) {
           this.FilesContent()
+        } else if (this.currentView === AppView.Models) {
+          // AI 配置:模型选择(PR 2 会再抽成 AiConfigPage,加 Provider 配置 Tab)
+          this.ModelsContent()
+        } else if (this.currentView === AppView.Settings) {
+          // 菜单收口后,Settings 走 NavItem → 路由,不再走 overlay
+          this.SettingsContent()
         } else if (this.currentView === AppView.Provider) {
           ProviderPage({ activeRunner: null })
         } else if (this.currentView === AppView.WebView) {
