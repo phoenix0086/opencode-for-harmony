@@ -628,7 +628,7 @@ export class V2StreamPoller {
   private onChunk: (chunk: PtyChunk) => void
   private onError: (msg: string) => void
   private intervalMs: number
-  private sinceSeq: number = 0
+  private sinceSeq: number = -1
   private timerId: number = -1
   private running: boolean = false
   // Sprint 5-F.41: PTY auto-reconnect
@@ -669,7 +669,7 @@ export class V2StreamPoller {
    * 用于"切换 PTY session 后想从头读"的场景。
    */
   reset(): void {
-    this.sinceSeq = 0
+    this.sinceSeq = -1
     this.consecutiveFailures = 0
     this.currentIntervalMs = this.intervalMs
     this.transientError = false
@@ -718,7 +718,7 @@ export class V2StreamPoller {
   private async poll(): Promise<void> {
     if (!this.running) return
     try {
-      const resp = await this.client.pollPtyOutput(this.sessionID, this.sinceSeq)
+      const resp = await this.client.pollPtyOutput(this.sessionID, this.sinceSeq < 0 ? 0 : this.sinceSeq)
       if (resp.status === 404 || resp.status === 405) {
         // Endpoint unsupported — fatal, don't retry.
         this.onError(`pty output endpoint not supported (HTTP ${resp.status})`)
@@ -745,11 +745,11 @@ export class V2StreamPoller {
           chunk.exitCode = (obj['exitCode'] as number) || 0
           if (chunk.seq > this.sinceSeq) {
             this.sinceSeq = chunk.seq
-          }
-          this.onChunk(chunk)
-          if (chunk.isExit) {
-            this.stop()
-            return
+            this.onChunk(chunk)
+            if (chunk.isExit) {
+              this.stop()
+              return
+            }
           }
         }
       }

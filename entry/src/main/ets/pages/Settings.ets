@@ -121,14 +121,14 @@ struct Settings {
           if (this.saveMessage.length > 0) {
             Text(this.saveMessage)
               .fontSize(13)
-              .fontColor('#00C853')
+              .fontColor('#FFFFFF')
               .margin({ top: 12 })
           }
 
           if (this.viewModel.errorMessage.length > 0) {
             Text(this.viewModel.errorMessage)
               .fontSize(13)
-              .fontColor('#FF5252')
+              .fontColor('#FFFFFF')
               .margin({ top: 8 })
           }
 
@@ -140,7 +140,7 @@ struct Settings {
               .fill(this.getStatusColor())
             Text(this.getStatusText())
               .fontSize(14)
-              .fontColor('#AAAAAA')
+              .fontColor('#FFFFFF')
               .margin({ left: 8 })
           }
           .margin({ top: 20 })
@@ -170,7 +170,7 @@ struct Settings {
     Column() {
       Text(label)
         .fontSize(13)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ bottom: 6 })
       TextInput({ placeholder: placeholder, text: value })
         .width('100%')
@@ -193,7 +193,7 @@ struct Settings {
     Column() {
       Text(label)
         .fontSize(13)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ bottom: 6 })
       Row() {
         ForEach(options, (option: string) => {
@@ -201,7 +201,7 @@ struct Settings {
             .height(36)
             .backgroundColor(selected === option ? '#007DFF' : '#1E1E1E')
             .borderRadius(8)
-            .fontColor(selected === option ? '#FFFFFF' : '#AAAAAA')
+            .fontColor('#FFFFFF')
             .fontSize(13)
             .margin({ right: 8 })
             .onClick(() => {

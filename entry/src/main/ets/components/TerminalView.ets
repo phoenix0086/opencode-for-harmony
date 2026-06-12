@@ -17,7 +17,7 @@ export struct TerminalView {
         Text('Terminal')
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#AAAAAA')
+          .fontColor('#FFFFFF')
         Blank()
         if (this.isRunning) {
           Row() {
@@ -27,7 +27,7 @@ export struct TerminalView {
               .color('#00C853')
             Text('Running')
               .fontSize(11)
-              .fontColor('#00C853')
+              .fontColor('#FFFFFF')
               .margin({ left: 6 })
           }
         }
@@ -47,7 +47,7 @@ export struct TerminalView {
             Text(line)
               .fontSize(13)
               .fontFamily('monospace')
-              .fontColor('#E0E0E0')
+              .fontColor('#FFFFFF')
               .width('100%')
               .padding({ left: 4, right: 4, top: 1, bottom: 1 })
           })
@@ -56,7 +56,7 @@ export struct TerminalView {
             Text(this.prompt + ' Waiting for output...')
               .fontSize(13)
               .fontFamily('monospace')
-              .fontColor('#555555')
+              .fontColor('#FFFFFF')
               .width('100%')
               .padding(12)
           }

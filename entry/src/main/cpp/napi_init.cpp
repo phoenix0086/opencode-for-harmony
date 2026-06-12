@@ -16,9 +16,18 @@ static napi_ref g_logCallbackRef = nullptr;
 static std::mutex g_callbackMutex;
 
 static std::string GetStringArg(napi_env env, napi_value value) {
+    napi_valuetype type;
+    napi_status status = napi_typeof(env, value, &type);
+    if (status != napi_ok || type != napi_string) {
+        return "";
+    }
     char buf[2048];
+    memset(buf, 0, sizeof(buf));
     size_t len = 0;
-    napi_get_value_string_utf8(env, value, buf, sizeof(buf), &len);
+    status = napi_get_value_string_utf8(env, value, buf, sizeof(buf), &len);
+    if (status != napi_ok) {
+        return "";
+    }
     return std::string(buf, len);
 }
 

@@ -1,7 +1,16 @@
 import nativeModule from 'libopencode_native.so'
 
 export class ProcessBridge {
+  /**
+   * Check if the native module loaded successfully.
+   * Returns false when libopencode_native.so is missing or failed to initialize.
+   */
+  static get isAvailable(): boolean {
+    return nativeModule !== undefined && nativeModule !== null
+  }
+
   static startProcess(command: string, args: string[]): number {
+    if (!ProcessBridge.isAvailable) return -1
     return nativeModule.processStart(command, args) as number
   }
 
@@ -14,6 +23,7 @@ export class ProcessBridge {
    * @returns child PID on success, -1 on failure
    */
   static startProcessEx(command: string, args: string[], cwd: string, env?: Record<string, string>): number {
+    if (!ProcessBridge.isAvailable) return -1
     if (env && Object.keys(env).length > 0) {
       return nativeModule.processStartEx(command, args, cwd, env) as number
     }
@@ -21,14 +31,17 @@ export class ProcessBridge {
   }
 
   static stopProcess(pid: number): boolean {
+    if (!ProcessBridge.isAvailable) return false
     return nativeModule.processStop(pid) as boolean
   }
 
   static isRunning(pid: number): boolean {
+    if (!ProcessBridge.isAvailable) return false
     return nativeModule.processIsRunning(pid) as boolean
   }
 
   static exitCode(pid: number): number {
+    if (!ProcessBridge.isAvailable) return -1
     return nativeModule.processExitCode(pid) as number
   }
 
@@ -37,6 +50,7 @@ export class ProcessBridge {
    * Native side stores process output in a queue. ArkTS drains logs from UI/service.
    */
   static drainLogs(pid: number): string[] {
+    if (!ProcessBridge.isAvailable) return []
     return nativeModule.processDrainLogs(pid) as string[]
   }
 
@@ -45,10 +59,12 @@ export class ProcessBridge {
    * V2 no longer calls this callback from native worker threads.
    */
   static setLogCallback(callback: (line: string) => void): void {
+    if (!ProcessBridge.isAvailable) return
     nativeModule.processSetLogCallback(callback)
   }
 
   static stopAll(): void {
+    if (!ProcessBridge.isAvailable) return
     nativeModule.processStopAll()
   }
 
@@ -58,6 +74,7 @@ export class ProcessBridge {
    * @param mode  octal permission bits, e.g. 0o755
    */
   static chmodFile(path: string, mode: number): boolean {
+    if (!ProcessBridge.isAvailable) return false
     return nativeModule.processChmod(path, mode) as boolean
   }
 }

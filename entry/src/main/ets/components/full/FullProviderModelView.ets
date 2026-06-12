@@ -17,7 +17,7 @@ export struct FullProviderModelView {
   build() {
     Scroll() {
       Column() {
-        Text('Provider / Model').fontSize(28).fontWeight(FontWeight.Bold).fontColor('#eee').margin({ bottom: 24 })
+        Text('Provider / Model').fontSize(28).fontWeight(FontWeight.Bold).fontColor('#FFFFFF').margin({ bottom: 24 })
         this.Field('Provider ID', this.providerId, (v: string) => this.providerId = v)
         this.Field('\u663e\u793a\u540d\u79f0', this.displayName, (v: string) => this.displayName = v)
         this.Field('Base URL', this.baseURL, (v: string) => this.baseURL = v)
@@ -25,17 +25,17 @@ export struct FullProviderModelView {
         this.Field('Model ID', this.modelId, (v: string) => this.modelId = v)
         this.Field('Model Name', this.modelName, (v: string) => this.modelName = v)
 
-        Text('\u4fdd\u5b58 Provider').fontSize(14).fontColor('#111').backgroundColor('#ddd').padding(12).borderRadius(8).onClick(() => this.save())
+        Text('\u4fdd\u5b58 Provider').fontSize(14).fontColor('#FFFFFF').backgroundColor('#ddd').padding(12).borderRadius(8).onClick(() => this.save())
 
-        Text('\u53ef\u7528\u6a21\u578b').fontSize(18).fontColor('#eee').margin({ top: 30, bottom: 12 })
+        Text('\u53ef\u7528\u6a21\u578b').fontSize(18).fontColor('#FFFFFF').margin({ top: 30, bottom: 12 })
         ForEach(this.state.models, (m: FullModelOption) => {
           Row() {
-            Text(m.modelRef).fontSize(14).fontColor('#ddd').layoutWeight(1)
-            Text('\u8bbe\u9ed8\u8ba4').fontSize(12).fontColor('#111').backgroundColor('#ddd').padding(8).borderRadius(6).onClick(() => this.onSetModel(m.modelRef))
+            Text(m.modelRef).fontSize(14).fontColor('#FFFFFF').layoutWeight(1)
+            Text('\u8bbe\u9ed8\u8ba4').fontSize(12).fontColor('#FFFFFF').backgroundColor('#ddd').padding(8).borderRadius(6).onClick(() => this.onSetModel(m.modelRef))
           }.width('100%').padding(12).backgroundColor('#151515').borderRadius(8).margin({ bottom: 8 })
         }, (m: FullModelOption) => m.modelRef)
 
-        Text(this.status).fontSize(14).fontColor('#aaa').margin({ top: 20 })
+        Text(this.status).fontSize(14).fontColor('#FFFFFF').margin({ top: 20 })
       }.padding(40).width('100%').alignItems(HorizontalAlign.Start)
     }.width('100%').height('100%').backgroundColor('#101010')
   }
@@ -43,8 +43,8 @@ export struct FullProviderModelView {
   @Builder
   Field(label: string, value: string, onChange: (v: string) => void) {
     Column() {
-      Text(label).fontSize(12).fontColor('#777').margin({ bottom: 6 })
-      TextInput({ text: value, placeholder: label }).height(38).width('100%').fontSize(14).fontColor('#ddd').backgroundColor('#151515').borderRadius(8).onChange((v: string) => onChange(v))
+      Text(label).fontSize(12).fontColor('#FFFFFF').margin({ bottom: 6 })
+      TextInput({ text: value, placeholder: label }).height(38).width('100%').fontSize(14).fontColor('#FFFFFF').backgroundColor('#151515').borderRadius(8).onChange((v: string) => onChange(v))
     }.width('100%').margin({ bottom: 14 })
   }
 

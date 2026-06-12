@@ -37,7 +37,7 @@ export struct SidePanel {
         Button() {
           SymbolGlyph(this.collapsed ? $r('sys.symbol.chevron_right') : $r('sys.symbol.chevron_left'))
             .fontSize(14)
-            .fontColor(['#AAAAAA'])
+            .fontColor(['#FFFFFF'])
         }
         .width(28)
         .height(28)
@@ -60,11 +60,11 @@ export struct SidePanel {
             Row() {
               SymbolGlyph($r(item.icon))
                 .fontSize(18)
-                .fontColor([this.currentView === item.view ? '#007DFF' : '#AAAAAA'])
+                .fontColor(['#FFFFFF'])
               if (!this.collapsed) {
                 Text(item.label)
                   .fontSize(14)
-                  .fontColor(this.currentView === item.view ? '#FFFFFF' : '#AAAAAA')
+                  .fontColor('#FFFFFF')
                   .fontWeight(this.currentView === item.view ? FontWeight.Medium : FontWeight.Normal)
                   .margin({ left: 12 })
               }
@@ -94,7 +94,7 @@ export struct SidePanel {
         if (!this.collapsed) {
           Text(this.getStatusText())
             .fontSize(12)
-            .fontColor('#AAAAAA')
+            .fontColor('#FFFFFF')
             .margin({ left: 8 })
         }
       }
@@ -108,11 +108,11 @@ export struct SidePanel {
         Row() {
           SymbolGlyph($r('sys.symbol.settings'))
             .fontSize(16)
-            .fontColor(['#AAAAAA'])
+            .fontColor(['#FFFFFF'])
           if (!this.collapsed) {
             Text('Settings')
               .fontSize(14)
-              .fontColor('#AAAAAA')
+              .fontColor('#FFFFFF')
               .margin({ left: 10 })
           }
         }
@@ -131,12 +131,7 @@ export struct SidePanel {
   }
 
   private getStatusColor(): ResourceColor {
-    switch (this.connectionStatus) {
-      case ConnectionStatus.Connected: return '#00C853';
-      case ConnectionStatus.Connecting: return '#FFB300';
-      case ConnectionStatus.Error: return '#FF5252';
-      default: return '#666666';
-    }
+    return '#FFFFFF'
   }
 
   private getStatusText(): string {

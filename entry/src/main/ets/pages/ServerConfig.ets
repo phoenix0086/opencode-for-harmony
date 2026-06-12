@@ -64,7 +64,7 @@ struct ServerConfig {
             Row() {
               Text('🖥️').fontSize(32)
                 .fontSize(32)
-                .fontColor('#007DFF')
+                .fontColor('#FFFFFF')
               Column() {
                 Text(this.displayName || 'OpenCode Server')
                   .fontSize(18)
@@ -72,7 +72,7 @@ struct ServerConfig {
                   .fontColor('#FFFFFF')
                 Text(this.serverUrl)
                   .fontSize(13)
-                  .fontColor('#AAAAAA')
+                  .fontColor('#FFFFFF')
                   .margin({ top: 4 })
               }
               .alignItems(HorizontalAlign.Start)
@@ -119,7 +119,7 @@ struct ServerConfig {
                 .fill(this.testSuccess ? '#00C853' : '#FF5252')
               Text(this.testResult)
                 .fontSize(13)
-                .fontColor(this.testSuccess ? '#00C853' : '#FF5252')
+                .fontColor('#FFFFFF')
                 .margin({ left: 8 })
             }
             .margin({ top: 12 })
@@ -174,7 +174,7 @@ struct ServerConfig {
     Column() {
       Text(label)
         .fontSize(13)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ bottom: 6 })
       TextInput({ placeholder: placeholder, text: value })
         .width('100%')

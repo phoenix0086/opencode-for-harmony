@@ -177,7 +177,7 @@ export struct OpenCodeHomeLaunch {
 
       Text('打开历史项目')
         .fontSize(13)
-        .fontColor('#c8c8c8')
+        .fontColor('#FFFFFF')
         .margin({ left: 10 })
     }
     .height(32)
@@ -194,7 +194,7 @@ export struct OpenCodeHomeLaunch {
     Column() {
       Text(this.sessionCount())
         .fontSize(24)
-        .fontColor('#d8b8ff')
+        .fontColor('#FFFFFF')
         .width(52)
         .height(52)
         .textAlign(TextAlign.Center)
@@ -207,7 +207,7 @@ export struct OpenCodeHomeLaunch {
 
       Text('+')
         .fontSize(34)
-        .fontColor('#8d8d8d')
+        .fontColor('#FFFFFF')
         .width(52)
         .height(52)
         .textAlign(TextAlign.Center)
@@ -218,7 +218,7 @@ export struct OpenCodeHomeLaunch {
 
       Text('⚙')
         .fontSize(24)
-        .fontColor('#8d8d8d')
+        .fontColor('#FFFFFF')
         .width(52)
         .height(42)
         .textAlign(TextAlign.Center)
@@ -276,7 +276,7 @@ export struct OpenCodeHomeLaunch {
       .fontSize(96)
       .fontWeight(FontWeight.Bold)
       .fontFamily('monospace')
-      .fontColor('#e8e4de')
+      .fontColor('#FFFFFF')
       .opacity(0.12)
       .letterSpacing(2)
       .textAlign(TextAlign.Center)
@@ -305,18 +305,18 @@ export struct OpenCodeHomeLaunch {
       Text('最近项目')
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
-        .fontColor('#e8e2dd')
+        .fontColor('#FFFFFF')
         .layoutWeight(1)
 
       Row() {
         Text('+')
           .fontSize(16)
-          .fontColor('#a8a8a8')
+          .fontColor('#FFFFFF')
           .margin({ right: 6 })
 
         Text('打开项目')
           .fontSize(13)
-          .fontColor('#a8a8a8')
+          .fontColor('#FFFFFF')
       }
       .height(32)
       .padding({ left: 12, right: 12 })
@@ -337,7 +337,7 @@ export struct OpenCodeHomeLaunch {
         Row() {
           Text(this.shortenPath(project.directory.length > 0 ? project.directory : project.worktree))
             .fontSize(13)
-            .fontColor('#c8c8c8')
+            .fontColor('#FFFFFF')
             .fontFamily('monospace')
             .layoutWeight(1)
             .maxLines(1)
@@ -345,7 +345,7 @@ export struct OpenCodeHomeLaunch {
 
           Text(this.projectRelativeTime(project))
             .fontSize(12)
-            .fontColor('#7a7a7a')
+            .fontColor('#FFFFFF')
             .margin({ left: 12 })
         }
         .width('100%')
@@ -375,7 +375,7 @@ export struct OpenCodeHomeLaunch {
 
       Text('加载中…')
         .fontSize(12)
-        .fontColor('#7a7a7a')
+        .fontColor('#FFFFFF')
         .margin({ top: 10 })
     }
     .width('100%')
@@ -388,7 +388,7 @@ export struct OpenCodeHomeLaunch {
     Column() {
       Text('+')
         .fontSize(28)
-        .fontColor('#5a5a5a')
+        .fontColor('#FFFFFF')
         .width(44)
         .height(44)
         .textAlign(TextAlign.Center)
@@ -398,24 +398,24 @@ export struct OpenCodeHomeLaunch {
 
       Text('打开一个项目开始使用')
         .fontSize(14)
-        .fontColor('#cfcfcf')
+        .fontColor('#FFFFFF')
         .fontWeight(FontWeight.Medium)
         .margin({ top: 14 })
 
       Text('选择一个本地目录作为工作区')
         .fontSize(12)
-        .fontColor('#7a7a7a')
+        .fontColor('#FFFFFF')
         .margin({ top: 6 })
 
       Row() {
         Text('+')
           .fontSize(14)
-          .fontColor('#cfcfcf')
+          .fontColor('#FFFFFF')
           .margin({ right: 6 })
 
         Text('打开项目')
           .fontSize(13)
-          .fontColor('#cfcfcf')
+          .fontColor('#FFFFFF')
       }
       .height(34)
       .padding({ left: 14, right: 14 })

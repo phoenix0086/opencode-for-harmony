@@ -9,22 +9,22 @@ import { errStr } from '../utils/ErrorUtil'
 export class LocalServerStatus {
   status: string = 'unknown' // unknown | running | not_running | error | manual_required | starting | stopped
   message: string = ''
-  baseUrl: string = 'http://192.168.1.72:4096'
+  baseUrl: string = 'http://127.0.0.1:4096'
   version: string = ''
-  host: string = '192.168.1.72'
+  host: string = '127.0.0.1'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
-  startCommand: string = 'opencode serve --port 4096 --hostname 0.0.0.0'
+  startCommand: string = 'opencode serve --port 4096 --hostname 127.0.0.1'
   logs: string[] = []
   processPid: number = -1
 }
 
 export class LocalServerConfig {
-  host: string = '192.168.1.72'
+  host: string = '127.0.0.1'
   port: number = 4096
   protocol: 'http' | 'https' = 'http'
   token: string = ''
-  mode: string = 'dev-pc' // local | dev-pc | remote (dev-pc = 开发电脑/局域网模式)
+  mode: string = 'local' // local | dev-pc | remote
   workspace: string = '' // project working directory
 }
 
@@ -89,15 +89,23 @@ export class LocalOpenCodeServerManager {
     }
 
     // Step 3: write to filesDir
+    let file: fileIo.File | null = null
     try {
-      const file = fileIo.openSync(targetPath, fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
+      file = fileIo.openSync(targetPath, fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
       fileIo.writeSync(file.fd, data.buffer as ArrayBuffer)
-      fileIo.closeSync(file)
       log(`[step3] write to filesDir OK`)
     } catch (e) {
       const msg = `[step3] write FAILED: ${errStr(e)}`
       log(msg)
       return
+    } finally {
+      if (file !== null) {
+        try {
+          fileIo.closeSync(file)
+        } catch (_) {
+          // ignore
+        }
+      }
     }
 
     // Step 4: chmod 755
@@ -272,6 +280,16 @@ export class LocalOpenCodeServerManager {
   startServerProcess(config: LocalServerConfig): LocalServerStatus {
     const status = this.createPreviewStatus(config)
 
+    // Check native bridge availability first
+    if (!ProcessBridge.isAvailable) {
+      status.status = 'error'
+      status.message = '内置 Runtime 不可用（native 模块未加载）。请在电脑上启动 Runtime 后使用"开发电脑/局域网"模式连接。'
+      status.logs.push('[error] libopencode_native.so not loaded — ProcessBridge unavailable')
+      status.logs.push('[hint] 在开发电脑终端执行: opencode serve --port 4096 --hostname 0.0.0.0')
+      status.logs.push('[hint] 然后切换到"开发电脑/局域网"模式，点击"连接"')
+      return status
+    }
+
     if (config.mode === 'remote') {
       status.status = 'error'
       status.message = '远程模式不能启动本地 Runtime，请使用"检测"或"保存并连接"。'
@@ -336,8 +354,10 @@ export class LocalOpenCodeServerManager {
     if (exitCode >= 0) {
       status.status = 'error'
       status.message = `Runtime 进程立即退出 (exit=${exitCode})。二进制不兼容 HarmonyOS 或缺少动态链接器。`
+      status.logs = status.logs.concat(this.collectProcessLogs(pid))
       status.logs.push(`[error] process exited immediately code=${exitCode}`)
       status.logs.push(`[hint] binary may need /lib/ld-musl-aarch64.so.1 or similar dynamic linker`)
+      status.logs.push('[hint] 当前内置 opencode 是 Linux/musl ELF；本机模式需要 HarmonyOS 可执行 Runtime 或可用的 musl loader。')
       return status
     }
 
@@ -392,6 +412,13 @@ export class LocalOpenCodeServerManager {
   async autoStart(onStatusChange?: (status: LocalServerStatus) => void): Promise<LocalServerStatus> {
     const config = await this.loadLastConfig()
 
+    // Auto-fallback: if local mode but native bridge unavailable, switch to dev-pc
+    if (config.mode === 'local' && !ProcessBridge.isAvailable) {
+      Logger.info('[autoStart] native bridge unavailable, auto-switching local → dev-pc')
+      config.mode = 'dev-pc'
+      await this.saveLastConfig(config)
+    }
+
     // Prepend extraction diagnostics so failures are visible in the UI
     const diagPrefix = this.diagLogs.length > 0
       ? this.diagLogs.map(l => `[diag] ${l}`)
@@ -444,9 +471,11 @@ export class LocalOpenCodeServerManager {
         const failStatus = new LocalServerStatus()
         failStatus.status = 'error'
         failStatus.processPid = this.managedPid
-        failStatus.message = 'Runtime 进程已退出，启动失败。'
+        failStatus.message = 'Runtime 进程已退出，启动失败。内置二进制可能不兼容 HarmonyOS 或缺少动态链接器。'
         failStatus.logs = startStatus.logs.concat(logs)
         failStatus.logs.push(`[auto] process exited during startup poll #${i + 1}`)
+        failStatus.logs.push('[hint] 如果日志包含 "No such file or directory"，通常是 ELF interpreter 不存在，而不是 opencode 文件丢失。')
+        failStatus.logs.push('[hint] 当前 rawfile/opencode 依赖 /lib/ld-musl-aarch64.so.1；真正本机模式需要替换为 HarmonyOS 原生 Runtime。')
         this.managedPid = -1
         if (onStatusChange) onStatusChange(failStatus)
         return failStatus

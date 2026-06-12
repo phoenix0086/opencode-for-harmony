@@ -25,7 +25,7 @@ struct Session {
             .fontColor('#FFFFFF')
           Text(this.viewModel.selectedModel)
             .fontSize(12)
-            .fontColor('#666666')
+            .fontColor('#FFFFFF')
         }
         .alignItems(HorizontalAlign.Start)
 
@@ -147,7 +147,7 @@ struct Session {
             Text('AI')
               .fontSize(12)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#007DFF')
+              .fontColor('#FFFFFF')
               .margin({ left: 8 })
             if (msg.isStreaming) {
               LoadingProgress()
@@ -161,7 +161,7 @@ struct Session {
 
           Text(msg.content)
             .fontSize(14)
-            .fontColor('#E0E0E0')
+            .fontColor('#FFFFFF')
             .copyOption(CopyOptions.LocalDevice)
         }
         .alignItems(HorizontalAlign.Start)
@@ -186,7 +186,7 @@ struct Session {
         // System message
         Text(msg.content)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .fontStyle(FontStyle.Italic)
           .textAlign(TextAlign.Center)
           .width('100%')

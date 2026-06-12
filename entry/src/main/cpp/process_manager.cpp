@@ -89,15 +89,27 @@ int ProcessManager::startProcess(const std::string& command,
         info.exitCode = -1;
         info.command = command;
         processes_[capturedPid] = info;
-        logCallbacks_[capturedPid] = logCallback;
         logLines_[capturedPid] = std::vector<std::string>();
+    }
 
-        readerThreads_[capturedPid] = std::thread(
-            &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
-        readerThreads_[capturedPid].detach();
+    try {
+        std::thread reader(&ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
+        reader.detach();
 
-        waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
-        waitThreads_[capturedPid].detach();
+        std::thread waiter(&ProcessManager::waitThread, this, capturedPid);
+        waiter.detach();
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "Failed to start tracking threads: %{public}s", e.what());
+        kill(static_cast<pid_t>(capturedPid), SIGKILL);
+        waitpid(static_cast<pid_t>(capturedPid), nullptr, 0);
+        close(stdoutPipe[0]);
+        close(stderrPipe[0]);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            processes_.erase(capturedPid);
+            logLines_.erase(capturedPid);
+        }
+        return -1;
     }
 
     appendLog(capturedPid, "[native] process started");
@@ -185,15 +197,27 @@ int ProcessManager::startProcessEx(const std::string& command,
         info.command = command;
         info.cwd = cwd;
         processes_[capturedPid] = info;
-        logCallbacks_[capturedPid] = logCallback;
         logLines_[capturedPid] = std::vector<std::string>();
+    }
 
-        readerThreads_[capturedPid] = std::thread(
-            &ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
-        readerThreads_[capturedPid].detach();
+    try {
+        std::thread reader(&ProcessManager::readerThread, this, capturedPid, stdoutPipe[0], stderrPipe[0], logCallback);
+        reader.detach();
 
-        waitThreads_[capturedPid] = std::thread(&ProcessManager::waitThread, this, capturedPid);
-        waitThreads_[capturedPid].detach();
+        std::thread waiter(&ProcessManager::waitThread, this, capturedPid);
+        waiter.detach();
+    } catch (const std::exception& e) {
+        OH_LOG_ERROR(LOG_APP, "Failed to start tracking threads: %{public}s", e.what());
+        kill(static_cast<pid_t>(capturedPid), SIGKILL);
+        waitpid(static_cast<pid_t>(capturedPid), nullptr, 0);
+        close(stdoutPipe[0]);
+        close(stderrPipe[0]);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            processes_.erase(capturedPid);
+            logLines_.erase(capturedPid);
+        }
+        return -1;
     }
 
     appendLog(capturedPid, "[native] process started (cwd=" + (cwd.empty() ? "(inherited)" : cwd) + ")");
@@ -289,12 +313,13 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
     char buffer[4096];
     std::string lineBuffer;
 
-    int maxFd = (stdoutFd > stderrFd) ? stdoutFd : stderrFd;
-
-    while (true) {
+    while (stdoutFd >= 0 || stderrFd >= 0) {
         FD_ZERO(&readFds);
         if (stdoutFd >= 0) FD_SET(stdoutFd, &readFds);
         if (stderrFd >= 0) FD_SET(stderrFd, &readFds);
+
+        int maxFd = (stdoutFd > stderrFd) ? stdoutFd : stderrFd;
+        if (maxFd < 0) break;
 
         struct timeval timeout;
         timeout.tv_sec = 1;
@@ -314,15 +339,20 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
             continue;
         }
 
-        auto readFd = [&](int fd) -> bool {
-            if (fd < 0 || !FD_ISSET(fd, &readFds)) return true;
+        auto readFd = [&](int& fd) -> bool {
+            if (fd < 0) return true;
+            if (!FD_ISSET(fd, &readFds)) return true;
             ssize_t n = read(fd, buffer, sizeof(buffer) - 1);
-            if (n <= 0) return false;
+            if (n <= 0) {
+                close(fd);
+                fd = -1;
+                return false;
+            }
 
-            buffer[n] = '\\0';
+            buffer[n] = '\0';
 
             for (ssize_t i = 0; i < n; i++) {
-                if (buffer[i] == '\\n') {
+                if (buffer[i] == '\n') {
                     if (!lineBuffer.empty()) {
                         appendLog(pid, lineBuffer);
                         // Do not call JS directly from native reader threads.
@@ -339,10 +369,8 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
             return true;
         };
 
-        bool ok1 = readFd(stdoutFd);
-        bool ok2 = readFd(stderrFd);
-
-        if (!ok1 && !ok2) break;
+        readFd(stdoutFd);
+        readFd(stderrFd);
     }
 
     if (!lineBuffer.empty()) {
@@ -350,8 +378,8 @@ void ProcessManager::readerThread(int pid, int stdoutFd, int stderrFd,
         if (logCallback) logCallback(lineBuffer);
     }
 
-    close(stdoutFd);
-    close(stderrFd);
+    if (stdoutFd >= 0) close(stdoutFd);
+    if (stderrFd >= 0) close(stderrFd);
     appendLog(pid, "[native] log reader stopped");
 }
 
@@ -376,14 +404,4 @@ void ProcessManager::waitThread(int pid) {
 
     appendLog(pid, "[native] process exited code=" + std::to_string(exitCode));
     OH_LOG_INFO(LOG_APP, "Process pid=%{public}d exited code=%{public}d", pid, exitCode);
-
-    // Clean up stale thread entries after a short delay (reader thread needs time to finish)
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        readerThreads_.erase(pid);
-        waitThreads_.erase(pid);
-        logCallbacks_.erase(pid);
-        // Keep processes_ and logLines_ so ArkTS can still drain logs after exit
-    }
 }

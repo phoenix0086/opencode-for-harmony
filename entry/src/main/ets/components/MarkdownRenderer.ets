@@ -246,12 +246,21 @@ export class MarkdownParser {
 @Component
 export struct MarkdownRenderer {
   @StorageProp('themeId') themeId: string = 'catppuccin'
-  @Prop content: string = ''
+  @Prop @Watch('onContentChanged') content: string = ''
   @Prop baseFontSize: number = 13
+  @State parsedSegments: MdSegment[] = []
+
+  aboutToAppear() {
+    this.onContentChanged()
+  }
+
+  onContentChanged() {
+    this.parsedSegments = MarkdownParser.parse(this.content)
+  }
 
   build() {
     Column() {
-      ForEach(MarkdownParser.parse(this.content), (seg: MdSegment, index: number) => {
+      ForEach(this.parsedSegments, (seg: MdSegment, index: number) => {
         if (seg.type === 'heading') {
           this.RenderHeading(seg)
         } else if (seg.type === 'paragraph') {

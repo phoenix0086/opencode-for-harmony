@@ -38,7 +38,7 @@ export struct TitleBar {
         Button() {
           SymbolGlyph($r('sys.symbol.ellipsis_circle'))
             .fontSize(18)
-            .fontColor(['#AAAAAA'])
+            .fontColor(['#FFFFFF'])
         }
         .width(32)
         .height(32)

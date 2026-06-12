@@ -52,8 +52,6 @@ private:
 
     std::mutex mutex_;
     std::map<int, ProcessInfo> processes_;
-    std::map<int, std::thread> readerThreads_;
-    std::map<int, std::thread> waitThreads_;
-    std::map<int, std::function<void(const std::string&)>> logCallbacks_;
     std::map<int, std::vector<std::string>> logLines_;
 };
+

@@ -5,12 +5,12 @@ import { StorageService } from '../service/StorageService';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
+import { ProcessBridge } from '../services/ProcessBridge';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage, ToolCall } from '../model/ChatMessage';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger'
 import { ProviderPage } from './ProviderPage';
-import { SettingsPage } from './SettingsPage';
 import { OpenCodeHomeLaunch } from '../components/home/OpenCodeHomeLaunch';
 import { RuntimePage } from './RuntimePage';
 import { Runner } from '../models/Runner';
@@ -58,6 +58,8 @@ struct Index {
   @State settingCustomAgents: boolean = false
   // M21: server mode for StatusPopover
   @State serverMode: string = 'unknown'
+  // Runtime 连接模式: dev-pc | local | remote
+  @State runtimeConnectionMode: string = 'dev-pc'
   @State settingLanguage: string = '简体中文'
   @State settingShell: string = 'Auto (Default)'
   @State settingColorScheme: string = '系统'
@@ -77,9 +79,35 @@ struct Index {
       await initStorageService(this.context);
       // Extract bundled opencode binary from rawfile to filesDir
       await localOpenCodeServerManager.init(this.context);
+      // Load saved runtime connection mode (dev-pc / local / remote)
+      let autoFallbackDone = false
+      try {
+        const savedCfg = await localOpenCodeServerManager.loadLastConfig()
+        // Auto-fallback: local mode requires native bridge
+        if (savedCfg.mode === 'local' && !ProcessBridge.isAvailable) {
+          this.runtimeConnectionMode = 'dev-pc'
+          savedCfg.mode = 'dev-pc'
+          await localOpenCodeServerManager.saveLastConfig(savedCfg)
+          autoFallbackDone = true
+          Logger.info('Auto-switched to dev-pc: native bridge unavailable')
+        } else {
+          this.runtimeConnectionMode = savedCfg.mode
+        }
+        Logger.info(`Runtime connection mode: ${this.runtimeConnectionMode}`)
+      } catch (e) {
+        Logger.warn(`Failed to load runtime connection mode: ${errStr(e)}`)
+      }
       const storage = new StorageService(this.context);
       await storage.init();
       await this.viewModel.init(storage);
+
+      // After init: fix URL to match current mode (especially after auto-fallback)
+      if (autoFallbackDone) {
+        const cfg = await localOpenCodeServerManager.loadLastConfig()
+        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`
+        Logger.info(`URL auto-updated to: ${this.viewModel.serverInfo.url}`)
+      }
+
       this.initialized = true;
       Logger.info('Index page initialized, starting auto-connect...');
       // 修复 W6: autoStartAndConnect 和 loadRecentProjects 互不依赖,
@@ -181,64 +209,6 @@ struct Index {
   }
 
   @Builder
-  SimpleSettingsContent() {
-    Column() {
-      Text('Settings')
-        .fontSize(26)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .margin({ left: 32, top: 28, bottom: 24 })
-
-      Scroll() {
-        Column() {
-          this.SettingsSectionTitle('通用')
-
-          this.SettingsRowText('语言', '更改 OpenCode 的显示语言', this.settingLanguage)
-
-          this.SettingsRowSwitch('自动接受权限', '权限请求将被自动批准', this.settingAutoAllow, (value: boolean) => {
-            this.settingAutoAllow = value
-          })
-
-          this.SettingsSectionTitle('外观')
-
-          this.SettingsRowText('配色方案', '选择系统、浅色或深色主题', this.settingColorScheme)
-
-          this.SettingsRowText('主题', '当前主题', this.settingThemeName)
-
-          this.SettingsSectionTitle('权限与执行')
-
-          this.SettingsRowSwitch('显示会话进度条', '当智能体正在工作时显示动画进度', this.settingShowProgress, (value: boolean) => {
-            this.settingShowProgress = value
-          })
-
-          this.SettingsSectionTitle('高级')
-
-          this.AdvancedEntry('Runtime 状态', '查看 Runtime、检测连接、手动启动说明', () => {
-            this.showSettings = false
-            this.currentView = AppView.Runtime
-          })
-
-          this.AdvancedEntry('Web UI', '打开 Runtime 自带 Web UI，仅用于调试', () => {
-            this.showSettings = false
-            this.currentView = AppView.WebView
-          })
-
-          this.AdvancedEntry('Terminal', '开发调试入口，普通使用不需要', () => {
-            this.showSettings = false
-            this.currentView = AppView.Terminal
-          })
-        }
-        .width('100%')
-        .padding({ left: 32, right: 32, bottom: 40 })
-      }
-      .layoutWeight(1)
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#111111')
-  }
-
-  @Builder
   SettingsSectionTitle(title: string) {
     Text(title)
       .fontSize(18)
@@ -252,14 +222,14 @@ struct Index {
     Row() {
       Column() {
         Text(title).fontSize(15).fontColor('#FFFFFF')
-        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+        Text(desc).fontSize(12).fontColor('#FFFFFF').margin({ top: 4 })
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
 
       Text(value)
         .fontSize(13)
-        .fontColor('#CCCCCC')
+        .fontColor('#FFFFFF')
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .backgroundColor('#2D2D2D')
         .borderRadius(8)
@@ -274,7 +244,7 @@ struct Index {
     Row() {
       Column() {
         Text(title).fontSize(15).fontColor('#FFFFFF')
-        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+        Text(desc).fontSize(12).fontColor('#FFFFFF').margin({ top: 4 })
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -292,7 +262,7 @@ struct Index {
     Row() {
       Column() {
         Text(title).fontSize(15).fontColor('#FFFFFF')
-        Text(desc).fontSize(12).fontColor('#777777').margin({ top: 4 })
+        Text(desc).fontSize(12).fontColor('#FFFFFF').margin({ top: 4 })
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -326,7 +296,8 @@ struct Index {
         serverName: this.viewModel.serverInfo.displayName.length > 0 ? this.viewModel.serverInfo.displayName : 'Local Server',
         isServerReady: this.viewModel.connectionStatus === ConnectionStatus.Connected ||
                         this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ||
-                        this.viewModel.connectionStatus === ConnectionStatus.Connecting,
+                        this.viewModel.connectionStatus === ConnectionStatus.Connecting ||
+                        this.viewModel.connectionStatus === ConnectionStatus.StartFailed,
         onNewSession: () => {
           this.newSessionAndOpenChat()
         },
@@ -334,7 +305,6 @@ struct Index {
           this.currentView = AppView.Chat
         },
         onOpenSettings: () => {
-          this.currentView = AppView.Settings
           this.showSettings = true
         },
         onOpenHelp: () => {
@@ -423,8 +393,6 @@ struct Index {
           Column() {
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
             this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
-            this.NavItem(AppView.Models, $r('app.media.settings'), 'AI 设置')
-            this.NavItem(AppView.Settings, $r('app.media.settings'), 'Settings')
           }
           .width('100%')
           .layoutWeight(1)
@@ -442,7 +410,7 @@ struct Index {
               .fill(this.getStatusColor())
             Text(this.getStatusText())
               .fontSize(12)
-              .fontColor('#AAAAAA')
+              .fontColor('#FFFFFF')
               .margin({ left: 8 })
           }
           .width('100%')
@@ -506,18 +474,6 @@ struct Index {
           this.ChatContent()
         } else if (this.currentView === AppView.Files) {
           this.FilesContent()
-        } else if (this.currentView === AppView.Models) {
-          // AI 设置：合并 Providers + Models
-          SettingsPage({
-            onClose: () => { this.currentView = AppView.Home },
-            onModelSelected: (modelRef: string) => {
-              this.viewModel.selectedModel = modelRef
-              this.viewModel.saveServerConfig()
-              this.viewModel.syncModelToRuntime()
-            }
-          })
-        } else if (this.currentView === AppView.Settings) {
-          this.SimpleSettingsContent()
         } else if (this.currentView === AppView.Provider) {
           ProviderPage({ activeRunner: null })
         } else if (this.currentView === AppView.WebView) {
@@ -542,10 +498,10 @@ struct Index {
       Row() {
         SymbolGlyph(icon)
           .fontSize(18)
-          .fontColor([this.currentView === view ? '#007DFF' : '#AAAAAA'])
+          .fontColor(['#FFFFFF'])
         Text(label)
           .fontSize(14)
-          .fontColor(this.currentView === view ? '#FFFFFF' : '#AAAAAA')
+          .fontColor('#FFFFFF')
           .fontWeight(this.currentView === view ? FontWeight.Medium : FontWeight.Normal)
           .margin({ left: 12 })
       }
@@ -572,7 +528,7 @@ struct Index {
 
       Text('Your AI-powered coding assistant on HarmonyOS')
         .fontSize(16)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ bottom: 32 })
 
       if (this.viewModel.connectionStatus === ConnectionStatus.Connected) {
@@ -586,7 +542,7 @@ struct Index {
         if (this.viewModel.sessions.length === 0) {
           Text('No sessions yet. Start a new chat!')
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor('#FFFFFF')
         } else {
           ForEach(this.viewModel.sessions.slice(0, 5), (session: SessionInfo) => {
             Row() {
@@ -598,7 +554,7 @@ struct Index {
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(new Date(session.updatedAt).toLocaleString())
                   .fontSize(12)
-                  .fontColor('#666666')
+                  .fontColor('#FFFFFF')
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
@@ -628,14 +584,14 @@ struct Index {
             ? this.viewModel.serverStatusMessage
             : '正在启动内置 Runtime...')
             .fontSize(16)
-            .fontColor('#FFB300')
+            .fontColor('#FFFFFF')
             .textAlign(TextAlign.Center)
             .margin({ bottom: 8 })
 
           if (this.viewModel.serverLogs.length > 0) {
             Text(this.viewModel.serverLogs[this.viewModel.serverLogs.length - 1])
               .fontSize(12)
-              .fontColor('#666666')
+              .fontColor('#FFFFFF')
               .textAlign(TextAlign.Center)
               .maxLines(2)
           }
@@ -649,14 +605,14 @@ struct Index {
           Text('Runtime 启动失败')
             .fontSize(20)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#FF5252')
+            .fontColor('#FFFFFF')
             .margin({ bottom: 12 })
 
           Text(this.viewModel.serverStatusMessage.length > 0
             ? this.viewModel.serverStatusMessage
             : '内置 Runtime 无法启动')
             .fontSize(14)
-            .fontColor('#AAAAAA')
+            .fontColor('#FFFFFF')
             .textAlign(TextAlign.Center)
             .margin({ bottom: 8 })
             .padding({ left: 32, right: 32 })
@@ -664,7 +620,7 @@ struct Index {
           if (this.viewModel.serverLogs.length > 0) {
             Text(this.viewModel.serverLogs.slice(-3).join('\n'))
               .fontSize(11)
-              .fontColor('#666666')
+              .fontColor('#FFFFFF')
               .textAlign(TextAlign.Start)
               .padding(12)
               .backgroundColor('#1A1A1A')
@@ -744,7 +700,7 @@ struct Index {
           ? this.viewModel.errorMessage
           : '本地 OpenCode Runtime 未连接，请先启动或手动连接。')
         .fontSize(14)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .textAlign(TextAlign.Center)
         .margin({ bottom: 16 })
 
@@ -778,12 +734,12 @@ struct Index {
         Column() {
           Text('启动日志')
             .fontSize(12)
-            .fontColor('#888888')
+            .fontColor('#FFFFFF')
             .fontWeight(FontWeight.Medium)
             .margin({ bottom: 6 })
           Text(this.viewModel.serverLogs.slice(-12).join('\n'))
             .fontSize(11)
-            .fontColor('#9E9E9E')
+            .fontColor('#FFFFFF')
             .fontFamily('monospace')
             .maxLines(12)
             .textAlign(TextAlign.Start)
@@ -856,12 +812,12 @@ struct Index {
                 Column() {
                   Text('Error')
                     .fontSize(12)
-                    .fontColor('#FF5252')
+                    .fontColor('#FFFFFF')
                     .fontWeight(FontWeight.Bold)
                     .margin({ bottom: 4 })
                   Text(msg.content)
                     .fontSize(13)
-                    .fontColor('#FF8A80')
+                    .fontColor('#FFFFFF')
                     .fontFamily('monospace')
                 }
                 .width('100%')
@@ -878,12 +834,12 @@ struct Index {
                     Row() {
                       Text('AI')
                         .fontSize(12)
-                        .fontColor('#007DFF')
+                        .fontColor('#FFFFFF')
                         .margin({ bottom: 4 })
                       if (msg.isStreaming) {
                         Text(' (streaming...)')
                           .fontSize(11)
-                          .fontColor('#666666')
+                          .fontColor('#FFFFFF')
                           .margin({ bottom: 4, left: 4 })
                       }
                     }
@@ -893,7 +849,7 @@ struct Index {
                         Row() {
                           Text(tool.name)
                             .fontSize(12)
-                            .fontColor('#007DFF')
+                            .fontColor('#FFFFFF')
                             .fontFamily('monospace')
                             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
                             .backgroundColor('#007DFF15')
@@ -901,12 +857,12 @@ struct Index {
                           if (tool.status === 'error') {
                             Text('error')
                               .fontSize(11)
-                              .fontColor('#FF5252')
+                              .fontColor('#FFFFFF')
                               .margin({ left: 6 })
                           } else if (tool.status === 'complete') {
                             Text('done')
                               .fontSize(11)
-                              .fontColor('#3DDC84')
+                              .fontColor('#FFFFFF')
                               .margin({ left: 6 })
                           }
                         }
@@ -916,7 +872,7 @@ struct Index {
                     if (msg.content.length > 0) {
                       Text(msg.content)
                         .fontSize(14)
-                        .fontColor('#E0E0E0')
+                        .fontColor('#FFFFFF')
                     }
                   }
                   .alignItems(HorizontalAlign.Start)
@@ -928,7 +884,7 @@ struct Index {
                 // System message
                 Text(msg.content)
                   .fontSize(12)
-                  .fontColor('#666666')
+                  .fontColor('#FFFFFF')
                   .fontStyle(FontStyle.Italic)
                   .textAlign(TextAlign.Center)
                   .width('100%')
@@ -962,12 +918,12 @@ struct Index {
               Row() {
                 Text('🔒 权限请求')
                   .fontSize(13)
-                  .fontColor('#FFB300')
+                  .fontColor('#FFFFFF')
                   .fontWeight(FontWeight.Bold)
                 Blank()
                 Text(perm.riskLevel.length > 0 ? perm.riskLevel : 'permission')
                   .fontSize(11)
-                  .fontColor('#888888')
+                  .fontColor('#FFFFFF')
                   .fontFamily('monospace')
               }
               .width('100%')
@@ -982,7 +938,7 @@ struct Index {
               if (perm.description.length > 0) {
                 Text(perm.description)
                   .fontSize(12)
-                  .fontColor('#AAAAAA')
+                  .fontColor('#FFFFFF')
                   .width('100%')
                   .margin({ bottom: 8 })
               }
@@ -992,7 +948,7 @@ struct Index {
                   .fontSize(13)
                   .height(32)
                   .backgroundColor('#3DDC84')
-                  .fontColor('#000000')
+                  .fontColor('#FFFFFF')
                   .borderRadius(6)
                   .onClick(() => { this.viewModel.approvePermission(perm.id, false) })
 
@@ -1036,7 +992,7 @@ struct Index {
               Row() {
                 Text('❓ 问题')
                   .fontSize(13)
-                  .fontColor('#007DFF')
+                  .fontColor('#FFFFFF')
                   .fontWeight(FontWeight.Bold)
                 Blank()
               }
@@ -1054,7 +1010,7 @@ struct Index {
 
               Text(q.question)
                 .fontSize(13)
-                .fontColor('#E0E0E0')
+                .fontColor('#FFFFFF')
                 .width('100%')
                 .margin({ bottom: 8 })
 
@@ -1071,7 +1027,7 @@ struct Index {
                   if (opt.description.length > 0) {
                     Text(opt.description)
                       .fontSize(12)
-                      .fontColor('#AAAAAA')
+                      .fontColor('#FFFFFF')
                       .margin({ left: 8 })
                   }
                 }
@@ -1084,7 +1040,7 @@ struct Index {
                 .fontSize(12)
                 .height(28)
                 .backgroundColor('#2D2D2D')
-                .fontColor('#FF5252')
+                .fontColor('#FFFFFF')
                 .borderRadius(6)
                 .margin({ top: 4 })
                 .onClick(() => { this.viewModel.rejectQuestion(q.id) })
@@ -1156,7 +1112,7 @@ struct Index {
         .margin(16)
       Text('连接本地 OpenCode Runtime 后可继续使用')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor('#FFFFFF')
     }
     .width('100%')
     .height('100%')
@@ -1172,7 +1128,7 @@ struct Index {
         .margin(16)
       Text('Terminal output will appear here')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor('#FFFFFF')
     }
     .width('100%')
     .height('100%')
@@ -1207,7 +1163,7 @@ struct Index {
         .margin(16)
       Text('File browser will appear here')
         .fontSize(14)
-        .fontColor('#666666')
+        .fontColor('#FFFFFF')
     }
     .width('100%')
     .height('100%')
@@ -1251,7 +1207,7 @@ struct Index {
 
           Text('Provider 列表来自 OpenCode Runtime 的 /provider。请先连接本地 Runtime。')
             .fontSize(14)
-            .fontColor('#888888')
+            .fontColor('#FFFFFF')
             .textAlign(TextAlign.Center)
             .margin({ bottom: 20 })
 
@@ -1277,7 +1233,7 @@ struct Index {
 
           Text('请确认 opencode 配置里已有 provider，或先在 Runtime 配置中添加自定义 Provider。')
             .fontSize(14)
-            .fontColor('#888888')
+            .fontColor('#FFFFFF')
             .textAlign(TextAlign.Center)
             .margin({ bottom: 20 })
 
@@ -1308,7 +1264,7 @@ struct Index {
 
                     Text(provider.id)
                       .fontSize(12)
-                      .fontColor('#888888')
+                      .fontColor('#FFFFFF')
                       .margin({ top: 4 })
                   }
                   .layoutWeight(1)
@@ -1316,7 +1272,7 @@ struct Index {
 
                   Text(provider.connected ? 'connected' : 'not connected')
                     .fontSize(12)
-                    .fontColor(provider.connected ? '#3DDC84' : '#FFB020')
+                    .fontColor('#FFFFFF')
                 }
                 .width('100%')
 
@@ -1342,7 +1298,7 @@ struct Index {
                 } else {
                   Text('No models')
                     .fontSize(12)
-                    .fontColor('#666666')
+                    .fontColor('#FFFFFF')
                     .margin({ top: 12 })
                 }
               }
@@ -1373,7 +1329,7 @@ struct Index {
 
       Text('Current Model')
         .fontSize(14)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ bottom: 8 })
 
       TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
@@ -1436,7 +1392,7 @@ struct Index {
 
         Text('OpenCode Desktop v1.16.2')
           .fontSize(11)
-          .fontColor('#555555')
+          .fontColor('#FFFFFF')
           .padding({ left: 20, bottom: 16 })
       }
       .width(180)
@@ -1455,9 +1411,9 @@ struct Index {
           } else if (this.settingsTab === 'servers') {
             this.SettingsServerContent()
           } else if (this.settingsTab === 'providers') {
-            this.SettingsProvidersNav()
+            this.SettingsProvidersContent()
           } else if (this.settingsTab === 'models') {
-            this.SettingsModelsNav()
+            this.SettingsModelsContent()
           }
         }
         .padding({ left: 32, right: 32, top: 24, bottom: 40 })
@@ -1475,7 +1431,7 @@ struct Index {
   SettingNavItem(label: string, tab: string) {
     Text(label)
       .fontSize(14)
-      .fontColor(this.settingsTab === tab ? '#FFFFFF' : '#888888')
+      .fontColor('#FFFFFF')
       .fontWeight(this.settingsTab === tab ? FontWeight.Medium : FontWeight.Normal)
       .width('100%')
       .padding({ left: 20, right: 12, top: 10, bottom: 10 })
@@ -1505,10 +1461,10 @@ struct Index {
       Column() {
         Text(title)
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text(desc)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1531,10 +1487,10 @@ struct Index {
       Column() {
         Text(title)
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text(desc)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1543,10 +1499,10 @@ struct Index {
       Row() {
         Text(value)
           .fontSize(13)
-          .fontColor('#AAAAAA')
+          .fontColor('#FFFFFF')
         Text(' ▾')
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
       }
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
@@ -1563,10 +1519,10 @@ struct Index {
       Column() {
         Text(title)
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text(desc)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1574,7 +1530,7 @@ struct Index {
 
       Text(value)
         .fontSize(13)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .backgroundColor('#2D2D2D')
         .borderRadius(6)
@@ -1590,10 +1546,10 @@ struct Index {
       Column() {
         Text(title)
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text(desc)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1616,10 +1572,10 @@ struct Index {
       Column() {
         Text(title)
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text(desc)
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1628,10 +1584,10 @@ struct Index {
       Row() {
         Text(value)
           .fontSize(13)
-          .fontColor('#AAAAAA')
+          .fontColor('#FFFFFF')
         Text(' ▾')
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
       }
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .backgroundColor('#2D2D2D')
@@ -1736,10 +1692,10 @@ struct Index {
       Column() {
         Text('检查更新')
           .fontSize(14)
-          .fontColor('#E0E0E0')
+          .fontColor('#FFFFFF')
         Text('手动检查更新并在有更新时安装')
           .fontSize(12)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ top: 3 })
       }
       .layoutWeight(1)
@@ -1797,7 +1753,7 @@ struct Index {
 
     Text('桌面端专属设置')
       .fontSize(14)
-      .fontColor('#888888')
+      .fontColor('#FFFFFF')
       .margin({ bottom: 16 })
 
     this.SToggle('启动时打开窗口', '应用启动时自动打开主窗口', true, () => {})
@@ -1838,11 +1794,11 @@ struct Index {
     Row() {
       Text(action)
         .fontSize(14)
-        .fontColor('#E0E0E0')
+        .fontColor('#FFFFFF')
         .layoutWeight(1)
       Text(keys)
         .fontSize(12)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .fontFamily('monospace')
         .padding({ left: 10, right: 10, top: 5, bottom: 5 })
         .backgroundColor('#2D2D2D')
@@ -1863,12 +1819,28 @@ struct Index {
       .fontSize(22)
       .fontWeight(FontWeight.Bold)
       .fontColor('#FFFFFF')
-      .margin({ bottom: 20 })
+      .margin({ bottom: 12 })
+
+    Text('默认使用本机 OpenCode Runtime。远程连接只是高级模式。')
+      .fontSize(12)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 16 })
+
+    // ── 模式切换器 ──
+    Row() {
+      this.RuntimeModePill('dev-pc', '开发电脑 / 局域网')
+      this.RuntimeModePill('local', '本机模式')
+      this.RuntimeModePill('remote', '远程服务器')
+    }
+    .backgroundColor('#1E1E1E')
+    .borderRadius(8)
+    .padding(3)
+    .margin({ bottom: 20 })
 
     // Runtime URL
     Text('Runtime URL')
       .fontSize(14)
-      .fontColor('#AAAAAA')
+      .fontColor('#FFFFFF')
       .margin({ bottom: 8 })
     TextInput({ placeholder: 'http://127.0.0.1:4096', text: this.viewModel.serverInfo.url })
       .width('100%')
@@ -1882,7 +1854,7 @@ struct Index {
 
     Text('Username')
       .fontSize(14)
-      .fontColor('#AAAAAA')
+      .fontColor('#FFFFFF')
       .margin({ top: 16, bottom: 8 })
     TextInput({ placeholder: 'opencode', text: this.viewModel.serverInfo.username })
       .width('100%')
@@ -1896,7 +1868,7 @@ struct Index {
 
     Text('Password')
       .fontSize(14)
-      .fontColor('#AAAAAA')
+      .fontColor('#FFFFFF')
       .margin({ top: 16, bottom: 8 })
     TextInput({ placeholder: 'password', text: this.viewModel.serverInfo.password })
       .width('100%')
@@ -1917,7 +1889,7 @@ struct Index {
         .fill(this.getStatusColor())
       Text(this.getStatusText())
         .fontSize(14)
-        .fontColor('#AAAAAA')
+        .fontColor('#FFFFFF')
         .margin({ left: 8 })
     }
     .margin({ top: 20 })
@@ -1993,52 +1965,123 @@ struct Index {
     if (this.viewModel.errorMessage.length > 0) {
       Text(this.viewModel.errorMessage)
         .fontSize(13)
-        .fontColor('#FF5252')
+        .fontColor('#FFFFFF')
         .margin({ top: 16 })
     }
   }
 
+  // ── Runtime 模式切换 Pill ──
+  @Builder
+  RuntimeModePill(id: string, label: string) {
+    Text(label)
+      .fontSize(13)
+      .fontColor('#FFFFFF')
+      .fontWeight(this.runtimeConnectionMode === id ? FontWeight.Medium : FontWeight.Normal)
+      .backgroundColor(this.runtimeConnectionMode === id ? '#007DFF' : Color.Transparent)
+      .borderRadius(6)
+      .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      .margin({ right: 8 })
+      .onClick(() => {
+        this.switchRuntimeMode(id)
+      })
+  }
+
+  private switchRuntimeMode(mode: string): void {
+    // Guard: local mode requires native bridge
+    if (mode === 'local' && !ProcessBridge.isAvailable) {
+      Logger.warn('Cannot switch to local mode: native bridge unavailable')
+      return
+    }
+    this.runtimeConnectionMode = mode;
+    localOpenCodeServerManager.loadLastConfig().then((cfg) => {
+      cfg.mode = mode;
+      if (mode === 'local') {
+        cfg.host = '127.0.0.1';
+        this.viewModel.serverInfo.url = `http://127.0.0.1:${cfg.port}`;
+      } else if (mode === 'dev-pc') {
+        // dev-pc: keep previous host if non-empty and not localhost
+        if (cfg.host.length === 0 || cfg.host === '127.0.0.1') {
+          cfg.host = '';  // 用户需要手动输入局域网 IP
+        }
+        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`;
+      }
+      localOpenCodeServerManager.saveLastConfig(cfg).catch((e: Error) => {
+        Logger.warn(`Failed to save runtime mode: ${errStr(e)}`)
+      });
+      Logger.info(`Runtime mode switched to: ${mode}, host=${cfg.host}:${cfg.port}`);
+    }).catch((e: Error) => {
+      Logger.warn(`Failed to load config for mode switch: ${errStr(e)}`)
+    });
+  }
+
   // ══════════════════════════════════════════════════════════
-  //  提供商 (Providers) — 导航到 ProviderPage
+  //  提供商 (Providers) — 内联显示提供商列表
   // ══════════════════════════════════════════════════════════
   @Builder
-  SettingsProvidersNav() {
+  SettingsProvidersContent() {
     Text('提供商')
       .fontSize(22)
       .fontWeight(FontWeight.Bold)
       .fontColor('#FFFFFF')
-      .margin({ bottom: 12 })
-
-    Text('管理 AI 模型提供商的配置、API 密钥和可用模型。')
-      .fontSize(14)
-      .fontColor('#888888')
       .margin({ bottom: 20 })
 
-    Button('打开提供商管理页面')
-      .height(44)
-      .backgroundColor('#007DFF')
-      .fontColor('#FFFFFF')
-      .borderRadius(8)
-      .onClick(() => {
-        this.currentView = AppView.Provider
-        this.showSettings = false
-      })
+    if (this.viewModel.providers.length === 0) {
+      Text('未检测到任何提供商。请先连接 Runtime。')
+        .fontSize(14)
+        .fontColor('#FFFFFF')
+        .padding(20)
+    } else {
+      ForEach(this.viewModel.providers, (p: ProviderInfo) => {
+        Row() {
+          Circle()
+            .width(8)
+            .height(8)
+            .fill(p.connected ? '#00C853' : '#666666')
+            .margin({ right: 12 })
+
+          Column() {
+            Text(p.name)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+            Text(`${p.id} · ${p.models.length} 个模型`)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .margin({ top: 4 })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          Text(p.connected ? '已连接' : '未连接')
+            .fontSize(12)
+            .fontColor('#FFFFFF')
+            .backgroundColor(p.connected ? '#1A3D2A' : '#2A2A2A')
+            .borderRadius(4)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+        }
+        .width('100%')
+        .padding(16)
+        .backgroundColor('#1E1E1E')
+        .borderRadius(8)
+        .margin({ bottom: 8 })
+      }, (p: ProviderInfo) => p.id)
+    }
   }
 
   // ══════════════════════════════════════════════════════════
-  //  模型 (Models) — 导航到 Models
+  //  模型 (Models) — 内联模型选择器
   // ══════════════════════════════════════════════════════════
   @Builder
-  SettingsModelsNav() {
+  SettingsModelsContent() {
     Text('模型')
       .fontSize(22)
       .fontWeight(FontWeight.Bold)
       .fontColor('#FFFFFF')
-      .margin({ bottom: 12 })
+      .margin({ bottom: 20 })
 
-    Text('当前模型')
+    Text('当前选中')
       .fontSize(14)
-      .fontColor('#AAAAAA')
+      .fontColor('#FFFFFF')
       .margin({ bottom: 8 })
 
     TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
@@ -2052,14 +2095,60 @@ struct Index {
         this.viewModel.selectedModel = value
       })
 
-    Button('保存模型')
-      .height(40)
+    Button('保存')
+      .height(36)
       .backgroundColor('#007DFF')
       .fontColor('#FFFFFF')
       .borderRadius(8)
+      .margin({ bottom: 24 })
       .onClick(() => {
         this.viewModel.saveServerConfig()
+        this.viewModel.syncModelToRuntime()
       })
+
+    // 按提供商分组显示可用模型
+    if (this.viewModel.providers.length > 0) {
+      Text('可用模型')
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .margin({ bottom: 12 })
+
+      ForEach(this.viewModel.providers, (p: ProviderInfo) => {
+        if (p.models.length > 0) {
+          Text(p.name)
+            .fontSize(13)
+            .fontColor('#FFFFFF')
+            .margin({ top: 12, bottom: 8 })
+
+          ForEach(p.models, (modelId: string) => {
+            Row() {
+              Text(`${p.id}/${modelId}`)
+                .fontSize(13)
+                .fontColor('#FFFFFF')
+                .fontFamily('monospace')
+                .layoutWeight(1)
+
+              if (this.viewModel.selectedModel === `${p.id}/${modelId}`) {
+                Text('✓')
+                  .fontSize(14)
+                  .fontColor('#FFFFFF')
+              }
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .backgroundColor(this.viewModel.selectedModel === `${p.id}/${modelId}` ? '#1A2A3D' : '#1E1E1E')
+            .borderRadius(6)
+            .margin({ bottom: 4 })
+            .onClick(() => {
+              this.viewModel.selectedModel = `${p.id}/${modelId}`
+              this.viewModel.saveServerConfig()
+              this.viewModel.syncModelToRuntime()
+            })
+          }, (modelId: string) => `${p.id}/${modelId}`)
+        }
+      }, (p: ProviderInfo) => p.id)
+    }
   }
 
   private getStatusColor(): ResourceColor {
@@ -2112,7 +2201,7 @@ struct Index {
       Column() {
         Text('SERVER')
           .fontSize(12)
-          .fontColor('#8a8a8a')
+          .fontColor('#FFFFFF')
           .fontFamily('monospace')
           .fontWeight(FontWeight.Bold)
           .width('100%')
@@ -2120,7 +2209,7 @@ struct Index {
 
         Text(this.viewModel.serverInfo.url.length > 0 ? this.viewModel.serverInfo.url : '未配置')
           .fontSize(13)
-          .fontColor('#e8e2dd')
+          .fontColor('#FFFFFF')
           .fontFamily('monospace')
           .width('100%')
 
@@ -2131,7 +2220,7 @@ struct Index {
             .fill(this.getStatusColor())
           Text(this.getStatusText())
             .fontSize(12)
-            .fontColor('#a8a8a8')
+            .fontColor('#FFFFFF')
             .fontFamily('monospace')
             .margin({ left: 8 })
         }
@@ -2140,7 +2229,7 @@ struct Index {
         if (this.viewModel.serverStatusMessage.length > 0) {
           Text(this.viewModel.serverStatusMessage)
             .fontSize(12)
-            .fontColor('#7a7a7a')
+            .fontColor('#FFFFFF')
             .fontFamily('monospace')
             .margin({ top: 8 })
         }
@@ -2150,7 +2239,7 @@ struct Index {
             .fontSize(13)
             .height(32)
             .backgroundColor('#1f1f1f')
-            .fontColor('#cfcfcf')
+            .fontColor('#FFFFFF')
             .borderRadius(6)
             .layoutWeight(1)
             .onClick(() => {
@@ -2203,7 +2292,7 @@ struct Index {
       Column() {
         Text('快捷键 / 帮助')
           .fontSize(16)
-          .fontColor('#e8e2dd')
+          .fontColor('#FFFFFF')
           .fontWeight(FontWeight.Medium)
           .width('100%')
           .margin({ bottom: 16 })
@@ -2218,7 +2307,7 @@ struct Index {
           .fontSize(13)
           .height(32)
           .backgroundColor('#1f1f1f')
-          .fontColor('#cfcfcf')
+          .fontColor('#FFFFFF')
           .borderRadius(6)
           .margin({ top: 20 })
           .width('100%')
@@ -2243,13 +2332,13 @@ struct Index {
     Row() {
       Text(label)
         .fontSize(13)
-        .fontColor('#e8e2dd')
+        .fontColor('#FFFFFF')
         .fontWeight(FontWeight.Medium)
         .width(96)
 
       Text(desc)
         .fontSize(12)
-        .fontColor('#a8a8a8')
+        .fontColor('#FFFFFF')
         .layoutWeight(1)
     }
     .width('100%')

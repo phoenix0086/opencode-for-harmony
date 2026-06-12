@@ -6,9 +6,10 @@ export class ServerInfo {
   username: string = '';
   password: string = '';
   displayName: string = 'Local Server';
-  type: string = 'remote'; // 'local' | 'remote'
+  type: string = 'remote'; // 'local' | 'local-embedded' | 'remote'
   connected: boolean = false;
   healthOk: boolean = false;
+  projectPath: string = '';
 
   static fromJson(json: Record<string, Object>): ServerInfo {
     const info = new ServerInfo();

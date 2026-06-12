@@ -71,7 +71,7 @@ struct WebViewPage {
 
         Text(this.webViewUrl)
           .fontSize(13)
-          .fontColor('#AAAAAA')
+          .fontColor('#FFFFFF')
           .margin({ left: 12 })
           .layoutWeight(1)
           .maxLines(1)
@@ -79,7 +79,7 @@ struct WebViewPage {
 
         Text(this.isLoading ? 'Loading...' : 'Ready')
           .fontSize(12)
-          .fontColor(this.isLoading ? '#FFB300' : '#00C853')
+          .fontColor('#FFFFFF')
       }
       .width('100%')
       .height(Constants.TITLE_BAR_HEIGHT)
@@ -95,11 +95,11 @@ struct WebViewPage {
           Text('Failed to load')
             .fontSize(18)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#FF5252')
+            .fontColor('#FFFFFF')
             .margin({ bottom: 8 })
           Text(this.loadError)
             .fontSize(14)
-            .fontColor('#AAAAAA')
+            .fontColor('#FFFFFF')
             .textAlign(TextAlign.Center)
             .margin({ bottom: 16 })
           Button('Retry')

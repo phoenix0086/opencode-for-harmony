@@ -108,31 +108,31 @@ const CatppuccinMocha: ThemePalette = (() => {
   p.BORDER_LIGHT = '#45475a'
   p.BORDER_FOCUS = '#89b4fa'
   // Text
-  p.TEXT_PRIMARY = '#cdd6f4'
-  p.TEXT_SECONDARY = '#a6adc8'
-  p.TEXT_MUTED = '#6c7086'
+  p.TEXT_PRIMARY = '#FFFFFF'
+  p.TEXT_SECONDARY = '#FFFFFF'
+  p.TEXT_MUTED = '#FFFFFF'
   p.TEXT_INVERSE = '#1e1e2e'
   // Accent
-  p.ACCENT = '#89b4fa'
+  p.ACCENT = '#FFFFFF'
   p.ACCENT_DIM = '#1e3a5f'
-  p.ACCENT_TEXT = '#89b4fa'
+  p.ACCENT_TEXT = '#FFFFFF'
   // Semantic
-  p.SUCCESS = '#a6e3a1'
+  p.SUCCESS = '#FFFFFF'
   p.SUCCESS_DIM = '#1a3a1a'
-  p.WARNING = '#f9e2af'
+  p.WARNING = '#FFFFFF'
   p.WARNING_DIM = '#3a3520'
-  p.DANGER = '#f38ba8'
+  p.DANGER = '#FFFFFF'
   p.DANGER_DIM = '#3a1a25'
-  p.INFO = '#89dceb'
+  p.INFO = '#FFFFFF'
   // Code & Tool
   p.CODE_BG = '#11111b'
   p.CODE_BORDER = '#313244'
   p.TOOL_BG = '#181825'
   p.TOOL_BORDER = '#313244'
   p.DIFF_ADD_BG = '#1e3a2a'
-  p.DIFF_ADD_TEXT = '#a6e3a1'
+  p.DIFF_ADD_TEXT = '#FFFFFF'
   p.DIFF_DEL_BG = '#3a1e1e'
-  p.DIFF_DEL_TEXT = '#f38ba8'
+  p.DIFF_DEL_TEXT = '#FFFFFF'
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
@@ -144,8 +144,8 @@ const CatppuccinMocha: ThemePalette = (() => {
   p.SCROLLBAR = '#45475a'
   // Activity Bar
   p.ACTIVITY_BAR_BG = '#11111b'
-  p.ACTIVITY_BAR_ACTIVE = '#89b4fa'
-  p.ACTIVITY_BAR_INACTIVE = '#6c7086'
+  p.ACTIVITY_BAR_ACTIVE = '#FFFFFF'
+  p.ACTIVITY_BAR_INACTIVE = '#FFFFFF'
   return p
 })()
 
@@ -165,31 +165,31 @@ const TokyoNight: ThemePalette = (() => {
   p.BORDER_LIGHT = '#3b4261'
   p.BORDER_FOCUS = '#7aa2f7'
   // Text
-  p.TEXT_PRIMARY = '#c0caf5'
-  p.TEXT_SECONDARY = '#a9b1d6'
-  p.TEXT_MUTED = '#565f89'
+  p.TEXT_PRIMARY = '#FFFFFF'
+  p.TEXT_SECONDARY = '#FFFFFF'
+  p.TEXT_MUTED = '#FFFFFF'
   p.TEXT_INVERSE = '#1a1b26'
   // Accent
-  p.ACCENT = '#7aa2f7'
+  p.ACCENT = '#FFFFFF'
   p.ACCENT_DIM = '#1a2744'
-  p.ACCENT_TEXT = '#7aa2f7'
+  p.ACCENT_TEXT = '#FFFFFF'
   // Semantic
-  p.SUCCESS = '#9ece6a'
+  p.SUCCESS = '#FFFFFF'
   p.SUCCESS_DIM = '#1a2e1a'
-  p.WARNING = '#e0af68'
+  p.WARNING = '#FFFFFF'
   p.WARNING_DIM = '#2e2a1a'
-  p.DANGER = '#f7768e'
+  p.DANGER = '#FFFFFF'
   p.DANGER_DIM = '#2e1a22'
-  p.INFO = '#7dcfff'
+  p.INFO = '#FFFFFF'
   // Code & Tool
   p.CODE_BG = '#13131a'
   p.CODE_BORDER = '#292e42'
   p.TOOL_BG = '#16161e'
   p.TOOL_BORDER = '#292e42'
   p.DIFF_ADD_BG = '#1a2e1a'
-  p.DIFF_ADD_TEXT = '#9ece6a'
+  p.DIFF_ADD_TEXT = '#FFFFFF'
   p.DIFF_DEL_BG = '#2e1a22'
-  p.DIFF_DEL_TEXT = '#f7768e'
+  p.DIFF_DEL_TEXT = '#FFFFFF'
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
@@ -201,8 +201,8 @@ const TokyoNight: ThemePalette = (() => {
   p.SCROLLBAR = '#3b4261'
   // Activity Bar
   p.ACTIVITY_BAR_BG = '#13131a'
-  p.ACTIVITY_BAR_ACTIVE = '#7aa2f7'
-  p.ACTIVITY_BAR_INACTIVE = '#565f89'
+  p.ACTIVITY_BAR_ACTIVE = '#FFFFFF'
+  p.ACTIVITY_BAR_INACTIVE = '#FFFFFF'
   return p
 })()
 
@@ -222,31 +222,31 @@ const GruvboxDark: ThemePalette = (() => {
   p.BORDER_LIGHT = '#504945'
   p.BORDER_FOCUS = '#83a598'
   // Text
-  p.TEXT_PRIMARY = '#ebdbb2'
-  p.TEXT_SECONDARY = '#d5c4a1'
-  p.TEXT_MUTED = '#928374'
+  p.TEXT_PRIMARY = '#FFFFFF'
+  p.TEXT_SECONDARY = '#FFFFFF'
+  p.TEXT_MUTED = '#FFFFFF'
   p.TEXT_INVERSE = '#282828'
   // Accent
-  p.ACCENT = '#83a598'
+  p.ACCENT = '#FFFFFF'
   p.ACCENT_DIM = '#1e302e'
-  p.ACCENT_TEXT = '#83a598'
+  p.ACCENT_TEXT = '#FFFFFF'
   // Semantic
-  p.SUCCESS = '#b8bb26'
+  p.SUCCESS = '#FFFFFF'
   p.SUCCESS_DIM = '#2a2e1a'
-  p.WARNING = '#fabd2f'
+  p.WARNING = '#FFFFFF'
   p.WARNING_DIM = '#2e2a1a'
-  p.DANGER = '#fb4934'
+  p.DANGER = '#FFFFFF'
   p.DANGER_DIM = '#2e1a1a'
-  p.INFO = '#83a598'
+  p.INFO = '#FFFFFF'
   // Code & Tool
   p.CODE_BG = '#1d2021'
   p.CODE_BORDER = '#3c3836'
   p.TOOL_BG = '#1d2021'
   p.TOOL_BORDER = '#3c3836'
   p.DIFF_ADD_BG = '#2a2e1a'
-  p.DIFF_ADD_TEXT = '#b8bb26'
+  p.DIFF_ADD_TEXT = '#FFFFFF'
   p.DIFF_DEL_BG = '#2e1a1a'
-  p.DIFF_DEL_TEXT = '#fb4934'
+  p.DIFF_DEL_TEXT = '#FFFFFF'
   // Panel & button aliases
   p.PANEL_BG = p.PANEL
   p.HEADER_BG = p.STATUSBAR
@@ -258,8 +258,8 @@ const GruvboxDark: ThemePalette = (() => {
   p.SCROLLBAR = '#504945'
   // Activity Bar
   p.ACTIVITY_BAR_BG = '#1d2021'
-  p.ACTIVITY_BAR_ACTIVE = '#83a598'
-  p.ACTIVITY_BAR_INACTIVE = '#928374'
+  p.ACTIVITY_BAR_ACTIVE = '#FFFFFF'
+  p.ACTIVITY_BAR_INACTIVE = '#FFFFFF'
   return p
 })()
 

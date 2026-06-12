@@ -2,6 +2,8 @@ import { http } from '@kit.NetworkKit';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { OpenCodeCapabilities, ServerMode, CapabilityResult } from './OpenCodeCapabilities';
+import { RuntimeMode } from './RuntimeMode';
+import { localRuntimeClient } from './LocalRuntimeClient';
 
 /**
  * Unified API adapter for OpenCode Runtime.
@@ -34,6 +36,16 @@ export class OpenCodeApiAdapter {
   private mode: ServerMode = 'unknown';
   private caps: CapabilityResult | null = null;
   private detector: OpenCodeCapabilities = new OpenCodeCapabilities();
+  private _runtimeMode: RuntimeMode = 'dev-pc';
+
+  get runtimeMode(): RuntimeMode { return this._runtimeMode; }
+
+  setRuntimeMode(mode: RuntimeMode): void {
+    this._runtimeMode = mode;
+    Logger.info(`[Adapter] runtime mode set to: ${mode}`);
+  }
+
+  private get isLocal(): boolean { return this._runtimeMode === 'local-embedded'; }
 
   setBaseUrl(url: string, authHeader: string = ''): void {
     this.baseUrl = url.replace(/\/+$/, '');
@@ -45,6 +57,13 @@ export class OpenCodeApiAdapter {
   }
 
   async detectCapabilities(): Promise<CapabilityResult> {
+    if (this.isLocal) {
+      this.mode = 'api-v2';
+      const synthetic: CapabilityResult = { mode: 'api-v2', version: 'local-embedded-0.1.0', capabilities: { fs: false } } as CapabilityResult;
+      this.caps = synthetic;
+      Logger.info('[Adapter] local-embedded: synthetic capabilities returned');
+      return synthetic;
+    }
     this.caps = await this.detector.detect();
     this.mode = this.caps.mode;
     Logger.info(`API adapter mode: ${this.mode}, version: ${this.caps.version}`);
@@ -58,6 +77,7 @@ export class OpenCodeApiAdapter {
   //  Health
   // ══════════════════════════════════════════════════════════
   async health(): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.health();
     if (this.mode === 'api-v2') {
       return this.get('/api/health');
     }
@@ -68,6 +88,7 @@ export class OpenCodeApiAdapter {
   //  Sessions
   // ══════════════════════════════════════════════════════════
   async listSessions(): Promise<SessionInfo[]> {
+    if (this.isLocal) return localRuntimeClient.listSessions();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/session');
       const arr = this.extractArray(data, 'data');
@@ -78,6 +99,7 @@ export class OpenCodeApiAdapter {
   }
 
   async createSession(input?: Record<string, Object>): Promise<SessionInfo> {
+    if (this.isLocal) return localRuntimeClient.createSession(input);
     const body = input ?? {};
     if (this.mode === 'api-v2') {
       const data = await this.post('/api/session', body);
@@ -88,6 +110,7 @@ export class OpenCodeApiAdapter {
   }
 
   async getSession(sessionId: string): Promise<SessionInfo> {
+    if (this.isLocal) return localRuntimeClient.getSession(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}`);
       return this.normalizeSession(this.extractObj(data, 'data'));
@@ -97,6 +120,7 @@ export class OpenCodeApiAdapter {
   }
 
   async deleteSession(sessionId: string): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.deleteSession(sessionId);
     try {
       if (this.mode === 'api-v2') {
         await this.delete(`/api/session/${sessionId}`);
@@ -113,6 +137,7 @@ export class OpenCodeApiAdapter {
   //  Prompt
   // ══════════════════════════════════════════════════════════
   async sendPrompt(sessionId: string, input: PromptInput): Promise<PromptResult> {
+    if (this.isLocal) return localRuntimeClient.sendPrompt(sessionId, input);
     const result = new PromptResult();
     if (this.mode === 'api-v2') {
       try {
@@ -149,6 +174,7 @@ export class OpenCodeApiAdapter {
   //  Wait / Poll
   // ══════════════════════════════════════════════════════════
   async waitSession(sessionId: string): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.waitSession(sessionId);
     if (this.mode === 'api-v2') {
       return this.post(`/api/session/${sessionId}/wait`, {});
     }
@@ -159,6 +185,7 @@ export class OpenCodeApiAdapter {
   //  Messages
   // ══════════════════════════════════════════════════════════
   async listMessages(sessionId: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listMessages(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}/message`);
       return this.extractArray(data, 'data');
@@ -171,6 +198,7 @@ export class OpenCodeApiAdapter {
   //  Context
   // ══════════════════════════════════════════════════════════
   async getSessionContext(sessionId: string): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.getSessionContext(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}/context`);
       return this.extractObj(data, 'data');
@@ -182,6 +210,7 @@ export class OpenCodeApiAdapter {
   //  Providers
   // ══════════════════════════════════════════════════════════
   async listProviders(): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.listProviders();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/provider');
       return this.extractObj(data, 'data');
@@ -193,6 +222,7 @@ export class OpenCodeApiAdapter {
   //  Models
   // ══════════════════════════════════════════════════════════
   async listModels(): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listModels();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/model');
       return this.extractArray(data, 'data');
@@ -204,6 +234,7 @@ export class OpenCodeApiAdapter {
   //  Config
   // ══════════════════════════════════════════════════════════
   async getConfig(): Promise<Record<string, Object>> {
+    if (this.isLocal) return localRuntimeClient.getConfig();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/config');
       return this.extractObj(data, 'data');
@@ -212,6 +243,7 @@ export class OpenCodeApiAdapter {
   }
 
   async patchConfig(body: Record<string, Object>): Promise<void> {
+    if (this.isLocal) { await localRuntimeClient.patchConfig(body); return; }
     if (this.mode === 'api-v2') {
       await this.patch('/api/config', body);
       return;
@@ -223,6 +255,7 @@ export class OpenCodeApiAdapter {
   //  Files
   // ══════════════════════════════════════════════════════════
   async listFiles(path: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listFiles(path);
     if (this.mode === 'api-v2' && this.caps !== null && this.caps.capabilities.fs) {
       const data = await this.get(`/api/fs/list?path=${encodeURIComponent(path)}`);
       return this.extractArray(data, 'data');
@@ -232,6 +265,7 @@ export class OpenCodeApiAdapter {
   }
 
   async findFiles(query: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.findFiles(query);
     if (this.mode !== 'api-v2') return [];
     const data = await this.get(`/api/fs/find?query=${encodeURIComponent(query)}`);
     return this.extractArray(data, 'data');
@@ -241,6 +275,7 @@ export class OpenCodeApiAdapter {
   //  Permissions
   // ══════════════════════════════════════════════════════════
   async listPermissionRequests(): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listPermissionRequests();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/permission/request');
       return this.extractArray(data, 'data');
@@ -250,6 +285,7 @@ export class OpenCodeApiAdapter {
   }
 
   async listSavedPermissions(): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listSavedPermissions();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/permission/saved');
       return this.extractArray(data, 'data');
@@ -258,6 +294,7 @@ export class OpenCodeApiAdapter {
   }
 
   async deleteSavedPermission(id: string): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.deleteSavedPermission(id);
     if (this.mode !== 'api-v2') return false;
     try {
       await this.delete(`/api/permission/saved/${id}`);
@@ -268,6 +305,7 @@ export class OpenCodeApiAdapter {
   }
 
   async listSessionPermissions(sessionId: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listSessionPermissions(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}/permission`);
       return this.extractArray(data, 'data');
@@ -276,6 +314,7 @@ export class OpenCodeApiAdapter {
   }
 
   async replyPermission(sessionId: string, requestId: string, reply: string): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.replyPermission(sessionId, requestId, reply);
     try {
       const body: Record<string, Object> = {};
       body['reply'] = reply;
@@ -295,6 +334,7 @@ export class OpenCodeApiAdapter {
   //  Questions
   // ══════════════════════════════════════════════════════════
   async listQuestions(sessionId: string): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listQuestions(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}/question`);
       return this.extractArray(data, 'data');
@@ -308,6 +348,7 @@ export class OpenCodeApiAdapter {
   }
 
   async replyQuestion(sessionId: string, requestId: string, optionIDs: string[]): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.replyQuestion(sessionId, requestId, optionIDs);
     try {
       const body: Record<string, Object> = {};
       body['optionIDs'] = optionIDs;
@@ -324,6 +365,7 @@ export class OpenCodeApiAdapter {
   }
 
   async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.rejectQuestion(sessionId, requestId);
     if (this.mode !== 'api-v2') return false;
     try {
       await this.post(`/api/session/${sessionId}/question/${requestId}/reject`, {});
@@ -338,6 +380,7 @@ export class OpenCodeApiAdapter {
   //  Commands & Skills
   // ══════════════════════════════════════════════════════════
   async listCommands(): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listCommands();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/command');
       return this.extractArray(data, 'data');
@@ -351,6 +394,7 @@ export class OpenCodeApiAdapter {
   }
 
   async listSkills(): Promise<Object[]> {
+    if (this.isLocal) return localRuntimeClient.listSkills();
     if (this.mode === 'api-v2') {
       const data = await this.get('/api/skill');
       return this.extractArray(data, 'data');
@@ -367,6 +411,7 @@ export class OpenCodeApiAdapter {
   //  Abort
   // ══════════════════════════════════════════════════════════
   async abortSession(sessionId: string): Promise<boolean> {
+    if (this.isLocal) return localRuntimeClient.abortSession(sessionId);
     try {
       if (this.mode === 'api-v2') {
         await this.post(`/api/session/${sessionId}/abort`, {});
@@ -383,6 +428,7 @@ export class OpenCodeApiAdapter {
   //  Event Stream URL
   // ══════════════════════════════════════════════════════════
   getEventUrl(): string {
+    if (this.isLocal) return localRuntimeClient.getEventUrl();
     if (this.mode === 'api-v2') return `${this.baseUrl}/api/event`;
     return `${this.baseUrl}/event`;
   }

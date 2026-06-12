@@ -9,6 +9,8 @@ import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
+import { RuntimeMode, toRuntimeMode, needsServerUrl } from '../services/RuntimeMode';
+import { localRuntimeClient } from '../services/LocalRuntimeClient';
 import { OpenCodeApiAdapter, PromptInput } from '../services/OpenCodeApiAdapter';
 import { ServerMode } from '../services/OpenCodeCapabilities';
 
@@ -28,6 +30,7 @@ export class MainViewModel {
   serverStatusMessage: string = '';
   serverLogs: string[] = [];
   serverMode: ServerMode = 'unknown';
+  runtimeMode: RuntimeMode = 'dev-pc';
   pendingPermissions: PendingPermission[] = [] // 待审批的权限请求
   pendingQuestions: PendingQuestion[] = [] // 待回答的问题
   private healthTimer: number = -1;
@@ -55,16 +58,43 @@ export class MainViewModel {
   async connect(): Promise<void> {
     this.connectionStatus = ConnectionStatus.Connecting;
     this.errorMessage = '';
-    try {
-      this.httpService.setServer(this.serverInfo);
 
-      // Detect server mode via adapter
+    try {
+      // Set runtime mode on adapter
+      this.apiAdapter.setRuntimeMode(this.runtimeMode);
+
+      // local-embedded: start in-process runtime, no HTTP needed
+      if (this.runtimeMode === 'local-embedded') {
+        Logger.info('[Connect] local-embedded mode: starting LocalRuntimeService');
+        const health = await localRuntimeClient.start();
+        if (!health.ok) {
+          this.connectionStatus = ConnectionStatus.Error;
+          this.errorMessage = '本机 Runtime 启动失败。';
+          return;
+        }
+        this.serverMode = 'api-v2'; // local-embedded pretends to be api-v2
+        this.connectionStatus = ConnectionStatus.Connected;
+        this.serverInfo.connected = true;
+        this.serverInfo.healthOk = true;
+        this.serverInfo.displayName = 'Local Runtime (Embedded)';
+        this.serverInfo.type = 'local-embedded';
+
+        await this.loadSessions();
+        await this.loadProviders();
+        await this.autoSelectModel();
+        if (this.currentSessionId.length > 0) await this.loadMessages(this.currentSessionId);
+        Logger.info('[Connect] local-embedded runtime ready');
+        return;
+      }
+
+      // dev-pc / remote: connect to external opencode server
+      this.httpService.setServer(this.serverInfo);
       this.apiAdapter.setBaseUrl(this.serverInfo.url, this.serverInfo.getAuthHeader());
+
       const caps = await this.apiAdapter.detectCapabilities();
       this.serverMode = caps.mode;
       Logger.info(`Server mode detected: ${this.serverMode}`);
 
-      // P0-1: Use adapter health (routes to /api/health or /global/health based on mode)
       const healthResult = await this.apiAdapter.health();
       if (healthResult['healthy'] !== true) {
         this.connectionStatus = ConnectionStatus.Error
@@ -96,139 +126,90 @@ export class MainViewModel {
       Logger.error(`Connection failed: ${errStr(err)}`)
     }
   }
-  disconnect(): void { this.wsService.disconnect(); this.stopHealthCheck(); this.connectionStatus = ConnectionStatus.Disconnected; this.serverInfo.connected = false; }
+  disconnect(): void {
+    this.wsService.disconnect();
+    this.stopHealthCheck();
+    if (this.runtimeMode === 'local-embedded') {
+      localRuntimeClient.stop();
+    }
+    this.connectionStatus = ConnectionStatus.Disconnected;
+    this.serverInfo.connected = false;
+  }
 
   /**
    * Auto-start the built-in OpenCode server and connect.
-   * Called automatically on app launch for HarmonyOS computer deployment.
-   * Flow: check health → start process if needed → poll until healthy → connect.
+   * For local-embedded mode: start in-process LocalRuntimeService.
+   * For dev-pc/remote: delegate to old sidecar or connect to external server.
    */
   async autoStartAndConnect(): Promise<void> {
     this.connectionStatus = ConnectionStatus.AutoStarting;
-    this.serverStatusMessage = '正在启动内置 Runtime...';
+    this.serverStatusMessage = '正在启动本机 Runtime...';
     this.serverLogs = [];
     this.errorMessage = '';
-    Logger.info('Auto-start: beginning built-in server startup');
+    Logger.info('Auto-start: beginning runtime startup');
 
-    // Pre-populate workspace from storage if not set in server config
+    // Pre-populate workspace from storage
     if (this.storageService) {
       try {
         const workspace = await this.storageService.getString(Constants.KEY_WORKSPACE_PATH, '')
         if (workspace.length > 0) {
-          const savedConfig = await localOpenCodeServerManager.loadLastConfig()
-          if (savedConfig.workspace.length === 0) {
-            savedConfig.workspace = workspace
-            await localOpenCodeServerManager.saveLastConfig(savedConfig)
-            Logger.info(`Auto-start: set workspace to ${workspace}`)
-          }
+          this.serverInfo.projectPath = workspace
         }
       } catch (e) {
-        Logger.warn(`Auto-start: failed to pre-populate workspace: ${errStr(e)}`)
+        Logger.warn(`Auto-start: failed to read workspace: ${errStr(e)}`)
       }
     }
 
-    let result: LocalServerStatus
+    // Default: local-embedded mode (in-process runtime, no Linux binary)
+    this.runtimeMode = 'local-embedded';
+    this.serverStatusMessage = '正在启动本机 Runtime (Embedded)...';
+    Logger.info('[Auto-start] using local-embedded mode');
+
     try {
-      result = await localOpenCodeServerManager.autoStart(
-        (status: LocalServerStatus) => {
-          this.serverStatusMessage = status.message;
-          this.serverLogs = status.logs;
-          Logger.info(`Auto-start progress: ${status.status} - ${status.message}`);
-        }
-      );
-    } catch (e) {
-      // 外层兜底: 任何 autoStart 内部抛出的异常(包括 TypeError: processStart of undefined,
-      // 老的 HAP 没有 dev-pc 短路)都被这里接住
-      const msg = `autoStart 抛出异常: ${errStr(e)}`
-      Logger.error(msg)
-      this.serverStatusMessage = msg
-      this.errorMessage = msg
-      this.serverLogs = [`[fatal] ${errStr(e)}`]
-
-      // 异常时也试一次 health check,因为 Runtime 可能是 manual 启动的
-      try {
-        const healthCheck = await this.apiAdapter.health()
-        if (healthCheck['healthy'] === true) {
-          Logger.info('autoStart crashed but Runtime is healthy, connecting anyway...')
-          this.serverStatusMessage = '检测到手动启动的 Runtime, 正在连接...'
-          await this.connect()
-          if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
-            this.serverStatusMessage = '手动启动 Runtime 已连接 (autoStart 异常后恢复)'
-          }
-          return
-        }
-      } catch (_) {}
-
-      this.connectionStatus = ConnectionStatus.StartFailed
-      return
-    }
-
-    if (result.status === 'running') {
-      // Server is healthy and activated, now connect
-      this.serverStatusMessage = 'Runtime 已就绪，正在连接...';
-      this.serverLogs = result.logs;
-
-      // 同步实际启动成功的 Runtime 地址
-      // 因为本机模式可能返回 127.0.0.1，dev-pc 模式可能返回局域网 IP
-      // 启动成功的 baseUrl 才是真正可用的，httpService/wsService 要重新指向
-      this.serverInfo.url = result.baseUrl;
-      this.httpService.setServer(this.serverInfo);
-      this.wsService.setServer(this.serverInfo);
-
-      Logger.info(`Auto-start: server running at ${result.baseUrl}, connecting...`);
       await this.connect();
 
-      const finalStatus: string = this.connectionStatus as string;
-      if (finalStatus === (ConnectionStatus.Connected as string)) {
-        this.serverStatusMessage = `内置 Runtime 已连接 (v${result.version})`;
+      if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
+        this.serverStatusMessage = '本机 Runtime 已启动';
+        Logger.info('[Auto-start] local-embedded runtime connected');
+        return;
       }
-    } else {
-      // Server start failed (or manual_required)
-      this.serverStatusMessage = result.message;
-      this.serverLogs = result.logs;
-      this.errorMessage = result.message;
-      Logger.warn(`Auto-start: ${result.status} - ${result.message}`);
-
-      if (result.status === 'manual_required') {
-        // dev-pc / remote 模式需要用户在开发电脑启动 server
-        // 不要标 StartFailed (那是真出错),用 Disconnected 让卡片显示 "Runtime 未连接"
-        this.connectionStatus = ConnectionStatus.Disconnected;
-      } else {
-        this.connectionStatus = ConnectionStatus.StartFailed;
-        Logger.error(`Auto-start failed: ${result.message}`);
-      }
-
-      // fallback：如果用户已经手动启动了 opencode serve，则尝试直接连接
-      // 比如终端跑了 `opencode serve --port 4096 --hostname 0.0.0.0`
-      // health check 通了就当 Connected 走，不要卡死在 StartFailed
-      try {
-        const healthCheck2 = await this.apiAdapter.health();
-        if (healthCheck2['healthy'] === true) {
-          Logger.info('Auto-start failed, but manual Runtime is healthy. Connecting...');
-          this.serverStatusMessage = '手动检测健康通过，正在连接...';
-          await this.connect();
-
-          const finalStatus: string = this.connectionStatus as string;
-          if (finalStatus === (ConnectionStatus.Connected as string)) {
-            this.serverStatusMessage = '手动启动 Runtime 已连接';
-          } else {
-            this.serverStatusMessage = '检测健康通过，但连接失败';
-          }
-        }
-      } catch (e) {
-        Logger.warn(`Manual Runtime fallback failed: ${errStr(e)}`);
-      }
+    } catch (e) {
+      Logger.warn(`Auto-start local-embedded failed: ${errStr(e)}`)
     }
-  }
 
+    // If local-embedded failed, try dev-pc mode (external server)
+    Logger.info('[Auto-start] local-embedded failed, trying dev-pc fallback');
+    this.runtimeMode = 'dev-pc';
+    this.serverStatusMessage = '本机 Runtime 启动失败，尝试连接外部服务器...';
+
+    try {
+      await this.connect();
+      if ((this.connectionStatus as string) === (ConnectionStatus.Connected as string)) {
+        this.serverStatusMessage = '已连接外部 Runtime';
+        return;
+      }
+    } catch (e) {
+      Logger.warn(`Auto-start dev-pc fallback failed: ${errStr(e)}`)
+    }
+
+    // All attempts failed
+    this.connectionStatus = ConnectionStatus.StartFailed;
+    this.serverStatusMessage = 'Runtime 启动失败。请检查配置或手动启动。';
+    this.errorMessage = this.serverStatusMessage;
+  }
   /**
    * Gracefully shut down the built-in server.
    * Should be called when the app is closing.
    */
   shutdown(): void {
-    const result = localOpenCodeServerManager.shutdown();
-    Logger.info(`Shutdown: ${result.message}`);
-    this.serverStatusMessage = result.message;
+    if (this.runtimeMode === 'local-embedded') {
+      localRuntimeClient.stop();
+      this.serverStatusMessage = '本机 Runtime 已停止';
+    } else {
+      const result = localOpenCodeServerManager.shutdown();
+      Logger.info(`Shutdown: ${result.message}`);
+      this.serverStatusMessage = result.message;
+    }
     this.stopHealthCheck();
     this.connectionStatus = ConnectionStatus.Disconnected;
     this.serverInfo.connected = false;

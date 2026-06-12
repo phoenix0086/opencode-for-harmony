@@ -72,21 +72,7 @@ export struct ProviderIcon {
   }
 
   private getTextColor(): string {
-    const id = this.providerId.toLowerCase()
-    if (id.indexOf('openai') >= 0) return '#10b981'
-    if (id.indexOf('anthropic') >= 0) return '#d97706'
-    if (id.indexOf('google') >= 0 || id.indexOf('gemini') >= 0) return '#4285f4'
-    if (id.indexOf('mistral') >= 0) return '#fbbf24'
-    if (id.indexOf('deepseek') >= 0) return '#60a5fa'
-    if (id.indexOf('groq') >= 0) return '#f472b6'
-    if (id.indexOf('azure') >= 0) return '#60a5fa'
-    if (id.indexOf('xai') >= 0 || id.indexOf('grok') >= 0) return '#e5e7eb'
-    if (id.indexOf('ollama') >= 0) return '#a78bfa'
-    if (id.indexOf('openrouter') >= 0) return '#67e8f9'
-    if (id.indexOf('qwen') >= 0 || id.indexOf('alibaba') >= 0) return '#a78bfa'
-    if (id.indexOf('zhipu') >= 0 || id.indexOf('glm') >= 0) return '#34d399'
-    if (id.indexOf('moonshot') >= 0 || id.indexOf('kimi') >= 0) return '#818cf8'
-    return Theme.TEXT_SECONDARY
+    return '#FFFFFF'
   }
 
   private getBorderColor(): string {

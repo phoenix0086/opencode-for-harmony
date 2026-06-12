@@ -21,7 +21,7 @@ export struct StatusBar {
           .fill(this.getStatusColor())
         Text(this.getStatusLabel())
           .fontSize(11)
-          .fontColor('#AAAAAA')
+          .fontColor('#FFFFFF')
           .margin({ left: 6 })
       }
 
@@ -34,7 +34,7 @@ export struct StatusBar {
       // Server
       Text(this.serverUrl.length > 0 ? this.serverUrl : 'No server')
         .fontSize(11)
-        .fontColor('#666666')
+        .fontColor('#FFFFFF')
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .constraintSize({ maxWidth: 200 })
@@ -49,7 +49,7 @@ export struct StatusBar {
             .color('#007DFF')
           Text('Generating...')
             .fontSize(11)
-            .fontColor('#007DFF')
+            .fontColor('#FFFFFF')
             .margin({ left: 6 })
         }
       }
@@ -58,7 +58,7 @@ export struct StatusBar {
       if (this.model.length > 0) {
         Text(this.model)
           .fontSize(11)
-          .fontColor('#666666')
+          .fontColor('#FFFFFF')
           .margin({ left: 16 })
       }
 
@@ -66,7 +66,7 @@ export struct StatusBar {
       if (this.messageCount > 0) {
         Text(this.messageCount.toString() + ' msgs')
           .fontSize(11)
-          .fontColor('#555555')
+          .fontColor('#FFFFFF')
           .margin({ left: 16 })
       }
     }
@@ -78,12 +78,7 @@ export struct StatusBar {
   }
 
   private getStatusColor(): ResourceColor {
-    switch (this.connectionStatus) {
-      case ConnectionStatus.Connected: return '#00C853';
-      case ConnectionStatus.Connecting: return '#FFB300';
-      case ConnectionStatus.Error: return '#FF5252';
-      default: return '#555555';
-    }
+    return '#FFFFFF'
   }
 
   private getStatusLabel(): string {
