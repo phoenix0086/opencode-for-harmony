@@ -81,6 +81,7 @@ export class LocalMessage {
   error: string = '';
   providerID: string = '';
   modelID: string = '';
+  agent: string = ''; // agent name (e.g. 'build', 'plan'); empty for user/system messages
 }
 
 /**
@@ -89,6 +90,7 @@ export class LocalMessage {
 export class LocalPromptInput {
   text: string = '';
   model: LocalModelRef = new LocalModelRef();
+  agent: string = 'build';
 }
 
 /**

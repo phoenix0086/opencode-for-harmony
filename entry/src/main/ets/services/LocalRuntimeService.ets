@@ -348,6 +348,7 @@ export class LocalRuntimeService {
     userMsg.status = 'completed';
     userMsg.createdAt = Date.now();
     userMsg.updatedAt = Date.now();
+    userMsg.agent = input.agent;
     this.addMessage(sessionID, userMsg);
 
     // Create assistant message (pending)
@@ -361,6 +362,7 @@ export class LocalRuntimeService {
     assistantMsg.updatedAt = Date.now();
     assistantMsg.providerID = providerID;
     assistantMsg.modelID = modelID;
+    assistantMsg.agent = input.agent;
     this.addMessage(sessionID, assistantMsg);
 
     result.ok = true;
@@ -1044,6 +1046,7 @@ export class LocalRuntimeService {
         m.error = (r['error'] as string) || '';
         m.providerID = (r['providerID'] as string) || '';
         m.modelID = (r['modelID'] as string) || '';
+        m.agent = (r['agent'] as string) || '';
         if (m.id.length > 0) msgs.push(m);
       }
       this.messages.set(sessionID, msgs);

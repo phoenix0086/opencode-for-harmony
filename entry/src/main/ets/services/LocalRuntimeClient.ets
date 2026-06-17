@@ -123,6 +123,7 @@ export class LocalRuntimeClient {
     const localInput = new LocalPromptInput();
     localInput.text = text;
     localInput.model = modelRef;
+    localInput.agent = agent;
     const r = await localRuntimeService.sendPrompt(sessionId, localInput);
     result.ok = r.ok;
     result.error = r.error;
@@ -208,7 +209,7 @@ export class LocalRuntimeClient {
     info['id'] = m.id || '';
     info['role'] = m.role || 'user';
     info['sessionID'] = m.sessionID || '';
-    info['agent'] = 'build';
+    info['agent'] = m.agent || 'build';
     const model: Record<string, Object> = {};
     model['id'] = m.modelID || '';
     model['providerID'] = m.providerID || '';
