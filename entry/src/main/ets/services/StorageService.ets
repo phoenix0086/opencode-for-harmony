@@ -1,6 +1,8 @@
 import { preferences } from '@kit.ArkData'
 import { Runner } from '../models/Runner'
 import { CNProvider } from '../models/Provider'
+import { Logger } from '../utils/Logger'
+import { errStr } from '../utils/ErrorUtil'
 
 const STORE_NAME = 'opencode_prefs'
 const RUNNERS_KEY = 'runners'
@@ -209,6 +211,80 @@ export class StorageService {
       return JSON.parse(raw) as Record<string, Object>
     } catch (e) {
       return null
+    }
+  }
+
+  // ─── Generic KV pass-through ──────────────────────────────────────────
+  // 让 MainViewModel / 其他模块能用统一的 getString/setString 接口
+  // 直接操作 preferences,避免再分裂出第二个 StorageService 实例。
+
+  async getString(key: string, defaultValue: string = ''): Promise<string> {
+    if (this.store === null) return defaultValue
+    try {
+      return (await this.store.get(key, defaultValue)) as string
+    } catch (e) {
+      Logger.error(`StorageService.getString(${key}) failed: ${errStr(e)}`)
+      return defaultValue
+    }
+  }
+
+  async setString(key: string, value: string): Promise<void> {
+    if (this.store === null) return
+    try {
+      await this.store.put(key, value)
+      await this.store.flush()
+    } catch (e) {
+      Logger.error(`StorageService.setString(${key}) failed: ${errStr(e)}`)
+    }
+  }
+
+  async getNumber(key: string, defaultValue: number = 0): Promise<number> {
+    if (this.store === null) return defaultValue
+    try {
+      return (await this.store.get(key, defaultValue)) as number
+    } catch (e) {
+      Logger.error(`StorageService.getNumber(${key}) failed: ${errStr(e)}`)
+      return defaultValue
+    }
+  }
+
+  async setNumber(key: string, value: number): Promise<void> {
+    if (this.store === null) return
+    try {
+      await this.store.put(key, value)
+      await this.store.flush()
+    } catch (e) {
+      Logger.error(`StorageService.setNumber(${key}) failed: ${errStr(e)}`)
+    }
+  }
+
+  async getBoolean(key: string, defaultValue: boolean = false): Promise<boolean> {
+    if (this.store === null) return defaultValue
+    try {
+      return (await this.store.get(key, defaultValue)) as boolean
+    } catch (e) {
+      Logger.error(`StorageService.getBoolean(${key}) failed: ${errStr(e)}`)
+      return defaultValue
+    }
+  }
+
+  async setBoolean(key: string, value: boolean): Promise<void> {
+    if (this.store === null) return
+    try {
+      await this.store.put(key, value)
+      await this.store.flush()
+    } catch (e) {
+      Logger.error(`StorageService.setBoolean(${key}) failed: ${errStr(e)}`)
+    }
+  }
+
+  async deleteKey(key: string): Promise<void> {
+    if (this.store === null) return
+    try {
+      await this.store.delete(key)
+      await this.store.flush()
+    } catch (e) {
+      Logger.error(`StorageService.delete(${key}) failed: ${errStr(e)}`)
     }
   }
 

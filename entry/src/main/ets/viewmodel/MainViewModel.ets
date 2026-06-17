@@ -1,6 +1,6 @@
 import { HttpService } from '../service/HttpService';
 import { WebSocketService } from '../service/WebSocketService';
-import { StorageService } from '../service/StorageService';
+import { StorageService } from '../services/StorageService';
 import { ServerInfo } from '../model/ServerInfo';
 import { ChatMessage, MessageRole, MessageStatus, ToolCall } from '../model/ChatMessage';
 import { ConnectionStatus, SessionInfo, ProviderInfo } from '../model/AppState';

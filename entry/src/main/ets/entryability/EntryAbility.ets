@@ -1,21 +1,21 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import hilog from '@ohos.hilog';
 import { window } from '@kit.ArkUI';
-import { StorageService } from '../service/StorageService';
 import { Logger } from '../utils/Logger';
 
 const DOMAIN: number = 0xFF00;
 
 /**
  * Main entry ability for the OpenCode HarmonyOS app.
- * Initializes storage, configures the window, and loads the main page.
+ * Initializes the app context, configures the window, and loads the main page.
+ *
+ * Storage is initialized lazily by Index.aboutToAppear via initStorageService(),
+ * not here — to avoid creating a third StorageService instance that holds a
+ * stale in-memory copy of preferences.
  */
 export default class EntryAbility extends UIAbility {
-  storageService: StorageService | null = null;
-
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, 'OpenCode', 'EntryAbility onCreate');
-    this.storageService = new StorageService(this.context);
     // Store context in AppStorage so pages can access it without deprecated getContext()
     AppStorage.setOrCreate<Context>('appContext', this.context);
   }

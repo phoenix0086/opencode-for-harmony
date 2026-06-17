@@ -87,6 +87,8 @@ export class ProviderRegistry {
 
   private mergeProvider(base: CNProvider, saved: CNProvider): CNProvider {
     const p = this.normalizeProvider(base)
+    // C3 fix: 之前丢掉了 saved.name,改名后 init() 会被默认值覆盖回滚
+    p.name = saved.name.length > 0 ? saved.name : base.name
     // User's enable/disable preference is preserved
     p.enabled = saved.enabled
     p.baseURL = saved.baseURL.length > 0 ? saved.baseURL : base.baseURL
@@ -94,8 +96,36 @@ export class ProviderRegistry {
     p.apiKeyMode = saved.apiKeyMode.length > 0 ? saved.apiKeyMode : 'env'
     p.apiKey = saved.apiKey
     p.authStatus = saved.authStatus.length > 0 ? saved.authStatus : (p.apiKey.length > 0 || p.apiKeyMode === 'env' ? 'configured' : 'missing')
-    p.headers = saved.headers.length > 0 ? saved.headers : []
-    if (saved.models.length > 0) p.models = saved.models
+    // C2 fix: 深拷贝 headers/models 数组,避免 addOrUpdateHeader/removeModel
+    // 之类的 mutator 反向污染 JSON.parse 解出来的 raw 对象,以及下次 init()
+    // merge 时把污染状态持久化进 storage。
+    if (saved.headers.length > 0) {
+      const headersCopy: ProviderHeader[] = []
+      for (const h of saved.headers) {
+        const nh = new ProviderHeader()
+        nh.name = h.name
+        nh.value = h.value
+        headersCopy.push(nh)
+      }
+      p.headers = headersCopy
+    } else {
+      p.headers = []
+    }
+    if (saved.models.length > 0) {
+      const modelsCopy: CNModel[] = []
+      for (const m of saved.models) {
+        const nm = new CNModel()
+        nm.id = m.id
+        nm.name = m.name
+        nm.coding = m.coding
+        nm.contextWindow = m.contextWindow
+        nm.maxOutput = m.maxOutput
+        nm.recommended = m.recommended
+        nm.enabled = m.enabled
+        modelsCopy.push(nm)
+      }
+      p.models = modelsCopy
+    }
     return p
   }
 

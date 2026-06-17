@@ -1,4 +1,4 @@
-import { StorageService } from '../service/StorageService';
+import { StorageService } from '../services/StorageService';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 

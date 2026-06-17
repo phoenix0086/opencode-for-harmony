@@ -1,7 +1,6 @@
 import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { MainViewModel, PendingPermission, PendingQuestion, QuestionOption } from '../viewmodel/MainViewModel';
-import { StorageService } from '../service/StorageService';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
@@ -115,9 +114,10 @@ struct Index {
       } catch (e) {
         Logger.warn(`Failed to load runtime connection mode: ${errStr(e)}`)
       }
-      const storage = new StorageService(this.context);
-      await storage.init();
-      await this.viewModel.init(storage);
+      // C1 fix: 之前是 new StorageService(...) + storage.init() 创建第二个实例,
+      // 跟 storageSingleton 各持一份 preferences.Preferences in-memory 缓存,
+      // 一边 put 一边 get 容易读到旧值。现在统一用 storageSingleton (initStorageService 已初始化)。
+      await this.viewModel.init(storageSingleton);
 
       // After init: fix URL to match current mode (especially after auto-fallback)
       if (autoFallbackDone) {
