@@ -264,6 +264,7 @@ export class LocalRuntimeService {
     // Fallback to config defaults
     if (s.providerID.length === 0) s.providerID = this.config.defaultProviderID;
     if (s.modelID.length === 0) s.modelID = this.config.defaultModelID;
+    s.agent = (input?.['agent'] as string) || s.agent;
 
     this.sessions.push(s);
     this.messages.set(s.id, []);
@@ -1005,6 +1006,7 @@ export class LocalRuntimeService {
         s.workspace = (r['workspace'] as string) || '';
         s.providerID = (r['providerID'] as string) || '';
         s.modelID = (r['modelID'] as string) || '';
+        s.agent = (r['agent'] as string) || 'build';
         s.createdAt = (r['createdAt'] as number) || 0;
         s.updatedAt = (r['updatedAt'] as number) || 0;
         s.messageCount = (r['messageCount'] as number) || 0;

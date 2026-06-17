@@ -62,6 +62,7 @@ export class LocalSession {
   workspace: string = '';
   providerID: string = '';
   modelID: string = '';
+  agent: string = 'build';
   createdAt: number = 0;
   updatedAt: number = 0;
   messageCount: number = 0;

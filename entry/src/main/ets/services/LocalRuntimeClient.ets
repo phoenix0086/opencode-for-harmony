@@ -199,7 +199,7 @@ export class LocalRuntimeClient {
     info.createdAt = String(s.createdAt || 0);
     info.updatedAt = String(s.updatedAt || 0);
     info.model = s.modelID || '';
-    info.agent = 'build';
+    info.agent = s.agent || 'build';
     return info;
   }
 
