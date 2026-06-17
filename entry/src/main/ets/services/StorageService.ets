@@ -86,8 +86,41 @@ export class StorageService {
     if (this.store === null) return []
     try {
       const raw = await this.store.get(PROVIDERS_KEY, '[]') as string
-      return JSON.parse(raw) as CNProvider[]
-    } catch {
+      const parsed: Object = JSON.parse(raw)
+      if (!Array.isArray(parsed)) {
+        Logger.warn(`loadProviders: persisted value is not an array, discarding`)
+        return []
+      }
+      // S2 fix: 校验每个元素的最小必填字段,无效项跳过而不是全量保留。
+      // 之前直接 `as CNProvider[]` 会在后续访问 p.id / p.models 时才炸,
+      // 错误定位更困难。这里一次性过滤。
+      const valid: CNProvider[] = []
+      for (const item of parsed as Object[]) {
+        if (!item || typeof item !== 'object') continue
+        const prov = item as Record<string, Object>
+        if (typeof prov['id'] !== 'string' || (prov['id'] as string).length === 0) continue
+        if (typeof prov['name'] !== 'string' || (prov['name'] as string).length === 0) continue
+        const cp = new CNProvider()
+        cp.id = prov['id'] as string
+        cp.name = prov['name'] as string
+        cp.baseURL = typeof prov['baseURL'] === 'string' ? (prov['baseURL'] as string) : ''
+        cp.npm = typeof prov['npm'] === 'string' ? (prov['npm'] as string) : '@ai-sdk/openai-compatible'
+        cp.apiKey = typeof prov['apiKey'] === 'string' ? (prov['apiKey'] as string) : ''
+        cp.apiKeyMode = (prov['apiKeyMode'] === 'env' || prov['apiKeyMode'] === 'direct') ? (prov['apiKeyMode'] as string) : 'env'
+        cp.authEnv = typeof prov['authEnv'] === 'string' ? (prov['authEnv'] as string) : 'OPENAI_API_KEY'
+        cp.apiKeyRef = typeof prov['apiKeyRef'] === 'string' ? (prov['apiKeyRef'] as string) : cp.authEnv
+        cp.enabled = prov['enabled'] === true
+        cp.builtIn = prov['builtIn'] === true
+        cp.authStatus = (prov['authStatus'] === 'configured' || prov['authStatus'] === 'missing' || prov['authStatus'] === 'error') ? (prov['authStatus'] as string) : (cp.apiKey.length > 0 ? 'configured' : 'missing')
+        // headers / models 不在这里重建,留给 ProviderRegistry.mergeProvider 处理 (它有更完整的深拷贝逻辑)
+        if (Array.isArray(prov['headers'])) cp.headers = prov['headers'] as Object[] as never
+        if (Array.isArray(prov['models'])) cp.models = prov['models'] as Object[] as never
+        valid.push(cp)
+      }
+      Logger.info(`loadProviders: kept ${valid.length}/${parsed.length} entries after validation`)
+      return valid
+    } catch (e) {
+      Logger.warn(`loadProviders parse failed: ${errStr(e)}`)
       return []
     }
   }

@@ -121,6 +121,9 @@ export class MainViewModel {
     } catch (err) {
       this.connectionStatus = ConnectionStatus.Error
       this.errorMessage = errStr(err)
+      // W1 fix: 同步更新 serverStatusMessage,否则左侧 "Start Failed" 标签 + 
+      // RuntimeDisconnectedCard 会显示上次的残留文本
+      this.serverStatusMessage = `连接失败: ${errStr(err)}`
       this.serverInfo.connected = false
       this.serverInfo.healthOk = false
       Logger.error(`Connection failed: ${errStr(err)}`)
@@ -265,7 +268,10 @@ export class MainViewModel {
       this.providers = next
       Logger.info(`providers.loaded count=${next.length}`)
     } catch (err) {
+      // W2 fix: 之前静默把 providers 清空,user 看到空列表但不知道为什么。
+      // 现在把 errorMessage 设上,Provider 页能显示该状态
       Logger.error(`loadProviders failed: ${errStr(err)}`)
+      this.errorMessage = `加载 Provider 列表失败: ${errStr(err)}`
       this.providers = []
     }
   }

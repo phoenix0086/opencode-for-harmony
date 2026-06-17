@@ -331,7 +331,8 @@ struct Index {
           this.currentView = AppView.Chat
         },
         onOpenSettings: () => {
-          this.showSettings = !this.showSettings
+          this.settingsTab = 'general'
+          this.showSettings = true
         },
         onOpenHelp: () => {
           this.showHelpDialog = true
@@ -371,28 +372,6 @@ struct Index {
         this.HelpDialog()
       }
 
-      // ── Settings 全屏覆盖 (从 Home 齿轮按钮进入) ──
-      if (this.showSettings) {
-        Column() {
-          Row() {
-            Text('← 返回')
-              .fontSize(13)
-              .fontColor('#FFFFFF')
-              .padding({ left: 16, top: 12, bottom: 12 })
-              .onClick(() => {
-                this.showSettings = false
-              })
-          }
-          .width('100%')
-          .height(44)
-          .backgroundColor('#1A1A1A')
-
-          this.SettingsContent()
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#111111')
-      }
     }
     .width('100%')
     .height('100%')
@@ -438,17 +417,14 @@ struct Index {
             .color('#404040')
             .width('100%')
 
-          // Nav items — 菜单收口,只保留 4 个一级入口
-          // Chat / Projects (Files) / AI 配置 (Models) / Settings
+          // Nav items — Settings 走弹窗,Provider / Model 收口在 Settings 内
           // Home / Provider / Runtime / WebView / Terminal 不再作为一级路由:
           //   - Home 仍是启动页(currentView 默认值,走 FullScreenHome)
-          //   - Provider 配置在 PR 2 抽到 AiConfigPage
+          //   - Provider / Model 配置在 Settings 弹窗
           //   - Runtime/WebView/Terminal 在 PR 3 移到 Settings → Advanced
           Column() {
             this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
             this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
-            this.NavItem(AppView.Models, $r('app.media.settings'), 'AI 配置')
-            this.NavItem(AppView.Settings, $r('app.media.settings'), 'Settings')
           }
           .width('100%')
           .layoutWeight(1)
@@ -489,7 +465,8 @@ struct Index {
           .height(44)
           .backgroundColor(Color.Transparent)
           .onClick(() => {
-            this.showSettings = !this.showSettings;
+            this.settingsTab = 'general'
+            this.showSettings = true;
           })
         }
         .width(Constants.SIDEBAR_WIDTH)
@@ -521,21 +498,14 @@ struct Index {
 
       // Main content area
       Column() {
-        if (this.showSettings) {
-          // 兼容 FullScreenHome 齿轮按钮触发的 overlay 形态
-          this.SettingsContent()
-        } else if (this.currentView === AppView.Home) {
+        if (this.currentView === AppView.Home) {
           this.HomeContent()
         } else if (this.currentView === AppView.Chat) {
           this.ChatContent()
         } else if (this.currentView === AppView.Files) {
           this.FilesContent()
-        } else if (this.currentView === AppView.Models) {
-          // PR 2:AI 配置页独立为 AiConfigPage,两个 Tab(模型选择 / 供应商配置)
-          AiConfigPage()
         } else if (this.currentView === AppView.Settings) {
-          // 菜单收口后,Settings 走 NavItem → 路由,不再走 overlay
-          this.SettingsContent()
+          this.HomeContent()
         } else if (this.currentView === AppView.Provider) {
           // 菜单已隐藏 Provider,保留路由入口以便深链接 / 后续 PR 4 清理
           ProviderPage({ activeRunner: null })
@@ -788,6 +758,8 @@ struct Index {
           .fontSize(14)
           .margin({ left: 8 })
           .onClick(() => {
+            // S5 fix: 给用户即时反馈,让"按下去有事发生"这件事可见
+            promptAction.showToast({ message: '正在重启 Runtime...', duration: 1500 })
             this.viewModel.autoStartAndConnect()
           })
       }
@@ -1159,6 +1131,9 @@ struct Index {
     if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
       this.viewModel.errorMessage = '本地 Runtime 未连接。请先启动或连接 Runtime。'
       this.viewModel.serverStatusMessage = this.viewModel.errorMessage
+      // W3 fix: 显式 toast,用户按 Send 后立刻看到反馈,
+      // RuntimeDisconnectedCard 已经在显示了,但那是被动反馈,toast 是主动反馈
+      promptAction.showToast({ message: '本地 Runtime 未连接,请先启动或连接', duration: 2000 })
       return
     }
 
@@ -1381,7 +1356,44 @@ struct Index {
     .height('100%')
   }
 
-  // ── ModelsContent 已迁出到 AiConfigPage 的"模型选择"Tab(PR 2) ──
+  // ── Settings 弹窗: 与桌面版一致,覆盖在当前页面上方而不是替换主内容 ──
+
+  @Builder
+  SettingsModal() {
+    Stack({ alignContent: Alignment.Center }) {
+      Rect()
+        .fill('#00000099')
+        .width('100%')
+        .height('100%')
+        .onClick(() => {
+          this.showSettings = false
+          this.closeProviderDialog()
+        })
+
+      Stack() {
+        this.SettingsContent()
+
+        if (this.showProviderDialog) {
+          ProviderConnectDialog({
+            visible: this.showProviderDialog,
+            prefill: this.providerDialogPrefill,
+            onCancel: () => this.closeProviderDialog(),
+            onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
+          })
+        }
+      }
+      .width('74%')
+      .height('72%')
+      .borderRadius(12)
+      .clip(true)
+      .borderWidth(1)
+      .borderColor('#2A2A2A')
+      .shadow({ radius: 28, color: '#66000000', offsetX: 0, offsetY: 14 })
+    }
+    .width('100%')
+    .height('100%')
+    .zIndex(1000)
+  }
 
   @Builder
   SettingsContent() {
@@ -1395,17 +1407,25 @@ struct Index {
           .width('100%')
           .padding({ left: 20, top: 20, bottom: 16 })
 
-        // PR 3:Settings 收敛,只保留 5 个 Tab
-        // 通用 / 外观 / 快捷键 / 权限 / 高级
-        // 提供商 / 模型 / 服务器 已迁出:
-        //   - 提供商 / 模型 → AI 配置(Tab 供应商配置 / 模型选择)
-        //   - 服务器 → 高级
-        // Runtime / WebUI / Terminal / Logs 也在 高级
+        Text('桌面')
+          .fontSize(13)
+          .fontColor('#777777')
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .padding({ left: 20, top: 8, bottom: 6 })
         this.SettingNavItem('通用', 'general')
-        this.SettingNavItem('外观', 'appearance')
+        this.SettingNavItem('桌面', 'desktop')
         this.SettingNavItem('快捷键', 'shortcuts')
-        this.SettingNavItem('权限', 'permissions')
-        this.SettingNavItem('高级', 'advanced')
+
+        Text('服务器')
+          .fontSize(13)
+          .fontColor('#777777')
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .padding({ left: 20, top: 18, bottom: 6 })
+        this.SettingNavItem('服务器', 'servers')
+        this.SettingNavItem('提供商', 'providers')
+        this.SettingNavItem('模型', 'models')
 
         Blank()
 
@@ -1423,23 +1443,17 @@ struct Index {
         Column() {
           if (this.settingsTab === 'general') {
             this.SettingsGeneralContent()
-          } else if (this.settingsTab === 'appearance') {
-            // 外观:原 桌面 内容(主题 / 字号 / 通知)
+          } else if (this.settingsTab === 'desktop') {
             this.SettingsDesktopContent()
           } else if (this.settingsTab === 'shortcuts') {
             this.SettingsShortcutsContent()
-          } else if (this.settingsTab === 'permissions') {
-            // PR 3:权限策略(占位)
-            this.SettingsPermissionsContent()
-          } else if (this.settingsTab === 'advanced') {
-            // PR 3:高级(Runtime / WebUI / Terminal / Logs / Developer Mode)
-            this.SettingsAdvancedContent()
-          } else if (this.settingsTab === 'servers_legacy') {
-            // PR 3:服务器配置(从 Settings → 高级 跳转过来),内容保留原 servers tab
+          } else if (this.settingsTab === 'servers') {
             this.SettingsServerContent()
+          } else if (this.settingsTab === 'providers') {
+            this.SettingsProvidersContent()
+          } else if (this.settingsTab === 'models') {
+            this.SettingsModelsContent()
           } else {
-            // 已迁出的 legacy tabs(providers / models / servers)走兜底:
-            // 直接跳到 通用,避免空白页
             this.SettingsGeneralContent()
           }
         }
@@ -1452,6 +1466,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor('#111111')
   }
 
   @Builder
@@ -2223,6 +2238,7 @@ struct Index {
         input.providerId = this.editingProviderId
       }
       const result = await providerConnectionService.connectProvider(input, null)
+      await localRuntimeService.syncFromProviderRegistry()
       this.showProviderDialog = false
       await this.viewModel.loadProviders()
       const message = result.ok
@@ -2326,17 +2342,6 @@ struct Index {
       }, (p: ProviderInfo) => p.id)
     }
 
-    Stack() {
-      ProviderConnectDialog({
-        visible: this.showProviderDialog,
-        prefill: this.providerDialogPrefill,
-        onCancel: () => this.closeProviderDialog(),
-        onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
-      })
-    }
-    .position({ x: 0, y: 0 })
-    .width('100%')
-    .height('100%')
   }
 
   // ══════════════════════════════════════════════════════════
@@ -2350,76 +2355,108 @@ struct Index {
       .fontColor('#FFFFFF')
       .margin({ bottom: 20 })
 
-    Text('当前选中')
-      .fontSize(14)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 8 })
-
-    TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
+    TextInput({ placeholder: '搜索模型', text: this.settingsModelSearch })
       .width('100%')
-      .height(40)
-      .backgroundColor('#2D2D2D')
-      .borderRadius(8)
+      .height(44)
+      .backgroundColor('#1A1A1A')
+      .borderRadius(10)
       .fontColor('#FFFFFF')
-      .margin({ bottom: 16 })
+      .margin({ bottom: 22 })
       .onChange((value: string) => {
-        this.viewModel.selectedModel = value
+        this.settingsModelSearch = value
       })
 
-    Button('保存')
-      .height(36)
-      .backgroundColor('#007DFF')
-      .fontColor('#FFFFFF')
-      .borderRadius(8)
-      .margin({ bottom: 24 })
-      .onClick(() => {
-        this.viewModel.saveServerConfig()
-        this.viewModel.syncModelToRuntime()
-      })
-
-    // 按提供商分组显示可用模型
     if (this.viewModel.providers.length > 0) {
-      Text('可用模型')
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .margin({ bottom: 12 })
-
       ForEach(this.viewModel.providers, (p: ProviderInfo) => {
         if (p.models.length > 0) {
-          Text(p.name)
-            .fontSize(13)
-            .fontColor('#FFFFFF')
-            .margin({ top: 12, bottom: 8 })
+          Row() {
+            Text(p.name.length > 0 ? p.name : p.id)
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+            Text(p.connected ? '已连接' : '未连接')
+              .fontSize(11)
+              .fontColor(p.connected ? '#00C853' : '#999999')
+              .backgroundColor(p.connected ? '#14351F' : '#2A2A2A')
+              .borderRadius(4)
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .margin({ left: 10 })
+          }
+          .width('100%')
+          .margin({ top: 20, bottom: 10 })
 
-          ForEach(p.models, (modelId: string) => {
-            Row() {
-              Text(`${p.id}/${modelId}`)
-                .fontSize(13)
-                .fontColor('#FFFFFF')
-                .fontFamily('monospace')
-                .layoutWeight(1)
+          Column() {
+            ForEach(p.models, (modelId: string) => {
+              if (this.modelVisible(p.id, modelId)) {
+                Row() {
+                  Text(this.modelDisplayName(modelId))
+                    .fontSize(15)
+                    .fontColor('#FFFFFF')
+                    .layoutWeight(1)
 
-              if (this.viewModel.selectedModel === `${p.id}/${modelId}`) {
-                Text('✓')
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
+                  Toggle({
+                    type: ToggleType.Switch,
+                    isOn: this.viewModel.selectedModel === `${p.id}/${modelId}`
+                  })
+                    .selectedColor('#FFFFFF')
+                    .onChange(async (isOn: boolean) => {
+                      if (!isOn) return
+                      this.viewModel.selectedModel = `${p.id}/${modelId}`
+                      try {
+                        await this.viewModel.saveServerConfig()
+                        await this.viewModel.syncModelToRuntime()
+                        promptAction.showToast({ message: `已选择 ${this.modelDisplayName(modelId)}` })
+                      } catch (e) {
+                        promptAction.showToast({ message: '模型保存失败: ' + errStr(e) })
+                      }
+                    })
+                }
+                .width('100%')
+                .height(58)
+                .padding({ left: 16, right: 16 })
+                .borderColor('#2A2A2A')
+                .borderWidth({ bottom: 1 })
+                .onClick(async () => {
+                  this.viewModel.selectedModel = `${p.id}/${modelId}`
+                  try {
+                    await this.viewModel.saveServerConfig()
+                    await this.viewModel.syncModelToRuntime()
+                  } catch (e) {
+                    promptAction.showToast({ message: '模型保存失败: ' + errStr(e) })
+                  }
+                })
               }
-            }
-            .width('100%')
-            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-            .backgroundColor(this.viewModel.selectedModel === `${p.id}/${modelId}` ? '#1A2A3D' : '#1E1E1E')
-            .borderRadius(6)
-            .margin({ bottom: 4 })
-            .onClick(() => {
-              this.viewModel.selectedModel = `${p.id}/${modelId}`
-              this.viewModel.saveServerConfig()
-              this.viewModel.syncModelToRuntime()
-            })
-          }, (modelId: string) => `${p.id}/${modelId}`)
+            }, (modelId: string) => `${p.id}/${modelId}`)
+          }
+          .width('100%')
+          .backgroundColor('#171717')
+          .borderRadius(10)
         }
       }, (p: ProviderInfo) => p.id)
+    } else {
+      Text('未读取到模型。请先在提供商页添加或连接供应商。')
+        .fontSize(13)
+        .fontColor('#999999')
+        .padding(18)
+        .backgroundColor('#171717')
+        .borderRadius(10)
     }
+  }
+
+  private modelVisible(providerId: string, modelId: string): boolean {
+    const q = this.settingsModelSearch.trim().toLowerCase()
+    if (q.length === 0) return true
+    return providerId.toLowerCase().includes(q) || modelId.toLowerCase().includes(q)
+  }
+
+  private modelDisplayName(modelId: string): string {
+    const parts = modelId.split('-')
+    const names: string[] = []
+    for (const part of parts) {
+      if (part.length === 0) continue
+      names.push(part.charAt(0).toUpperCase() + part.slice(1))
+    }
+    return names.length > 0 ? names.join(' ') : modelId
   }
 
   private getStatusColor(): ResourceColor {
