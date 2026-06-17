@@ -63,6 +63,7 @@ export struct OpenCodeHomeLaunch {
   onOpenFiles: () => void = () => {}
   onOpenModels: () => void = () => {}
   onOpenProject: (directory: string) => void = () => {}
+  onOpenProviders: () => void = () => {}
 
   // 修复 W2: 删死代码 serverLabel/serverDotColor,CenterPane 不用了,
   // LocalServerButton 也已删。保留 serverName/isServerReady/isConnected
@@ -235,6 +236,11 @@ export struct OpenCodeHomeLaunch {
   @Builder
   CenterPane() {
     Column() {
+      // S1 fix: 缺 API key 时显示顶部 banner,引导用户去 Provider 设置
+      if (this.hasMissingApiKey) {
+        this.MissingApiKeyBanner()
+      }
+
       // 上半部:居中 Logo (用户要求移除 Local Server 状态按钮)
       Column() {
         this.OpenCodeLogo()
@@ -257,6 +263,40 @@ export struct OpenCodeHomeLaunch {
   }
 
   // 修复 W2: 删 LocalServerButton,CenterPane 顶部只留 Logo
+
+  @Builder
+  MissingApiKeyBanner() {
+    // 顶部醒目 banner:警告色 + 简短说明 + "去配置" 按钮
+    // 仅在 hasMissingApiKey === true 时由 CenterPane 渲染
+    Row() {
+      Text('⚠')
+        .fontSize(16)
+        .fontColor('#FFB454')
+        .margin({ right: 10 })
+
+      Text('默认 Provider 尚未配置 API key,无法发送消息')
+        .fontSize(13)
+        .fontColor('#FFFFFF')
+        .layoutWeight(1)
+
+      Text('去配置')
+        .fontSize(12)
+        .fontColor('#101010')
+        .fontWeight(FontWeight.Medium)
+        .height(28)
+        .padding({ left: 12, right: 12 })
+        .borderRadius(6)
+        .backgroundColor('#FFB454')
+        .onClick(() => this.onOpenProviders())
+    }
+    .width('100%')
+    .height(44)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor('#2a1f0e')
+    .borderWidth({ bottom: 1 })
+    .borderColor('#3d2e15')
+    .alignItems(VerticalAlign.Center)
+  }
 
   @Builder
   OpenCodeLogo() {

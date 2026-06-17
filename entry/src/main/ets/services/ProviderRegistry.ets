@@ -263,6 +263,24 @@ export class ProviderRegistry {
     return refs
   }
 
+  /**
+   * 返回启用的 provider 中 authStatus === 'missing' 的子集。
+   * 用于首页判断"是否需要提示用户填 API key"。
+   * 状态可能取值:'configured' | 'missing' | 'error',只有 'missing' 算真缺
+   */
+  getMissingProviders(): CNProvider[] {
+    const missing: CNProvider[] = []
+    for (const p of this.providers) {
+      if (p.enabled && p.authStatus === 'missing') missing.push(p)
+    }
+    return missing
+  }
+
+  /** 是否有任何启用的 provider 缺 API key,首页 banner 用 */
+  hasMissingApiKey(): boolean {
+    return this.getMissingProviders().length > 0
+  }
+
   maskApiKey(apiKey: string): string {
     if (apiKey.length === 0) return ''
     if (apiKey.length <= 8) return '****'

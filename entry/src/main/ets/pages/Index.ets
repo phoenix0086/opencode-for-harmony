@@ -39,6 +39,8 @@ struct Index {
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
   @State inputText: string = '';
+  // S1 fix: Provider 缺 API key 时 home 顶部显示 banner;onPageShow 每次重读
+  @State hasMissingApiKey: boolean = false
 
   // ── Settings 页面状态 ──
   @State settingsTab: string = 'general'
@@ -90,6 +92,21 @@ struct Index {
 
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
+  // S1 fix: 每次进入页面都重读 providerRegistry.hasMissingApiKey(),
+  // 这样用户从 Provider 页填好 key 回 home,banner 自动消失
+  onPageShow(): void {
+    this.refreshProviderMissingState()
+  }
+
+  private refreshProviderMissingState(): void {
+    try {
+      this.hasMissingApiKey = providerRegistry.hasMissingApiKey()
+    } catch (e) {
+      // providerRegistry.init() 还没跑过,默认 false
+      this.hasMissingApiKey = false
+    }
+  }
+
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
       // Initialize the services/ StorageService singleton (used by ProviderRegistry)
@@ -128,6 +145,8 @@ struct Index {
 
       this.initialized = true;
       Logger.info('Index page initialized, starting auto-connect...');
+      // S1 fix: 加载 provider 后立刻同步 banner 状态,首屏就能看到
+      this.refreshProviderMissingState();
       // 修复 W6: autoStartAndConnect 和 loadRecentProjects 互不依赖,
       // 改为 Promise.allSettled 并行,首屏更流畅。
       // 使用 allSettled 而非 all，确保一个失败不影响另一个完成。
@@ -324,6 +343,8 @@ struct Index {
                         this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ||
                         this.viewModel.connectionStatus === ConnectionStatus.Connecting ||
                         this.viewModel.connectionStatus === ConnectionStatus.StartFailed,
+        // S1 fix: 缺 API key 时 home 顶部显示 banner
+        hasMissingApiKey: this.hasMissingApiKey,
         onNewSession: () => {
           this.newSessionAndOpenChat()
         },
@@ -345,6 +366,11 @@ struct Index {
         },
         onOpenProject: (directory: string) => {
           this.openProject(directory)
+        },
+        onOpenProviders: () => {
+          // 直接跳到 Settings 的 providers tab,不用先开 Settings 再切 tab
+          this.settingsTab = 'providers'
+          this.showSettings = true
         }
       })
 
