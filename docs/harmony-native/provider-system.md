@@ -1,6 +1,6 @@
 # OpenCode Provider System — Comprehensive Reference
 
-This document is a deep-dive into how the OpenCode upstream codebase defines, registers, configures, and authenticates AI providers. All file paths are relative to `/Volumes/MyDisk/coding/opencode-upstream/`.
+This document is a deep-dive into how the OpenCode upstream codebase defines, registers, configures, and authenticates AI providers. All file paths are relative to the OpenCode upstream source directory.
 
 ---
 
