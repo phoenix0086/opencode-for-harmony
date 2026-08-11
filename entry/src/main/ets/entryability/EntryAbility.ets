@@ -2,6 +2,7 @@ import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import hilog from '@ohos.hilog';
 import { window } from '@kit.ArkUI';
 import { Logger } from '../utils/Logger';
+import { errStr } from '../utils/ErrorUtil';
 
 const DOMAIN: number = 0xFF00;
 
@@ -36,6 +37,17 @@ export default class EntryAbility extends UIAbility {
 
       // Set up window for 2-in-1 (laptop) use
       win.setWindowLayoutFullScreen(false);
+
+      // Follow the device sensor in both portrait and landscape. AUTO_ROTATION
+      // intentionally ignores the system rotation lock, so the phone client
+      // remains rotatable even when the quick-setting toggle is disabled.
+      win.setPreferredOrientation(window.Orientation.AUTO_ROTATION)
+        .then(() => {
+          Logger.info('Window orientation set to AUTO_ROTATION');
+        })
+        .catch((orientationError: Object) => {
+          Logger.warn(`Failed to enable auto rotation: ${errStr(orientationError)}`);
+        });
 
       // Set system bar colors
       const sysBarProps: window.SystemBarProperties = {

@@ -49,6 +49,7 @@ export struct OpenCodeHomeLaunch {
   @Prop projects: ProjectEntry[] = []
   @Prop serverName: string = 'Local Server'
   @Prop isServerReady: boolean = false
+  @Prop hasMissingApiKey: boolean = false
 
   onInputChange: (value: string) => void = () => {}
   onSend: () => void = () => {}
@@ -442,7 +443,7 @@ export struct OpenCodeHomeLaunch {
         .fontWeight(FontWeight.Medium)
         .margin({ top: 14 })
 
-      Text('选择一个本地目录作为工作区')
+      Text('选择电脑上已由 OpenCode 识别的项目')
         .fontSize(12)
         .fontColor('#FFFFFF')
         .margin({ top: 6 })

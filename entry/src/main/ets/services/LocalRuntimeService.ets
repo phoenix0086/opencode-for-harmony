@@ -987,7 +987,21 @@ export class LocalRuntimeService {
 
   private async saveProviders(): Promise<void> {
     try {
-      await this.prefsSet('local_providers', JSON.stringify(this.providers));
+      const persisted: LocalProviderConfig[] = [];
+      for (const provider of this.providers) {
+        const copy = new LocalProviderConfig();
+        copy.id = provider.id;
+        copy.name = provider.name;
+        copy.enabled = provider.enabled;
+        copy.protocol = provider.protocol;
+        copy.baseURL = provider.baseURL;
+        copy.apiKey = '';
+        copy.apiKeyEnv = provider.apiKeyEnv;
+        copy.headers = provider.headers;
+        copy.models = provider.models;
+        persisted.push(copy);
+      }
+      await this.prefsSet('local_providers', JSON.stringify(persisted));
     } catch (e) {
       Logger.warn(`saveProviders failed: ${errStr(e)}`);
     }

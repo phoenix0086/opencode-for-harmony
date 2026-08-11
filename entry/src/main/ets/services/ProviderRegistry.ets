@@ -89,13 +89,18 @@ export class ProviderRegistry {
     const p = this.normalizeProvider(base)
     // C3 fix: 之前丢掉了 saved.name,改名后 init() 会被默认值覆盖回滚
     p.name = saved.name.length > 0 ? saved.name : base.name
+    p.npm = saved.npm.length > 0 ? saved.npm : base.npm
     // User's enable/disable preference is preserved
     p.enabled = saved.enabled
     p.baseURL = saved.baseURL.length > 0 ? saved.baseURL : base.baseURL
     p.authEnv = saved.authEnv.length > 0 ? saved.authEnv : base.authEnv
+    p.authMode = saved.authMode.length > 0 ? saved.authMode : base.authMode
     p.apiKeyMode = saved.apiKeyMode.length > 0 ? saved.apiKeyMode : 'env'
     p.apiKey = saved.apiKey
+    p.apiKeyRef = saved.apiKeyRef.length > 0 ? saved.apiKeyRef : p.authEnv
     p.authStatus = saved.authStatus.length > 0 ? saved.authStatus : (p.apiKey.length > 0 || p.apiKeyMode === 'env' ? 'configured' : 'missing')
+    p.notes = saved.notes
+    p.builtIn = saved.builtIn
     // C2 fix: 深拷贝 headers/models 数组,避免 addOrUpdateHeader/removeModel
     // 之类的 mutator 反向污染 JSON.parse 解出来的 raw 对象,以及下次 init()
     // merge 时把污染状态持久化进 storage。
@@ -166,6 +171,7 @@ export class ProviderRegistry {
     p.apiKeyMode = mode === 'direct' ? 'direct' : 'env'
     p.apiKey = apiKey
     p.authStatus = apiKey.length > 0 || p.apiKeyMode === 'env' ? 'configured' : 'missing'
+    if (apiKey.length === 0) await storageService.removeProviderCredential(providerId)
     await this.save()
     return true
   }
@@ -216,6 +222,66 @@ export class ProviderRegistry {
     const kept: CNProvider[] = []
     for (const p of this.providers) if (p.id !== providerId) kept.push(p)
     this.providers = kept
+    await storageService.removeProviderCredential(providerId)
+    await this.save()
+  }
+
+  /**
+   * Replace one provider atomically and persist once. This keeps edits exact:
+   * removed models/headers stay removed and an intentionally cleared API key
+   * is not restored by incremental update logic.
+   */
+  async upsertProvider(raw: CNProvider): Promise<void> {
+    const p = new CNProvider()
+    p.id = raw.id
+    p.name = raw.name
+    p.npm = raw.npm
+    p.baseURL = raw.baseURL
+    p.authEnv = raw.authEnv
+    p.authMode = raw.authMode
+    p.apiKeyMode = raw.apiKeyMode
+    p.apiKey = raw.apiKey
+    p.apiKeyRef = raw.apiKeyRef
+    p.enabled = raw.enabled
+    p.authStatus = raw.authStatus
+    p.notes = raw.notes
+
+    const existing = this.getById(raw.id)
+    p.builtIn = existing !== undefined ? existing.builtIn : raw.builtIn
+    if (existing !== undefined && existing.apiKey.length > 0 && raw.apiKey.length === 0) {
+      await storageService.removeProviderCredential(raw.id)
+    }
+
+    for (const sourceHeader of raw.headers) {
+      const header = new ProviderHeader()
+      header.name = sourceHeader.name
+      header.value = sourceHeader.value
+      p.headers.push(header)
+    }
+    for (const sourceModel of raw.models) {
+      const model = new CNModel()
+      model.id = sourceModel.id
+      model.name = sourceModel.name
+      model.coding = sourceModel.coding
+      model.contextWindow = sourceModel.contextWindow
+      model.maxOutput = sourceModel.maxOutput
+      model.recommended = sourceModel.recommended
+      model.enabled = sourceModel.enabled
+      p.models.push(model)
+    }
+
+    let replaced = false
+    const next: CNProvider[] = []
+    for (const current of this.providers) {
+      if (current.id === p.id) {
+        next.push(p)
+        replaced = true
+      } else {
+        next.push(current)
+      }
+    }
+    if (!replaced) next.push(p)
+    this.providers = next
     await this.save()
   }
 

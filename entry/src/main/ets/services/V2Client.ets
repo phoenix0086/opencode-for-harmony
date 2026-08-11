@@ -11,6 +11,7 @@ import {
 } from './V2Type'
 import { ModelV2Info, NormalizedMessage, NormalizedPart } from '../models/Event'
 import { errStr } from '../utils/ErrorUtil'
+import { Logger } from '../utils/Logger'
 
 /**
  * V2 API wrapper.
@@ -33,13 +34,20 @@ export class V2Client {
   }
 
   /**
-   * Stop and remove ALL active PTY stream pollers. Should be called when
-   * the V2Client is no longer needed (e.g. on app shutdown or when
-   * disconnecting from a different server) to avoid orphaned timers.
+   * BUG-02 (defensive): 停止并移除所有活跃的 PTY/流轮询器。
+   * 必须在 V2Client 不再需要时调用 (例如应用退出、或切换到其他 server),
+   * 否则 V2StreamPoller 的 setTimeout 在组件销毁后继续触发, 造成定时器泄漏。
+   *
+   * 当前 PTY 轮询 (V2Client/V2StreamPoller) 为未接线的死代码, 暂无调用方;
+   * 一旦在 PtyPanel/AppShell 接入, 务必在 aboutToDisappear 中调用本方法。
    */
   closeAll(): void {
     for (const poller of this.streamPollers.values()) {
-      poller.stop()
+      try {
+        poller.stop()
+      } catch (e) {
+        Logger.error(`V2Client.closeAll: 停止 poller 失败: ${errStr(e)}`)
+      }
     }
     this.streamPollers.clear()
   }
@@ -558,6 +566,7 @@ export class V2Client {
       const resp = await this.client.doGet(path)
       return this.toV2Response(resp)
     } catch (e) {
+      Logger.error(`V2Client GET ${path} failed: ${errStr(e)}`)
       const out = new V2Response()
       out.ok = false
       out.status = 0
@@ -571,6 +580,7 @@ export class V2Client {
       const resp = await this.client.doPost(path, JSON.stringify(body))
       return this.toV2Response(resp)
     } catch (e) {
+      Logger.error(`V2Client POST ${path} failed: ${errStr(e)}`)
       const out = new V2Response()
       out.ok = false
       out.status = 0
@@ -585,6 +595,7 @@ export class V2Client {
       const resp = await this.client.doDelete(path)
       return this.toV2Response(resp)
     } catch (e) {
+      Logger.error(`V2Client DELETE ${path} failed: ${errStr(e)}`)
       const out = new V2Response()
       out.ok = false
       out.status = 0

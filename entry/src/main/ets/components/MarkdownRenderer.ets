@@ -10,6 +10,10 @@ export class MdSegment {
   level: number = 1
   items: string[] = []
   ordered: boolean = false
+  // PERF-02: 行内样式片段, 在 onContentChanged 中预解析一次, 避免 build 时重复 parseInline。
+  inlineSpans: InlineSpan[] = []
+  // PERF-02: 列表项各自的行内片段 (与 items 一一对应)。
+  itemSpans: InlineSpan[][] = []
 }
 
 /**
@@ -255,7 +259,16 @@ export struct MarkdownRenderer {
   }
 
   onContentChanged() {
-    this.parsedSegments = MarkdownParser.parse(this.content)
+    const segs = MarkdownParser.parse(this.content)
+    // PERF-02: 在内容变更时统一预解析行内片段, 后续 build() 直接复用, 不再重复 parseInline。
+    for (const seg of segs) {
+      if (seg.type === 'list') {
+        seg.itemSpans = seg.items.map((it: string): InlineSpan[] => MarkdownParser.parseInline(it))
+      } else if (seg.type !== 'codeBlock' && seg.type !== 'hr') {
+        seg.inlineSpans = MarkdownParser.parseInline(seg.text)
+      }
+    }
+    this.parsedSegments = segs
   }
 
   build() {
@@ -286,7 +299,7 @@ export struct MarkdownRenderer {
   @Builder
   RenderHeading(seg: MdSegment) {
     Text() {
-      ForEach(MarkdownParser.parseInline(seg.text), (sp: InlineSpan) => {
+      ForEach(seg.inlineSpans, (sp: InlineSpan) => {
         this.RenderSpan(sp, this.headingSize(seg.level))
       }, (sp: InlineSpan, idx: number) => `h-${idx}`)
     }
@@ -300,7 +313,7 @@ export struct MarkdownRenderer {
   @Builder
   RenderParagraph(seg: MdSegment) {
     Text() {
-      ForEach(MarkdownParser.parseInline(seg.text), (sp: InlineSpan) => {
+      ForEach(seg.inlineSpans, (sp: InlineSpan) => {
         this.RenderSpan(sp, this.baseFontSize)
       }, (sp: InlineSpan, idx: number) => `p-${idx}`)
     }
@@ -397,7 +410,7 @@ export struct MarkdownRenderer {
             .width(24)
 
           Text() {
-            ForEach(MarkdownParser.parseInline(item), (sp: InlineSpan) => {
+            ForEach(seg.itemSpans[idx] ?? [], (sp: InlineSpan) => {
               this.RenderSpan(sp, this.baseFontSize)
             }, (sp: InlineSpan, sidx: number) => `li-${sidx}`)
           }
@@ -428,7 +441,7 @@ export struct MarkdownRenderer {
         .margin({ right: Theme.sp.md })
 
       Text() {
-        ForEach(MarkdownParser.parseInline(seg.text), (sp: InlineSpan) => {
+        ForEach(seg.inlineSpans, (sp: InlineSpan) => {
           this.RenderSpan(sp, this.baseFontSize)
         }, (sp: InlineSpan, idx: number) => `bq-${idx}`)
       }

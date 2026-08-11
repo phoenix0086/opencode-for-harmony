@@ -21,6 +21,7 @@ export class I18nStrings {
   'agent.plan': string = 'plan'
   'agent.unsupported': string = 'v2 agents unavailable'
   'composer.send': string = 'send'
+  'composer.stop': string = 'stop'
   'composer.placeholder': string = 'Ask the agent anything... (or type / for commands)'
   'composer.model': string = 'model'
   'composer.shift_enter': string = 'Shift+Enter to send'
@@ -30,6 +31,8 @@ export class I18nStrings {
   'sidebar.chat': string = 'Chat'
   'sidebar.diff': string = 'Diff'
   'sidebar.files': string = 'Files'
+  'sidebar.projects': string = 'Projects'
+  'sidebar.sessions': string = 'Sessions'
   'sidebar.logs': string = 'Logs'
   'sidebar.runtime': string = 'Runtime'
   'sidebar.history': string = 'History'
@@ -47,6 +50,7 @@ export class I18nStrings {
   'session.none': string = 'no session selected'
   'session.running': string = 'running'
   'session.new': string = 'new session'
+  'session.untitled': string = 'Untitled session'
   'session.create_failed': string = 'Failed to create session'
 
   // ═══════ Status ═══════
@@ -110,7 +114,7 @@ export class I18nService {
   // 切勿在 Worker/TaskPool 中调用,会引发并发问题。setLocale 内部不做锁,
   // 依赖于单线程假设。
   private listeners: Array<(locale: Locale) => void> = []
-  private strings: Map<string, I18nStrings> = new Map()
+  private strings: Map<string, Record<string, string>> = new Map()
 
   constructor() {
     this.loadBundles()
@@ -122,12 +126,13 @@ export class I18nService {
   }
 
   private loadBundles(): void {
-    const zh = new I18nStrings()
+    const zh = JSON.parse(JSON.stringify(new I18nStrings())) as Record<string, string>
     zh['agent.title'] = '代理'
     zh['agent.build'] = '构建'
     zh['agent.plan'] = '规划'
     zh['agent.unsupported'] = 'v2 代理列表不可用'
     zh['composer.send'] = '发送'
+    zh['composer.stop'] = '停止'
     zh['composer.placeholder'] = '向代理提问... (输入 / 查看命令)'
     zh['composer.model'] = '模型'
     zh['composer.shift_enter'] = 'Shift+Enter 发送'
@@ -135,6 +140,8 @@ export class I18nService {
     zh['sidebar.chat'] = '对话'
     zh['sidebar.diff'] = '差异'
     zh['sidebar.files'] = '文件'
+    zh['sidebar.projects'] = '项目'
+    zh['sidebar.sessions'] = '历史会话'
     zh['sidebar.logs'] = '日志'
     zh['sidebar.runtime'] = '运行时'
     zh['sidebar.history'] = '历史'
@@ -150,6 +157,7 @@ export class I18nService {
     zh['session.none'] = '未选择会话'
     zh['session.running'] = '运行中'
     zh['session.new'] = '新会话'
+    zh['session.untitled'] = '未命名会话'
     zh['session.create_failed'] = '创建会话失败'
     zh['status.connected'] = '已连接'
     zh['status.disconnected'] = '未连接'
@@ -196,7 +204,7 @@ export class I18nService {
     zh['slash.theme'] = '切换主题'
     this.strings.set('zh-CN', zh)
 
-    const en = new I18nStrings()
+    const en = JSON.parse(JSON.stringify(new I18nStrings())) as Record<string, string>
     this.strings.set('en-US', en)
   }
 

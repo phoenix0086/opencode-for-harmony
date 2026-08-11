@@ -100,7 +100,9 @@ export class OpenCodeCapabilities {
     const caps = new Capabilities();
     caps.fs = mode === 'api-v2';
     caps.sessionPrompt = mode === 'api-v2';
-    caps.sessionWait = mode === 'api-v2';
+    // OpenCode 1.18 exposes /api/session/:id/wait but returns 503
+    // ("Session wait is not available yet"). The client uses message polling.
+    caps.sessionWait = false;
     caps.sessionContext = mode === 'api-v2';
     caps.permissionSaved = mode === 'api-v2';
     caps.questionReject = mode === 'api-v2';

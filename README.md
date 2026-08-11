@@ -120,7 +120,7 @@ entry/src/ohosTest/                      # Hypium 端到端测试
 2. 同步依赖 (ohpm install)
 3. 选择设备:鸿蒙笔记本(2in1) / 模拟器 / 真机
 4. 顶部菜单 **Build → Run 'entry'** (Shift+F10)
-5. 应用启动后,在 Settings → Server 添加 OpenCode Server,填入 `127.0.0.1:4096`
+5. 应用启动后，在 Settings → Server 添加 OpenCode Server。手机/平板真机应填写电脑的局域网地址（例如 `192.168.1.85:4096`）；只有 OpenCode Server 与应用运行在同一台设备时才能使用 `127.0.0.1:4096`
 
 ### 打包 .hap (Release 模式)
 
@@ -132,7 +132,7 @@ CLI 只能保证 ArkTS 静态层面正确,实际 .hap 必须在 DevEco Studio �
 4. 安装命令:
    ```bash
    hdc install entry-default-signed.hap
-   hdc shell aa start -b com.example.ohopencode -a EntryAbility
+   hdc shell aa start -b ai.opencode.harmony -a EntryAbility
    ```
 
 ### 运行测试
@@ -148,7 +148,7 @@ CLI 只能保证 ArkTS 静态层面正确,实际 .hap 必须在 DevEco Studio �
 ### 连接 OpenCode Server
 
 1. 在"服务器"页面点击"添加"
-2. 填入 Server 地址(如 `127.0.0.1` 或局域网 IP)
+2. 填入 Server 地址：手机/平板填写运行 OpenCode 的电脑局域网 IP；不要填写手机自身的 `127.0.0.1`
 3. 填入端口(默认 `4096`)
 4. 如有密码,填入密码
 5. 点击"测试"验证连接

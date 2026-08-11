@@ -37,6 +37,7 @@ export class OpenCodeApiAdapter {
   private caps: CapabilityResult | null = null;
   private detector: OpenCodeCapabilities = new OpenCodeCapabilities();
   private _runtimeMode: RuntimeMode = 'dev-pc';
+  private directory: string = '';
 
   get runtimeMode(): RuntimeMode { return this._runtimeMode; }
 
@@ -54,6 +55,10 @@ export class OpenCodeApiAdapter {
     if (authHeader.length > 0) {
       this.detector.setAuthHeader(authHeader);
     }
+  }
+
+  setDirectory(directory: string): void {
+    this.directory = directory;
   }
 
   async detectCapabilities(): Promise<CapabilityResult> {
@@ -223,13 +228,37 @@ export class OpenCodeApiAdapter {
   }
 
   // ══════════════════════════════════════════════════════════
+  //  Projects / workspace
+  // ══════════════════════════════════════════════════════════
+  async listProjects(): Promise<Object[]> {
+    if (this.isLocal) return [];
+    const data = await this.get('/project');
+    return this.asArray(data);
+  }
+
+  async getCurrentProject(): Promise<Record<string, Object>> {
+    if (this.isLocal) return {};
+    return this.get('/project/current');
+  }
+
+  async getVcs(): Promise<Record<string, Object>> {
+    if (this.isLocal) return {};
+    return this.get('/vcs');
+  }
+
+  // ══════════════════════════════════════════════════════════
   //  Messages
   // ══════════════════════════════════════════════════════════
   async listMessages(sessionId: string): Promise<Object[]> {
     if (this.isLocal) return localRuntimeClient.listMessages(sessionId);
     if (this.mode === 'api-v2') {
       const data = await this.get(`/api/session/${sessionId}/message`);
-      return this.extractArray(data, 'data');
+      const newestFirst = this.extractArray(data, 'data');
+      const chronological: Object[] = [];
+      for (let i = newestFirst.length - 1; i >= 0; i--) {
+        chronological.push(newestFirst[i]);
+      }
+      return chronological;
     }
     const data = await this.get(`/session/${sessionId}/message`);
     return this.asArray(data);
@@ -253,8 +282,35 @@ export class OpenCodeApiAdapter {
   async listProviders(): Promise<Record<string, Object>> {
     if (this.isLocal) return localRuntimeClient.listProviders();
     if (this.mode === 'api-v2') {
-      const data = await this.get('/api/provider');
-      return this.extractObj(data, 'data');
+      // /api/provider only returns providers active for the current project.
+      // /config/providers provides their model maps and defaults. Normalize
+      // both responses to the legacy { all, connected, default } contract so
+      // the rest of the app has one stable representation.
+      const activeResponse = await this.get('/api/provider');
+      const activeProviders = this.extractArray(activeResponse, 'data');
+      const connectedIds: string[] = [];
+      for (let i = 0; i < activeProviders.length; i++) {
+        const provider = activeProviders[i] as Record<string, Object>;
+        const id = (provider['id'] as string) ?? '';
+        if (id.length > 0) connectedIds.push(id);
+      }
+
+      let allProviders: Object[] = activeProviders;
+      let defaults: Record<string, Object> = {};
+      try {
+        const configured = await this.get('/config/providers');
+        const configuredProviders = this.extractArray(configured, 'providers');
+        if (configuredProviders.length > 0) allProviders = configuredProviders;
+        defaults = this.extractObj(configured, 'default');
+      } catch (e) {
+        Logger.warn(`Provider model metadata unavailable, using /api/provider fallback: ${errStr(e)}`);
+      }
+
+      const normalized: Record<string, Object> = {};
+      normalized['all'] = allProviders;
+      normalized['connected'] = connectedIds;
+      normalized['default'] = defaults;
+      return normalized;
     }
     return this.get('/provider');
   }
@@ -276,19 +332,13 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   async getConfig(): Promise<Record<string, Object>> {
     if (this.isLocal) return localRuntimeClient.getConfig();
-    if (this.mode === 'api-v2') {
-      const data = await this.get('/api/config');
-      return this.extractObj(data, 'data');
-    }
+    // OpenCode 1.18.x serves the desktop HTML shell at /api/config.
+    // The JSON runtime config remains available at /config in both modes.
     return this.get('/config');
   }
 
   async patchConfig(body: Record<string, Object>): Promise<void> {
     if (this.isLocal) { await localRuntimeClient.patchConfig(body); return; }
-    if (this.mode === 'api-v2') {
-      await this.patch('/api/config', body);
-      return;
-    }
     await this.patch('/config', body);
   }
 
@@ -315,9 +365,11 @@ export class OpenCodeApiAdapter {
   // ══════════════════════════════════════════════════════════
   //  Permissions
   // ══════════════════════════════════════════════════════════
-  async listPermissionRequests(): Promise<Object[]> {
+  async listPermissionRequests(_sessionId: string = ''): Promise<Object[]> {
     if (this.isLocal) return localRuntimeClient.listPermissionRequests();
     if (this.mode === 'api-v2') {
+      // OpenCode 1.18 exposes the global v2 list. The generated session-list
+      // route currently conflicts with the request-detail route and returns 400.
       const data = await this.get('/api/permission/request');
       return this.extractArray(data, 'data');
     }
@@ -359,11 +411,8 @@ export class OpenCodeApiAdapter {
     try {
       const body: Record<string, Object> = {};
       body['reply'] = reply;
-      if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/permission/${requestId}/reply`, body);
-      } else {
-        await this.post(`/permission/${requestId}/reply`, body);
-      }
+      // 1.18 uses the stable reply endpoint even when the list/prompt APIs are v2.
+      await this.post(`/permission/${requestId}/reply`, body);
       return true;
     } catch (e) {
       Logger.error(`replyPermission failed: ${errStr(e)}`);
@@ -377,7 +426,7 @@ export class OpenCodeApiAdapter {
   async listQuestions(sessionId: string): Promise<Object[]> {
     if (this.isLocal) return localRuntimeClient.listQuestions(sessionId);
     if (this.mode === 'api-v2') {
-      const data = await this.get(`/api/session/${sessionId}/question`);
+      const data = await this.get('/api/question/request');
       return this.extractArray(data, 'data');
     }
     try {
@@ -388,16 +437,15 @@ export class OpenCodeApiAdapter {
     }
   }
 
-  async replyQuestion(sessionId: string, requestId: string, optionIDs: string[]): Promise<boolean> {
-    if (this.isLocal) return localRuntimeClient.replyQuestion(sessionId, requestId, optionIDs);
+  async replyQuestion(sessionId: string, requestId: string, answers: string[][]): Promise<boolean> {
+    if (this.isLocal) {
+      const firstAnswer = answers.length > 0 ? answers[0] : []
+      return localRuntimeClient.replyQuestion(sessionId, requestId, firstAnswer)
+    }
     try {
       const body: Record<string, Object> = {};
-      body['optionIDs'] = optionIDs;
-      if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/question/${requestId}/reply`, body);
-      } else {
-        await this.post(`/question/${requestId}/reply`, body);
-      }
+      body['answers'] = answers;
+      await this.post(`/question/${requestId}/reply`, body);
       return true;
     } catch (e) {
       Logger.error(`replyQuestion failed: ${errStr(e)}`);
@@ -407,9 +455,8 @@ export class OpenCodeApiAdapter {
 
   async rejectQuestion(sessionId: string, requestId: string): Promise<boolean> {
     if (this.isLocal) return localRuntimeClient.rejectQuestion(sessionId, requestId);
-    if (this.mode !== 'api-v2') return false;
     try {
-      await this.post(`/api/session/${sessionId}/question/${requestId}/reject`, {});
+      await this.post(`/question/${requestId}/reject`, {});
       return true;
     } catch (e) {
       Logger.error(`rejectQuestion failed: ${errStr(e)}`);
@@ -454,11 +501,7 @@ export class OpenCodeApiAdapter {
   async abortSession(sessionId: string): Promise<boolean> {
     if (this.isLocal) return localRuntimeClient.abortSession(sessionId);
     try {
-      if (this.mode === 'api-v2') {
-        await this.post(`/api/session/${sessionId}/abort`, {});
-      } else {
-        await this.post(`/session/${sessionId}/abort`, {});
-      }
+      await this.post(`/session/${sessionId}/abort`, {});
       return true;
     } catch (_) {
       return false;
@@ -558,6 +601,9 @@ export class OpenCodeApiAdapter {
     if (this.authHeader.length > 0) {
       headers['Authorization'] = this.authHeader;
     }
+    if (this.directory.length > 0) {
+      headers['x-opencode-directory'] = this.directory;
+    }
     if (extra !== undefined) {
       const keys = Object.keys(extra);
       for (let i = 0; i < keys.length; i++) {
@@ -571,7 +617,8 @@ export class OpenCodeApiAdapter {
     if (result === undefined || result === null) return {};
     if (typeof result === 'string') {
       if (result.length === 0) return {};
-      try { return JSON.parse(result) as Record<string, Object>; } catch (e) { return {}; }
+      try { return JSON.parse(result) as Record<string, Object>; }
+      catch (e) { throw new Error('OpenCode returned a non-JSON response'); }
     }
     return result as Record<string, Object>;
   }
@@ -591,9 +638,20 @@ export class OpenCodeApiAdapter {
     const s = new SessionInfo();
     s.id = (item['id'] as string) ?? (item['sessionId'] as string) ?? '';
     s.name = (item['name'] as string) ?? (item['title'] as string) ?? 'New Session';
-    s.createdAt = (item['createdAt'] as string) ?? (item['created_at'] as string) ?? '';
-    s.updatedAt = (item['updatedAt'] as string) ?? (item['updated_at'] as string) ?? '';
-    s.model = (item['model'] as string) ?? '';
+    const time = item['time'] as Record<string, Object>;
+    const created = time ? (time['created'] as number) : 0;
+    const updated = time ? (time['updated'] as number) : 0;
+    s.createdAt = created > 0 ? String(created) : ((item['createdAt'] as string) ?? (item['created_at'] as string) ?? '');
+    s.updatedAt = updated > 0 ? String(updated) : ((item['updatedAt'] as string) ?? (item['updated_at'] as string) ?? '');
+    const model = item['model'];
+    if (typeof model === 'string') {
+      s.model = model;
+    } else if (model && typeof model === 'object') {
+      const modelRecord = model as Record<string, Object>;
+      const providerID = (modelRecord['providerID'] as string) ?? '';
+      const modelID = (modelRecord['id'] as string) ?? (modelRecord['modelID'] as string) ?? '';
+      s.model = providerID.length > 0 && modelID.length > 0 ? `${providerID}/${modelID}` : modelID;
+    }
     s.agent = (item['agent'] as string) ?? '';
     return s;
   }

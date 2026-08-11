@@ -1,6 +1,5 @@
-import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
-import { MainViewModel, PendingPermission, PendingQuestion, QuestionOption } from '../viewmodel/MainViewModel';
+import { MainViewModel, PendingPermission, PendingQuestion, PendingQuestionItem, QuestionOption } from '../viewmodel/MainViewModel';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
@@ -19,6 +18,15 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog';
 import { providerConnectionService, ProviderConnectInput, ProviderModelInput } from '../services/ProviderConnectionService';
 import { providerRegistry } from '../services/ProviderRegistry';
+import { toRuntimeMode } from '../services/RuntimeMode';
+import { i18n } from '../services/I18nService';
+
+class RemoteFileEntry {
+  name: string = ''
+  path: string = ''
+  type: string = 'file'
+  ignored: boolean = false
+}
 
 /**
  * Main page of the OpenCode app.
@@ -29,7 +37,9 @@ import { providerRegistry } from '../services/ProviderRegistry';
 struct Index {
   @State viewModel: MainViewModel = new MainViewModel();
   @State currentView: AppView = AppView.Home;
-  @State sidebarCollapsed: boolean = false;
+  // Compact by default so the chat remains usable on HarmonyOS phones.
+  // Tablets/laptops can expand it with the visible chevron handle.
+  @State sidebarCollapsed: boolean = true;
   @State showSettings: boolean = false;
   @State initialized: boolean = false;
 
@@ -39,6 +49,12 @@ struct Index {
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
   @State inputText: string = '';
+  @State fileDirectory: string = '.'
+  @State remoteFiles: RemoteFileEntry[] = []
+  @State selectedFilePath: string = ''
+  @State selectedFileContent: string = ''
+  @State filesLoading: boolean = false
+  @State fileError: string = ''
   // S1 fix: Provider 缺 API key 时 home 顶部显示 banner;onPageShow 每次重读
   @State hasMissingApiKey: boolean = false
 
@@ -89,6 +105,8 @@ struct Index {
   @State editingProviderId: string = ''
   @State providerDialogPrefill: ProviderConnectInput | null = null
   @State providerDialogSubmitting: boolean = false
+  @State modelSelectionSaving: boolean = false
+  @State providerRefreshing: boolean = false
 
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
 
@@ -96,6 +114,7 @@ struct Index {
   // 这样用户从 Provider 页填好 key 回 home,banner 自动消失
   onPageShow(): void {
     this.refreshProviderMissingState()
+    this.viewModel.resumeHealthCheck()
   }
 
   private refreshProviderMissingState(): void {
@@ -135,6 +154,7 @@ struct Index {
       // 跟 storageSingleton 各持一份 preferences.Preferences in-memory 缓存,
       // 一边 put 一边 get 容易读到旧值。现在统一用 storageSingleton (initStorageService 已初始化)。
       await this.viewModel.init(storageSingleton);
+      this.viewModel.runtimeMode = toRuntimeMode(this.runtimeConnectionMode)
 
       // After init: fix URL to match current mode (especially after auto-fallback)
       if (autoFallbackDone) {
@@ -154,15 +174,22 @@ struct Index {
         this.viewModel.autoStartAndConnect(),
         this.loadRecentProjects()
       ])
+      // The first project load races intentionally with connection startup.
+      // Refresh once connected so remote OpenCode workspaces replace the
+      // storage-only fallback list.
+      await this.loadRecentProjects()
     }
   }
 
   aboutToDisappear(): void {
+    // BUG-01 修复: 页面销毁时清理健康检查定时器, 防止 setInterval 泄漏。
+    // 注意: 仅清理定时器, 不关闭 Runtime (Runtime 生命周期由用户/应用退出统一处理)。
+    this.viewModel.stopHealthCheck()
     // 不要在页面消失时自动关闭 Runtime。
     // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
     // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
     // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
-    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
+    Logger.info('Index page disappeared; health timer stopped, Runtime kept alive (no shutdown)');
   }
 
   /**
@@ -171,6 +198,31 @@ struct Index {
    */
   async loadRecentProjects(): Promise<void> {
     try {
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+          this.viewModel.runtimeMode !== 'local-embedded') {
+        const remote = await this.viewModel.listProjects()
+        const remoteProjects: ProjectEntry[] = []
+        for (let i = 0; i < remote.length; i++) {
+          const item = remote[i] as Record<string, Object>
+          const directory = (item['worktree'] as string) ?? (item['directory'] as string) ?? ''
+          if (directory.length === 0 || directory === '/') continue
+          const project = new ProjectEntry()
+          project.id = (item['id'] as string) ?? directory
+          project.name = directory.split('/').pop() ?? directory
+          project.directory = directory
+          project.worktree = directory
+          const time = item['time'] as Record<string, Object>
+          const updated = time ? ((time['updated'] as number) ?? 0) : 0
+          project.lastOpened = updated > 0 ? new Date(updated).toISOString() : ''
+          project.isActive = directory === this.viewModel.serverInfo.projectPath
+          remoteProjects.push(project)
+        }
+        if (remoteProjects.length > 0) {
+          this.homeProjects = remoteProjects
+          return
+        }
+      }
+
       const raw = await storageSingleton.getRecentWorkspaces()
       const projects: ProjectEntry[] = []
       for (const dir of raw) {
@@ -212,6 +264,11 @@ struct Index {
       return
     }
     try {
+      const selected = await this.viewModel.selectProject(directory)
+      if (!selected) {
+        this.showToast('项目切换失败，请检查电脑端目录是否仍存在')
+        return
+      }
       await storageSingleton.saveWorkspacePath(directory)
       await storageSingleton.addRecentWorkspace(directory)
 
@@ -220,6 +277,72 @@ struct Index {
     } catch (err) {
       Logger.error(`openProject failed: ${errStr(err)}`)
     }
+  }
+
+  async loadRemoteFiles(directory: string = '.'): Promise<void> {
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.fileError = '请先连接电脑上的 OpenCode Server'
+      return
+    }
+    this.filesLoading = true
+    this.fileError = ''
+    try {
+      const raw = await this.viewModel.listWorkspaceDirectory(directory)
+      const entries: RemoteFileEntry[] = []
+      for (const value of raw) {
+        if (!value || typeof value !== 'object') continue
+        const record = value as Record<string, Object>
+        const entry = new RemoteFileEntry()
+        entry.path = (record['path'] as string) || ''
+        entry.name = (record['name'] as string) || this.fileName(entry.path)
+        entry.type = (record['type'] as string) || (entry.path.endsWith('/') ? 'directory' : 'file')
+        entry.ignored = record['ignored'] === true
+        if (entry.path.length > 0) entries.push(entry)
+      }
+      this.fileDirectory = directory.length > 0 ? directory : '.'
+      this.remoteFiles = entries
+      this.selectedFilePath = ''
+      this.selectedFileContent = ''
+    } catch (e) {
+      this.fileError = errStr(e)
+    } finally {
+      this.filesLoading = false
+    }
+  }
+
+  async openRemoteFile(entry: RemoteFileEntry): Promise<void> {
+    if (entry.type === 'directory' || entry.path.endsWith('/')) {
+      await this.loadRemoteFiles(entry.path)
+      return
+    }
+    this.filesLoading = true
+    this.fileError = ''
+    try {
+      const result = await this.viewModel.readWorkspaceFile(entry.path)
+      const type = (result['type'] as string) || 'text'
+      this.selectedFilePath = entry.path
+      this.selectedFileContent = type === 'text'
+        ? ((result['content'] as string) || '')
+        : '这是二进制文件，暂不提供文本预览。'
+    } catch (e) {
+      this.fileError = `打开文件失败: ${errStr(e)}`
+    } finally {
+      this.filesLoading = false
+    }
+  }
+
+  private fileName(path: string): string {
+    const normalized = path.endsWith('/') ? path.substring(0, path.length - 1) : path
+    return normalized.split('/').pop() || normalized
+  }
+
+  private parentFileDirectory(): string {
+    if (this.fileDirectory === '.' || this.fileDirectory.length === 0) return '.'
+    const normalized = this.fileDirectory.endsWith('/')
+      ? this.fileDirectory.substring(0, this.fileDirectory.length - 1)
+      : this.fileDirectory
+    const index = normalized.lastIndexOf('/')
+    return index > 0 ? normalized.substring(0, index + 1) : '.'
   }
 
   /**
@@ -331,9 +454,9 @@ struct Index {
       OpenCodeHomeLaunch({
         activeRunner: null,
         sessions: this.viewModel.sessions,
-        projectName: '',
-        projectPath: '',
-        branchName: '',
+        projectName: this.viewModel.serverInfo.projectPath.split('/').pop() ?? '',
+        projectPath: this.viewModel.serverInfo.projectPath,
+        branchName: this.viewModel.currentBranch,
         modelName: this.viewModel.selectedModel,
         isConnected: this.viewModel.connectionStatus === ConnectionStatus.Connected,
         serverVersion: this.viewModel.serverInfo.url,
@@ -371,6 +494,7 @@ struct Index {
           // 直接跳到 Settings 的 providers tab,不用先开 Settings 再切 tab
           this.settingsTab = 'providers'
           this.showSettings = true
+          this.refreshProviderData()
         }
       })
 
@@ -378,7 +502,7 @@ struct Index {
       DirectoryPicker({
         visible: this.showDirectoryPicker,
         projects: this.homeProjects,
-        currentDirectory: this.viewModel.serverInfo.url,
+        currentDirectory: this.viewModel.serverInfo.projectPath,
         onSelect: (directory: string) => {
           this.showDirectoryPicker = false
           this.openProject(directory)
@@ -410,145 +534,166 @@ struct Index {
 
   @Builder
   SidebarLayout() {
-    Row() {
-      // Sidebar
-      if (!this.sidebarCollapsed) {
-        Column() {
-          // Logo area
-          Row() {
-            Text('OpenCode')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-              .margin({ left: 16 })
-            Blank()
+    Stack({ alignContent: Alignment.Start }) {
+      Row() {
+        if (this.sidebarCollapsed) {
+          Column() {
             Button() {
-              SymbolGlyph($r('sys.symbol.chevron_left'))
+              SymbolGlyph($r('sys.symbol.chevron_right'))
                 .fontSize(16)
                 .fontColor(['#FFFFFF'])
             }
-            .width(28)
-            .height(28)
-            .backgroundColor(Color.Transparent)
-            .onClick(() => {
-              this.sidebarCollapsed = true;
-            })
+            .width(32)
+            .height(32)
+            .backgroundColor('#2D2D2D')
+            .borderRadius(16)
+            .onClick(() => { this.sidebarCollapsed = false })
           }
-          .width('100%')
-          .height(Constants.TITLE_BAR_HEIGHT)
-          .padding({ left: 8, right: 8 })
-          .alignItems(VerticalAlign.Center)
-
-          Divider()
-            .color('#404040')
-            .width('100%')
-
-          // Nav items — Settings 走弹窗,Provider / Model 收口在 Settings 内
-          // Home / Provider / Runtime / WebView / Terminal 不再作为一级路由:
-          //   - Home 仍是启动页(currentView 默认值,走 FullScreenHome)
-          //   - Provider / Model 配置在 Settings 弹窗
-          //   - Runtime/WebView/Terminal 在 PR 3 移到 Settings → Advanced
-          Column() {
-            this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
-            this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .padding({ top: 8 })
-
-          Divider()
-            .color('#404040')
-            .width('100%')
-
-          // Connection status
-          Row() {
-            Circle()
-              .width(8)
-              .height(8)
-              .fill(this.getStatusColor())
-            Text(this.getStatusText())
-              .fontSize(12)
-              .fontColor('#FFFFFF')
-              .margin({ left: 8 })
-          }
-          .width('100%')
-          .height(40)
-          .padding({ left: 16, right: 16 })
-          .alignItems(VerticalAlign.Center)
-
-          // Settings button
-          Button() {
-            Row() {
-              Text('⚙️').fontSize(16)
-                .fontColor('#FFFFFF')
-              Text('Settings')
-                .fontSize(14)
-                .fontColor('#FFFFFF')
-                .margin({ left: 12 })
-            }
-          }
-          .width('100%')
-          .height(44)
-          .backgroundColor(Color.Transparent)
-          .onClick(() => {
-            this.settingsTab = 'general'
-            this.showSettings = true;
-          })
+          .width(48)
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor('#111111')
         }
-        .width(Constants.SIDEBAR_WIDTH)
-        .height('100%')
-        .backgroundColor('#1A1A1A')
-      }
 
-      // Collapse/expand handle
-      if (this.sidebarCollapsed) {
-        Column() {
-          Button() {
-            SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(16)
-              .fontColor(['#FFFFFF'])
-          }
-          .width(32)
-          .height(32)
-          .backgroundColor('#2D2D2D')
-          .borderRadius(16)
-          .onClick(() => {
-            this.sidebarCollapsed = false;
-          })
-        }
-        .width(48)
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor('#111111')
+        this.MainWorkspaceContent()
       }
-
-      // Main content area
-      Column() {
-        if (this.currentView === AppView.Home) {
-          this.HomeContent()
-        } else if (this.currentView === AppView.Chat) {
-          this.ChatContent()
-        } else if (this.currentView === AppView.Files) {
-          this.FilesContent()
-        } else if (this.currentView === AppView.Settings) {
-          this.HomeContent()
-        } else if (this.currentView === AppView.Provider) {
-          // 菜单已隐藏 Provider,保留路由入口以便深链接 / 后续 PR 4 清理
-          ProviderPage({ activeRunner: null })
-        } else if (this.currentView === AppView.WebView) {
-          this.WebViewContent()
-        } else if (this.currentView === AppView.Terminal) {
-          this.TerminalContent()
-        } else if (this.currentView === AppView.Runtime) {
-          this.RuntimeContent()
-        }
-      }
-      .layoutWeight(1)
+      .width('100%')
       .height('100%')
-      .backgroundColor('#111111')
+
+      if (!this.sidebarCollapsed) {
+        Button() {}
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#00000066')
+          .borderRadius(0)
+          .onClick(() => { this.sidebarCollapsed = true })
+
+        this.SidebarDrawer()
+      }
     }
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  MainWorkspaceContent() {
+    Column() {
+      if (this.currentView === AppView.Home) {
+        this.HomeContent()
+      } else if (this.currentView === AppView.Chat) {
+        this.ChatContent()
+      } else if (this.currentView === AppView.Files) {
+        this.FilesContent()
+      } else if (this.currentView === AppView.Settings) {
+        this.HomeContent()
+      } else if (this.currentView === AppView.Provider) {
+        ProviderPage({ activeRunner: null })
+      } else if (this.currentView === AppView.WebView) {
+        this.WebViewContent()
+      } else if (this.currentView === AppView.Terminal) {
+        this.TerminalContent()
+      } else if (this.currentView === AppView.Runtime) {
+        this.RuntimeContent()
+      }
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor('#111111')
+  }
+
+  @Builder
+  SidebarDrawer() {
+    Column() {
+      Row() {
+        Text('OpenCode')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .margin({ left: 16 })
+        Blank()
+        Button() {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(16)
+            .fontColor(['#FFFFFF'])
+        }
+        .width(28)
+        .height(28)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => { this.sidebarCollapsed = true })
+      }
+      .width('100%')
+      .height(Constants.TITLE_BAR_HEIGHT)
+      .padding({ left: 8, right: 8 })
+      .alignItems(VerticalAlign.Center)
+
+      Divider().color('#404040').width('100%')
+
+      Column() {
+        this.NavItem(AppView.Chat, $r('app.media.chat'), i18n.t('sidebar.chat'))
+        this.NavItem(AppView.Files, $r('app.media.home'), i18n.t('sidebar.projects'))
+      }
+      .width('100%')
+      .padding({ top: 8, bottom: 8 })
+
+      Text(i18n.t('sidebar.sessions'))
+        .fontSize(11)
+        .fontColor('#8A8A8A')
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 8, bottom: 6 })
+
+      List() {
+        ForEach(this.viewModel.sessions.slice(0, 20), (session: SessionInfo) => {
+          ListItem() {
+            Text(session.title.length > 0 ? session.title : i18n.t('session.untitled'))
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+              .padding({ left: 16, right: 12 })
+          }
+          .height(38)
+          .width('100%')
+          .backgroundColor(this.viewModel.currentSessionId === session.id ? '#2A2A2A' : Color.Transparent)
+          .onClick(() => { this.openSessionFromDrawer(session.id) })
+        }, (session: SessionInfo) => session.id)
+      }
+      .width('100%')
+      .layoutWeight(1)
+
+      Divider().color('#404040').width('100%')
+
+      Row() {
+        Circle().width(8).height(8).fill(this.getStatusColor())
+        Text(this.getStatusText())
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .margin({ left: 8 })
+      }
+      .width('100%')
+      .height(40)
+      .padding({ left: 16, right: 16 })
+      .alignItems(VerticalAlign.Center)
+
+      Button() {
+        Row() {
+          Text('⚙️').fontSize(16).fontColor('#FFFFFF')
+          Text(i18n.t('sidebar.settings')).fontSize(14).fontColor('#FFFFFF').margin({ left: 12 })
+        }
+      }
+      .width('100%')
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .onClick(() => {
+        this.sidebarCollapsed = true
+        this.settingsTab = 'general'
+        this.showSettings = true
+      })
+    }
+    .width(Constants.SIDEBAR_WIDTH)
+    .height('100%')
+    .backgroundColor('#1A1A1A')
+    .shadow({ radius: 18, color: '#00000099', offsetX: 6, offsetY: 0 })
   }
 
   @Builder
@@ -573,7 +718,15 @@ struct Index {
     .onClick(() => {
       this.currentView = view;
       this.showSettings = false;
+      this.sidebarCollapsed = true;
+      if (view === AppView.Files) this.loadRemoteFiles('.')
     })
+  }
+
+  private async openSessionFromDrawer(sessionId: string): Promise<void> {
+    this.sidebarCollapsed = true
+    this.currentView = AppView.Chat
+    await this.viewModel.selectSession(sessionId)
   }
 
   @Builder
@@ -785,7 +938,7 @@ struct Index {
           .margin({ left: 8 })
           .onClick(() => {
             // S5 fix: 给用户即时反馈,让"按下去有事发生"这件事可见
-            promptAction.showToast({ message: '正在重启 Runtime...', duration: 1500 })
+            this.showToast('正在重启 Runtime...', 1500)
             this.viewModel.autoStartAndConnect()
           })
       }
@@ -829,13 +982,15 @@ struct Index {
     Column() {
       // Chat header
       Row() {
-        Text(this.viewModel.currentSessionId.length > 0 ? `Session ${this.viewModel.serverMode}` : 'New Chat')
+        Text(this.currentSessionTitle())
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .fontColor('#FFFFFF')
-        Blank()
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.viewModel.isGenerating) {
-          Button('Stop')
+          Button(i18n.t('composer.stop'))
             .fontSize(13)
             .height(32)
             .backgroundColor('#FF5252')
@@ -843,14 +998,19 @@ struct Index {
             .borderRadius(6)
             .onClick(() => { this.viewModel.stopGeneration() })
         }
-        Button('New Session')
+        Button(i18n.t('session.new'))
           .fontSize(13)
           .height(32)
           .backgroundColor('#2D2D2D')
           .fontColor('#FFFFFF')
           .borderRadius(6)
           .margin({ left: 8 })
-          .onClick(() => { this.viewModel.currentSessionId = '' })
+          .enabled(!this.viewModel.isGenerating)
+          .opacity(this.viewModel.isGenerating ? 0.45 : 1)
+          .onClick(() => {
+            this.inputText = ''
+            this.viewModel.beginNewSession()
+          })
       }
       .width('100%')
       .height(Constants.TITLE_BAR_HEIGHT)
@@ -1060,51 +1220,66 @@ struct Index {
               .width('100%')
               .margin({ bottom: 6 })
 
-              if (q.header.length > 0) {
-                Text(q.header)
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
-                  .fontWeight(FontWeight.Medium)
-                  .width('100%')
-                  .margin({ bottom: 4 })
-              }
-
-              Text(q.question)
-                .fontSize(13)
-                .fontColor('#FFFFFF')
-                .width('100%')
-                .margin({ bottom: 8 })
-
-              // Options
-              ForEach(q.options, (opt: QuestionOption) => {
-                Row() {
-                  Button(opt.label)
-                    .fontSize(13)
-                    .height(32)
-                    .backgroundColor('#007DFF')
-                    .fontColor('#FFFFFF')
-                    .borderRadius(6)
-                    .onClick(() => { this.viewModel.replyQuestion(q.id, [opt.id]) })
-                  if (opt.description.length > 0) {
-                    Text(opt.description)
-                      .fontSize(12)
+              ForEach(q.questions, (question: PendingQuestionItem, questionIndex: number) => {
+                Column() {
+                  if (question.header.length > 0) {
+                    Text(question.header)
+                      .fontSize(14)
                       .fontColor('#FFFFFF')
-                      .margin({ left: 8 })
+                      .fontWeight(FontWeight.Medium)
+                      .width('100%')
+                      .margin({ bottom: 4 })
                   }
+
+                  Text(question.question)
+                    .fontSize(13)
+                    .fontColor('#FFFFFF')
+                    .width('100%')
+                    .margin({ bottom: 8 })
+
+                  ForEach(question.options, (opt: QuestionOption) => {
+                    Row() {
+                      Button(`${this.viewModel.isQuestionOptionSelected(q.id, questionIndex, opt.label) ? '✓ ' : ''}${opt.label}`)
+                        .fontSize(13)
+                        .height(32)
+                        .backgroundColor(this.viewModel.isQuestionOptionSelected(q.id, questionIndex, opt.label) ? '#3DDC84' : '#007DFF')
+                        .fontColor('#FFFFFF')
+                        .borderRadius(6)
+                        .onClick(() => { this.viewModel.selectQuestionOption(q.id, questionIndex, opt.label) })
+                      if (opt.description.length > 0) {
+                        Text(opt.description)
+                          .fontSize(12)
+                          .fontColor('#FFFFFF')
+                          .margin({ left: 8 })
+                      }
+                    }
+                    .width('100%')
+                    .margin({ bottom: 4 })
+                  }, (opt: QuestionOption) => opt.id)
                 }
                 .width('100%')
-                .margin({ bottom: 4 })
-              }, (opt: QuestionOption) => opt.id)
+                .alignItems(HorizontalAlign.Start)
+                .margin({ bottom: 8 })
+              }, (_question: PendingQuestionItem, questionIndex: number) => `${q.id}-${questionIndex}`)
 
-              // Reject button
-              Button('拒绝')
-                .fontSize(12)
-                .height(28)
-                .backgroundColor('#2D2D2D')
-                .fontColor('#FFFFFF')
-                .borderRadius(6)
-                .margin({ top: 4 })
-                .onClick(() => { this.viewModel.rejectQuestion(q.id) })
+              Row() {
+                Button('提交回答')
+                  .fontSize(12)
+                  .height(30)
+                  .enabled(this.viewModel.canSubmitQuestion(q.id))
+                  .backgroundColor(this.viewModel.canSubmitQuestion(q.id) ? '#3DDC84' : '#555555')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .onClick(() => { this.viewModel.replyQuestion(q.id) })
+                Button('拒绝')
+                  .fontSize(12)
+                  .height(30)
+                  .backgroundColor('#2D2D2D')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .margin({ left: 8 })
+                  .onClick(() => { this.viewModel.rejectQuestion(q.id) })
+              }
             }
             .width('100%')
             .padding(12)
@@ -1122,7 +1297,7 @@ struct Index {
 
       // Input area
       Row() {
-        TextInput({ placeholder: 'Type a message...', text: this.inputText })
+        TextInput({ placeholder: i18n.t('composer.placeholder'), text: this.inputText })
           .layoutWeight(1)
           .height(40)
           .backgroundColor('#2D2D2D')
@@ -1131,7 +1306,7 @@ struct Index {
           .placeholderColor('#666666')
           .onChange((value: string) => { this.inputText = value })
           .onSubmit(() => { this.sendInput() })
-        Button('Send')
+        Button(i18n.t('composer.send'))
           .height(40)
           .width(72)
           .backgroundColor('#007DFF')
@@ -1159,7 +1334,7 @@ struct Index {
       this.viewModel.serverStatusMessage = this.viewModel.errorMessage
       // W3 fix: 显式 toast,用户按 Send 后立刻看到反馈,
       // RuntimeDisconnectedCard 已经在显示了,但那是被动反馈,toast 是主动反馈
-      promptAction.showToast({ message: '本地 Runtime 未连接,请先启动或连接', duration: 2000 })
+      this.showToast('本地 Runtime 未连接,请先启动或连接', 2000)
       return
     }
 
@@ -1221,17 +1396,135 @@ struct Index {
   @Builder
   FilesContent() {
     Column() {
-      Text('Files')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-        .margin(16)
-      Text('File browser will appear here')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
+      Row() {
+        if (this.fileDirectory !== '.') {
+          Button('‹ 返回')
+            .height(34)
+            .fontSize(13)
+            .backgroundColor('#2D2D2D')
+            .fontColor('#FFFFFF')
+            .borderRadius(7)
+            .onClick(() => { this.loadRemoteFiles(this.parentFileDirectory()) })
+        }
+        Column() {
+          Text('电脑端项目文件')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+          Text(this.fileDirectory)
+            .fontSize(11)
+            .fontColor('#999999')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        .margin({ left: this.fileDirectory !== '.' ? 10 : 0 })
+        Button('刷新')
+          .height(34)
+          .fontSize(13)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(7)
+          .onClick(() => { this.loadRemoteFiles(this.fileDirectory) })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 14, bottom: 12 })
+
+      Divider().color('#2D2D2D').width('100%')
+
+      if (this.filesLoading) {
+        Column() {
+          LoadingProgress().width(30).height(30).color('#007DFF')
+          Text('正在读取电脑端项目…').fontSize(13).fontColor('#999999').margin({ top: 10 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+      } else if (this.fileError.length > 0) {
+        Column() {
+          Text(this.fileError).fontSize(14).fontColor('#FF6B6B').textAlign(TextAlign.Center)
+          Button('重试')
+            .margin({ top: 14 })
+            .onClick(() => { this.loadRemoteFiles(this.fileDirectory) })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .padding(24)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.selectedFilePath.length > 0) {
+        Column() {
+          Row() {
+            Button('‹ 文件列表')
+              .height(32)
+              .fontSize(12)
+              .backgroundColor('#2D2D2D')
+              .fontColor('#FFFFFF')
+              .onClick(() => {
+                this.selectedFilePath = ''
+                this.selectedFileContent = ''
+              })
+            Text(this.selectedFilePath)
+              .layoutWeight(1)
+              .fontSize(12)
+              .fontColor('#CCCCCC')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ left: 10 })
+          }
+          .width('100%')
+          .margin({ bottom: 10 })
+          Scroll() {
+            Text(this.selectedFileContent)
+              .fontSize(12)
+              .fontFamily('monospace')
+              .fontColor('#E6E6E6')
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .backgroundColor('#171717')
+          .padding(12)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .padding(14)
+      } else {
+        List() {
+          ForEach(this.remoteFiles, (entry: RemoteFileEntry) => {
+            ListItem() {
+              Row() {
+                Text(entry.type === 'directory' || entry.path.endsWith('/') ? '📁' : '📄')
+                  .fontSize(18)
+                Column() {
+                  Text(entry.name)
+                    .fontSize(14)
+                    .fontColor(entry.ignored ? '#777777' : '#FFFFFF')
+                    .maxLines(1)
+                  Text(entry.path)
+                    .fontSize(10)
+                    .fontColor('#777777')
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                .margin({ left: 10 })
+                Text('›').fontSize(18).fontColor('#777777')
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+              .onClick(() => { this.openRemoteFile(entry) })
+            }
+          }, (entry: RemoteFileEntry) => entry.path)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .divider({ strokeWidth: 1, color: '#242424', startMargin: 44 })
+      }
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
   }
 
   @Builder
@@ -1392,24 +1685,44 @@ struct Index {
         .width('100%')
         .height('100%')
         .onClick(() => {
-          this.showSettings = false
-          this.closeProviderDialog()
+          if (!this.providerDialogSubmitting) {
+            this.showSettings = false
+            this.closeProviderDialog()
+          }
         })
 
-      Stack() {
+      Stack({ alignContent: Alignment.TopEnd }) {
         this.SettingsContent()
 
         if (this.showProviderDialog) {
           ProviderConnectDialog({
             visible: this.showProviderDialog,
             prefill: this.providerDialogPrefill,
+            submitting: this.providerDialogSubmitting,
             onCancel: () => this.closeProviderDialog(),
             onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
           })
         }
+
+        if (!this.showProviderDialog) {
+          Text('\u00d7')
+            .fontSize(24)
+            .fontColor('#A3A3A3')
+            .width(40)
+            .height(40)
+            .textAlign(TextAlign.Center)
+            .borderRadius(8)
+            .margin({ top: 10, right: 10 })
+            .zIndex(2)
+            .onClick(() => {
+              this.showSettings = false
+              this.closeProviderDialog()
+            })
+        }
       }
-      .width('74%')
-      .height('72%')
+      .width('96%')
+      .height('92%')
+      .constraintSize({ maxWidth: 1180, maxHeight: 860 })
       .borderRadius(12)
       .clip(true)
       .borderWidth(1)
@@ -1426,24 +1739,22 @@ struct Index {
     Row() {
       // ── Settings sidebar ──
       Column() {
-        Text('设置')
+        Text('OHOpenCode')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
           .fontColor('#FFFFFF')
           .width('100%')
           .padding({ left: 20, top: 20, bottom: 16 })
 
-        Text('桌面')
+        Text('应用')
           .fontSize(13)
           .fontColor('#777777')
           .fontWeight(FontWeight.Bold)
           .width('100%')
           .padding({ left: 20, top: 8, bottom: 6 })
         this.SettingNavItem('通用', 'general')
-        this.SettingNavItem('桌面', 'desktop')
-        this.SettingNavItem('快捷键', 'shortcuts')
 
-        Text('服务器')
+        Text('OpenCode')
           .fontSize(13)
           .fontColor('#777777')
           .fontWeight(FontWeight.Bold)
@@ -1455,12 +1766,12 @@ struct Index {
 
         Blank()
 
-        Text('OpenCode Desktop v1.16.2')
+        Text('HarmonyOS 客户端')
           .fontSize(11)
           .fontColor('#FFFFFF')
           .padding({ left: 20, bottom: 16 })
       }
-      .width(180)
+      .width(124)
       .height('100%')
       .backgroundColor('#1A1A1A')
 
@@ -1468,11 +1779,7 @@ struct Index {
       Scroll() {
         Column() {
           if (this.settingsTab === 'general') {
-            this.SettingsGeneralContent()
-          } else if (this.settingsTab === 'desktop') {
-            this.SettingsDesktopContent()
-          } else if (this.settingsTab === 'shortcuts') {
-            this.SettingsShortcutsContent()
+            this.SettingsAppOverviewContent()
           } else if (this.settingsTab === 'servers') {
             this.SettingsServerContent()
           } else if (this.settingsTab === 'providers') {
@@ -1480,10 +1787,10 @@ struct Index {
           } else if (this.settingsTab === 'models') {
             this.SettingsModelsContent()
           } else {
-            this.SettingsGeneralContent()
+            this.SettingsAppOverviewContent()
           }
         }
-        .padding({ left: 32, right: 32, top: 24, bottom: 40 })
+        .padding({ left: 16, right: 16, top: 20, bottom: 36 })
         .width('100%')
       }
       .layoutWeight(1)
@@ -1508,6 +1815,9 @@ struct Index {
       .margin({ left: 8, right: 8, top: 1, bottom: 1 })
       .onClick(() => {
         this.settingsTab = tab
+        if (tab === 'providers' || tab === 'models') {
+          this.refreshProviderData()
+        }
       })
   }
 
@@ -1520,6 +1830,48 @@ struct Index {
       .fontColor('#FFFFFF')
       .width('100%')
       .margin({ top: 28, bottom: 12 })
+  }
+
+  @Builder
+  SettingsAppOverviewContent() {
+    Text('通用')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('这台鸿蒙设备作为客户端，所有代码执行都由电脑上的 OpenCode 完成。')
+      .fontSize(13)
+      .fontColor('#AAAAAA')
+      .margin({ bottom: 22 })
+
+    this.SettingsRowText('连接状态', '电脑端 OpenCode Server', this.getStatusText())
+    Divider().color('#222222')
+    this.SettingsRowText('当前项目', '电脑端工作目录', this.viewModel.serverInfo.projectPath.length > 0 ? this.viewModel.serverInfo.projectPath : '尚未选择')
+    Divider().color('#222222')
+    this.SettingsRowText('当前模型', '消息将发送给这个模型', this.viewModel.selectedModel.length > 0 ? this.viewModel.selectedModel : '尚未选择')
+    Divider().color('#222222')
+    this.SettingsRowText('接口模式', '由客户端自动探测', this.viewModel.serverMode === 'api-v2' ? 'OpenCode API v2' : this.viewModel.serverMode)
+
+    Row() {
+      Button('重新连接')
+        .height(38)
+        .layoutWeight(1)
+        .backgroundColor('#007DFF')
+        .fontColor('#FFFFFF')
+        .borderRadius(7)
+        .onClick(() => { this.viewModel.connect() })
+      Button('刷新项目')
+        .height(38)
+        .layoutWeight(1)
+        .backgroundColor('#2D2D2D')
+        .fontColor('#FFFFFF')
+        .borderRadius(7)
+        .margin({ left: 10 })
+        .onClick(() => { this.loadRecentProjects() })
+    }
+    .width('100%')
+    .margin({ top: 24 })
   }
 
   // ── Toggle row ──
@@ -2007,16 +2359,15 @@ struct Index {
       .fontColor('#FFFFFF')
       .margin({ bottom: 12 })
 
-    Text('默认使用本机 OpenCode Runtime。远程连接只是高级模式。')
+    Text('填写电脑上 OpenCode Server 的局域网地址。手机只作为控制端，不在本机运行代码。')
       .fontSize(12)
       .fontColor('#FFFFFF')
       .margin({ bottom: 16 })
 
     // ── 模式切换器 ──
     Row() {
-      this.RuntimeModePill('dev-pc', '开发电脑 / 局域网')
-      this.RuntimeModePill('local', '本机模式')
-      this.RuntimeModePill('remote', '远程服务器')
+      this.RuntimeModePill('dev-pc', '局域网电脑')
+      this.RuntimeModePill('remote', '远程地址')
     }
     .backgroundColor('#1E1E1E')
     .borderRadius(8)
@@ -2037,6 +2388,22 @@ struct Index {
       .onChange((value: string) => {
         this.viewModel.serverInfo.url = value;
       })
+
+    if (this.isInsecureRemoteServer()) {
+      Row() {
+        Text('⚠').fontSize(14).fontColor('#FFB454')
+        Text('当前为未加密的 HTTP 局域网连接。账号和消息可能被同一网络中的设备看到；在不可信网络上请使用 HTTPS 或 VPN。')
+          .fontSize(11)
+          .fontColor('#FFCC80')
+          .layoutWeight(1)
+          .margin({ left: 8 })
+      }
+      .width('100%')
+      .padding(10)
+      .margin({ top: 10 })
+      .backgroundColor('#2A1F0E')
+      .borderRadius(7)
+    }
 
     Text('Username')
       .fontSize(14)
@@ -2179,6 +2546,7 @@ struct Index {
       return
     }
     this.runtimeConnectionMode = mode;
+    this.viewModel.runtimeMode = toRuntimeMode(mode)
     localOpenCodeServerManager.loadLastConfig().then((cfg) => {
       cfg.mode = mode;
       if (mode === 'local') {
@@ -2264,21 +2632,26 @@ struct Index {
         input.providerId = this.editingProviderId
       }
       const result = await providerConnectionService.connectProvider(input, null)
+      if (!result.ok) {
+        const error = result.error.length > 0 ? result.error : (result.message.length > 0 ? result.message : '保存失败')
+        this.showToast(error, 3000)
+        return
+      }
       await localRuntimeService.syncFromProviderRegistry()
       this.showProviderDialog = false
       await this.viewModel.loadProviders()
-      const message = result.ok
-        ? (result.message.length > 0 ? result.message : '提供商已保存')
-        : (result.error.length > 0 ? result.error : '保存失败')
-      promptAction.showToast({ message, duration: 2500 })
+      this.refreshProviderMissingState()
+      const message = result.message.length > 0 ? result.message : '提供商已保存'
+      this.showToast(message, 2500)
     } catch (e) {
-      promptAction.showToast({ message: '保存失败: ' + errStr(e), duration: 3000 })
+      this.showToast('保存失败: ' + errStr(e), 3000)
     } finally {
       this.providerDialogSubmitting = false
     }
   }
 
   private closeProviderDialog(): void {
+    if (this.providerDialogSubmitting) return
     this.showProviderDialog = false
     this.editingProviderId = ''
     this.providerDialogPrefill = null
@@ -2303,11 +2676,35 @@ struct Index {
         .borderRadius(8)
         .backgroundColor('#3B82F6')
         .onClick(() => this.openAddProviderDialog())
+
+      Text(this.providerRefreshing ? '刷新中...' : '刷新')
+        .fontSize(13)
+        .fontColor(this.providerRefreshing ? '#777777' : '#D4D4D4')
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(8)
+        .backgroundColor('#2A2A2A')
+        .margin({ left: 8 })
+        .enabled(!this.providerRefreshing)
+        .onClick(() => this.refreshProviderData())
     }
     .width('100%')
     .margin({ bottom: 20 })
 
-    if (this.viewModel.providers.length === 0) {
+    if (this.providerRefreshing && this.viewModel.providers.length === 0) {
+      Column() {
+        LoadingProgress()
+          .width(28)
+          .height(28)
+          .color('#3B82F6')
+        Text('正在读取提供商...')
+          .fontSize(13)
+          .fontColor('#999999')
+          .margin({ top: 12 })
+      }
+      .width('100%')
+      .padding(32)
+    } else if (this.viewModel.providers.length === 0) {
       Column() {
         Text('未检测到任何提供商。请先连接 Runtime。')
           .fontSize(14)
@@ -2375,11 +2772,24 @@ struct Index {
   // ══════════════════════════════════════════════════════════
   @Builder
   SettingsModelsContent() {
-    Text('模型')
-      .fontSize(22)
-      .fontWeight(FontWeight.Bold)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 20 })
+    Row() {
+      Text('模型')
+        .fontSize(22)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+      Blank()
+      Text(this.providerRefreshing ? '刷新中...' : '刷新')
+        .fontSize(13)
+        .fontColor(this.providerRefreshing ? '#777777' : '#D4D4D4')
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(8)
+        .backgroundColor('#2A2A2A')
+        .enabled(!this.providerRefreshing)
+        .onClick(() => this.refreshProviderData())
+    }
+    .width('100%')
+    .margin({ bottom: 20 })
 
     TextInput({ placeholder: '搜索模型', text: this.settingsModelSearch })
       .width('100%')
@@ -2392,7 +2802,20 @@ struct Index {
         this.settingsModelSearch = value
       })
 
-    if (this.viewModel.providers.length > 0) {
+    if (this.providerRefreshing && this.viewModel.providers.length === 0) {
+      Column() {
+        LoadingProgress()
+          .width(28)
+          .height(28)
+          .color('#3B82F6')
+        Text('正在读取模型...')
+          .fontSize(13)
+          .fontColor('#999999')
+          .margin({ top: 12 })
+      }
+      .width('100%')
+      .padding(32)
+    } else if (this.viewModel.providers.length > 0) {
       ForEach(this.viewModel.providers, (p: ProviderInfo) => {
         if (p.models.length > 0) {
           Row() {
@@ -2425,16 +2848,9 @@ struct Index {
                     isOn: this.viewModel.selectedModel === `${p.id}/${modelId}`
                   })
                     .selectedColor('#FFFFFF')
-                    .onChange(async (isOn: boolean) => {
+                    .onChange((isOn: boolean) => {
                       if (!isOn) return
-                      this.viewModel.selectedModel = `${p.id}/${modelId}`
-                      try {
-                        await this.viewModel.saveServerConfig()
-                        await this.viewModel.syncModelToRuntime()
-                        promptAction.showToast({ message: `已选择 ${this.modelDisplayName(modelId)}` })
-                      } catch (e) {
-                        promptAction.showToast({ message: '模型保存失败: ' + errStr(e) })
-                      }
+                      this.selectSettingsModel(`${p.id}/${modelId}`, this.modelDisplayName(modelId))
                     })
                 }
                 .width('100%')
@@ -2442,14 +2858,8 @@ struct Index {
                 .padding({ left: 16, right: 16 })
                 .borderColor('#2A2A2A')
                 .borderWidth({ bottom: 1 })
-                .onClick(async () => {
-                  this.viewModel.selectedModel = `${p.id}/${modelId}`
-                  try {
-                    await this.viewModel.saveServerConfig()
-                    await this.viewModel.syncModelToRuntime()
-                  } catch (e) {
-                    promptAction.showToast({ message: '模型保存失败: ' + errStr(e) })
-                  }
+                .onClick(() => {
+                  this.selectSettingsModel(`${p.id}/${modelId}`, this.modelDisplayName(modelId))
                 })
               }
             }, (modelId: string) => `${p.id}/${modelId}`)
@@ -2473,6 +2883,49 @@ struct Index {
     const q = this.settingsModelSearch.trim().toLowerCase()
     if (q.length === 0) return true
     return providerId.toLowerCase().includes(q) || modelId.toLowerCase().includes(q)
+  }
+
+  private async selectSettingsModel(modelRef: string, displayName: string): Promise<void> {
+    if (this.modelSelectionSaving || this.viewModel.selectedModel === modelRef) return
+    const previous = this.viewModel.selectedModel
+    this.modelSelectionSaving = true
+    this.viewModel.selectedModel = modelRef
+    try {
+      await this.viewModel.saveServerConfig()
+      await this.viewModel.syncModelToRuntime()
+      this.showToast(`已选择 ${displayName}`)
+    } catch (e) {
+      this.viewModel.selectedModel = previous
+      this.showToast('模型保存失败: ' + errStr(e))
+    } finally {
+      this.modelSelectionSaving = false
+    }
+  }
+
+  private async refreshProviderData(): Promise<void> {
+    if (this.providerRefreshing) return
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.showToast('Runtime 未连接，暂时无法刷新提供商和模型')
+      return
+    }
+    this.providerRefreshing = true
+    try {
+      await this.viewModel.loadProviders()
+      this.refreshProviderMissingState()
+    } catch (e) {
+      Logger.warn(`refreshProviderData failed: ${errStr(e)}`)
+      this.showToast('刷新提供商失败: ' + errStr(e))
+    } finally {
+      this.providerRefreshing = false
+    }
+  }
+
+  private showToast(message: string, duration: number = 2000): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message, duration })
+    } catch (e) {
+      Logger.warn(`showToast failed: ${errStr(e)}`)
+    }
   }
 
   private modelDisplayName(modelId: string): string {
@@ -2503,18 +2956,35 @@ struct Index {
   private getStatusText(): string {
     switch (this.viewModel.connectionStatus) {
       case ConnectionStatus.Connected:
-        return 'Connected';
+        return i18n.t('status.connected');
       case ConnectionStatus.AutoStarting:
-        return 'Starting...';
+        return i18n.t('status.connecting');
       case ConnectionStatus.Connecting:
-        return 'Connecting...';
+        return i18n.t('status.connecting');
       case ConnectionStatus.StartFailed:
-        return 'Start Failed';
+        return i18n.t('status.error');
       case ConnectionStatus.Error:
-        return 'Error';
+        return i18n.t('status.error');
       default:
-        return 'Disconnected';
+        return i18n.t('status.disconnected');
     }
+  }
+
+  private currentSessionTitle(): string {
+    if (this.viewModel.currentSessionId.length === 0) return i18n.t('session.new')
+    const current = this.viewModel.sessions.find((session: SessionInfo) => {
+      return session.id === this.viewModel.currentSessionId
+    })
+    if (current && current.title.length > 0) return current.title
+    return i18n.t('session.title')
+  }
+
+  private isInsecureRemoteServer(): boolean {
+    const url = this.viewModel.serverInfo.url.trim().toLowerCase()
+    if (!url.startsWith('http://')) return false
+    return !url.startsWith('http://127.0.0.1') &&
+      !url.startsWith('http://localhost') &&
+      !url.startsWith('http://[::1]')
   }
 
   // ─────────────────────────────────────────────────────────

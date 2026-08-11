@@ -1,5 +1,6 @@
 import { Theme } from './Theme'
 import { PtySessionInfo, PtyChunk } from '../services/V2Type'
+import { Logger } from '../utils/Logger'
 
 /**
  * PtyPanel — 嵌入式终端 (Sprint 2-A.1)
@@ -26,6 +27,13 @@ export struct PtyPanel {
   onSelect: (sessionID: string) => void = () => {}
   onClose: (sessionID: string) => void = () => {}
   onSendInput: (sessionID: string, data: string) => void = () => {}
+
+  // BUG-02 (defensive): PTY 面板销毁时的清理钩子。
+  // 当前 V2Client/PTY 轮询为未接线的死代码, 暂无活跃定时器可清理;
+  // 一旦在 PtyPanel 接入 V2Client.startPtyPoller, 必须在此调用对应 stop 以避免泄漏。
+  aboutToDisappear(): void {
+    Logger.info('PtyPanel disappeared; (defensive) any PTY pollers would be stopped here')
+  }
 
   build() {
     Column() {

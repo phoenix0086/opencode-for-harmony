@@ -11,5 +11,8 @@
 **/.test
 /.appanalyzer
 /config.json
+/.mimocode/
+/.workbuddy/
+/artifacts/
 # HAP 内置 opencode 二进制 (138MB, 不进 Git)
 entry/src/main/resources/rawfile/opencode
