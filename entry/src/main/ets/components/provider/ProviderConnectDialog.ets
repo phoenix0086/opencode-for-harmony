@@ -15,6 +15,7 @@ const API_MODE_OPTIONS: SelectOption[] = [
 export struct ProviderConnectDialog {
   @Prop @Watch('onVisibleChanged') visible: boolean = false
   @Prop prefill: ProviderConnectInput | null = null
+  @Prop submitting: boolean = false
   onCancel: () => void = () => {}
   onSubmit: (input: ProviderConnectInput) => void = () => {}
 
@@ -38,7 +39,11 @@ export struct ProviderConnectDialog {
   @State fetchingModels: boolean = false
 
   aboutToAppear(): void {
-    this.resetForm()
+    if (this.prefill !== null) {
+      this.applyPrefill(this.prefill)
+    } else {
+      this.resetForm()
+    }
   }
 
   onVisibleChanged(): void {
@@ -189,8 +194,9 @@ export struct ProviderConnectDialog {
 
           this.Footer()
         }
-        .width(820)
-        .height(720)
+        .width('92%')
+        .height('92%')
+        .constraintSize({ maxWidth: 820, maxHeight: 720 })
         .borderRadius(16)
         .backgroundColor(Theme.BG)
         .borderWidth(1)
@@ -601,14 +607,15 @@ export struct ProviderConnectDialog {
         .margin({ left: 10 })
         .onClick(() => this.onCancel())
 
-      Text(this.prefill !== null ? '保存' : '+ 添加')
+      Text(this.submitting ? '保存中...' : (this.prefill !== null ? '保存' : '+ 添加'))
         .fontSize(Theme.fs.sm)
         .fontWeight(FontWeight.Bold)
         .fontColor(Theme.TEXT_INVERSE)
         .height(42)
         .padding({ left: 22, right: 22 })
         .borderRadius(8)
-        .backgroundColor(Theme.ACCENT)
+        .backgroundColor(this.submitting ? Theme.PANEL : Theme.ACCENT)
+        .enabled(!this.submitting)
         .onClick(() => this.submit())
     }
     .width('100%')
@@ -849,6 +856,7 @@ export struct ProviderConnectDialog {
   }
 
   private submit(): void {
+    if (this.submitting) return
     const err = this.validate()
     if (err.length > 0) {
       this.errorText = err

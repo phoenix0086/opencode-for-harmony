@@ -1,10 +1,9 @@
-import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
-import { MainViewModel, PendingPermission, PendingQuestion, QuestionOption } from '../viewmodel/MainViewModel';
-import { StorageService } from '../service/StorageService';
+import { MainViewModel, PendingPermission, PendingQuestion, PendingQuestionItem, QuestionOption } from '../viewmodel/MainViewModel';
 import { storageService as storageSingleton, initStorageService } from '../services/StorageService';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager } from '../services/LocalOpenCodeServerManager';
+import { localRuntimeService } from '../services/LocalRuntimeService';
 import { ProcessBridge } from '../services/ProcessBridge';
 import { ConnectionStatus, AppView, SessionInfo, ProviderInfo } from '../model/AppState';
 import { ChatMessage, ToolCall } from '../model/ChatMessage';
@@ -19,6 +18,17 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog';
 import { providerConnectionService, ProviderConnectInput, ProviderModelInput } from '../services/ProviderConnectionService';
 import { providerRegistry } from '../services/ProviderRegistry';
+import { toRuntimeMode, needsServerUrl, isValidExternalRuntimeUrl, normalizeExternalRuntimeUrl } from '../services/RuntimeMode';
+import { i18n } from '../services/I18nService';
+import web_webview from '@ohos.web.webview';
+import { util } from '@kit.ArkTS';
+
+class RemoteFileEntry {
+  name: string = ''
+  path: string = ''
+  type: string = 'file'
+  ignored: boolean = false
+}
 
 /**
  * Main page of the OpenCode app.
@@ -29,7 +39,9 @@ import { providerRegistry } from '../services/ProviderRegistry';
 struct Index {
   @State viewModel: MainViewModel = new MainViewModel();
   @State currentView: AppView = AppView.Home;
-  @State sidebarCollapsed: boolean = false;
+  // Compact by default so the chat remains usable on HarmonyOS phones.
+  // Tablets/laptops can expand it with the visible chevron handle.
+  @State sidebarCollapsed: boolean = true;
   @State showSettings: boolean = false;
   @State initialized: boolean = false;
 
@@ -39,6 +51,21 @@ struct Index {
   @State showServerStatusDialog: boolean = false
   @State showHelpDialog: boolean = false
   @State inputText: string = '';
+  @State fileDirectory: string = '.'
+  @State remoteFiles: RemoteFileEntry[] = []
+  @State selectedFilePath: string = ''
+  @State selectedFileContent: string = ''
+  @State filesLoading: boolean = false
+  @State fileError: string = ''
+  // S1 fix: Provider 缺 API key 时 home 顶部显示 banner;onPageShow 每次重读
+  @State hasMissingApiKey: boolean = false
+
+  // 官方 OpenCode Web UI 工作区。Agent、项目和会话仍由电脑端 Server 提供。
+  @State officialWebViewUrl: string = ''
+  @State officialWebViewLoading: boolean = true
+  @State officialWebViewError: string = ''
+  @State officialWebStateSeededUrl: string = ''
+  private officialWebController: web_webview.WebviewController = new web_webview.WebviewController()
 
   // ── Settings 页面状态 ──
   @State settingsTab: string = 'general'
@@ -59,6 +86,13 @@ struct Index {
   @State settingCommandPalette: boolean = false
   @State settingServerStatus: boolean = false
   @State settingCustomAgents: boolean = false
+  // PR 3:权限 Tab
+  @State permissionFileRead: boolean = true
+  @State permissionFileWrite: boolean = true
+  @State permissionShell: boolean = true
+  @State permissionAutoAccept: boolean = false
+  // PR 3:高级 Tab
+  @State developerMode: boolean = false
   // M21: server mode for StatusPopover
   @State serverMode: string = 'unknown'
   // Runtime 连接模式: dev-pc | local | remote
@@ -73,14 +107,38 @@ struct Index {
   @State settingSoundAgent: string = '斯泰普博普斯 01'
   @State settingSoundPermission: string = '斯泰普博普斯 02'
   @State settingSoundError: string = '否 03'
+  @State settingsModelSearch: string = ''
 
   // ── Provider dialog 状态 ──
   @State showProviderDialog: boolean = false
   @State editingProviderId: string = ''
   @State providerDialogPrefill: ProviderConnectInput | null = null
   @State providerDialogSubmitting: boolean = false
+  @State modelSelectionSaving: boolean = false
+  @State providerRefreshing: boolean = false
 
   private context: common.UIAbilityContext = AppStorage.get<Context>('appContext') as common.UIAbilityContext;
+
+  // S1 fix: 每次进入页面都重读 providerRegistry.hasMissingApiKey(),
+  // 这样用户从 Provider 页填好 key 回 home,banner 自动消失
+  onPageShow(): void {
+    this.refreshProviderMissingState()
+    this.viewModel.resumeHealthCheck()
+    // 连接成功后，项目和会话首页交给官方 OpenCode Web UI，避免出现第二套首页。
+    if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+        this.officialWebViewUrl.length === 0) {
+      this.openOfficialWebView('')
+    }
+  }
+
+  private refreshProviderMissingState(): void {
+    try {
+      this.hasMissingApiKey = providerRegistry.hasMissingApiKey()
+    } catch (e) {
+      // providerRegistry.init() 还没跑过,默认 false
+      this.hasMissingApiKey = false
+    }
+  }
 
   async aboutToAppear(): Promise<void> {
     if (!this.initialized) {
@@ -106,19 +164,53 @@ struct Index {
       } catch (e) {
         Logger.warn(`Failed to load runtime connection mode: ${errStr(e)}`)
       }
-      const storage = new StorageService(this.context);
-      await storage.init();
-      await this.viewModel.init(storage);
+      // C1 fix: 之前是 new StorageService(...) + storage.init() 创建第二个实例,
+      // 跟 storageSingleton 各持一份 preferences.Preferences in-memory 缓存,
+      // 一边 put 一边 get 容易读到旧值。现在统一用 storageSingleton (initStorageService 已初始化)。
+      await this.viewModel.init(storageSingleton);
+      this.viewModel.runtimeMode = toRuntimeMode(this.runtimeConnectionMode)
+      if (needsServerUrl(this.viewModel.runtimeMode)) {
+        this.viewModel.serverInfo.url = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+      }
+
+      // External modes must not probe an empty/localhost URL on a tablet.
+      // Keep the user on the setup path instead of showing an endless loader.
+      if (needsServerUrl(this.viewModel.runtimeMode) &&
+          !isValidExternalRuntimeUrl(this.viewModel.serverInfo.url, this.viewModel.runtimeMode)) {
+        this.viewModel.serverInfo.url = ''
+      }
+
+      // Repair configs written by older builds that stored an empty host
+      // while the URL preference still contained the actual LAN address.
+      // This must run after ViewModel.init so the persisted URL is available.
+      if (this.runtimeConnectionMode === 'dev-pc') {
+        const savedCfg = await localOpenCodeServerManager.loadLastConfig()
+        if (savedCfg.host.length === 0) {
+          const savedUrl: string = this.viewModel.serverInfo.url
+          const hostMatch = savedUrl.match(/^https?:\/\/([^:/]+)(?::\d+)?/)
+          const recoveredHost: string = hostMatch && hostMatch.length > 1 ? hostMatch[1] : ''
+          if (recoveredHost.length > 0 && recoveredHost !== '127.0.0.1') {
+            savedCfg.host = recoveredHost
+            this.viewModel.serverInfo.url = `${savedCfg.protocol}://${savedCfg.host}:${savedCfg.port}`
+            await localOpenCodeServerManager.saveLastConfig(savedCfg)
+            Logger.info(`Recovered LAN Runtime host from saved URL: ${savedCfg.host}`)
+          }
+        }
+      }
 
       // After init: fix URL to match current mode (especially after auto-fallback)
       if (autoFallbackDone) {
         const cfg = await localOpenCodeServerManager.loadLastConfig()
-        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`
+        this.viewModel.serverInfo.url = isValidExternalRuntimeUrl(`http://${cfg.host}:${cfg.port}`, 'dev-pc')
+          ? `http://${cfg.host}:${cfg.port}`
+          : ''
         Logger.info(`URL auto-updated to: ${this.viewModel.serverInfo.url}`)
       }
 
       this.initialized = true;
       Logger.info('Index page initialized, starting auto-connect...');
+      // S1 fix: 加载 provider 后立刻同步 banner 状态,首屏就能看到
+      this.refreshProviderMissingState();
       // 修复 W6: autoStartAndConnect 和 loadRecentProjects 互不依赖,
       // 改为 Promise.allSettled 并行,首屏更流畅。
       // 使用 allSettled 而非 all，确保一个失败不影响另一个完成。
@@ -126,15 +218,26 @@ struct Index {
         this.viewModel.autoStartAndConnect(),
         this.loadRecentProjects()
       ])
+      // The first project load races intentionally with connection startup.
+      // Refresh once connected so remote OpenCode workspaces replace the
+      // storage-only fallback list.
+      await this.loadRecentProjects()
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+          this.currentView === AppView.Home && this.officialWebViewUrl.length === 0) {
+        this.openOfficialWebView('')
+      }
     }
   }
 
   aboutToDisappear(): void {
+    // BUG-01 修复: 页面销毁时清理健康检查定时器, 防止 setInterval 泄漏。
+    // 注意: 仅清理定时器, 不关闭 Runtime (Runtime 生命周期由用户/应用退出统一处理)。
+    this.viewModel.stopHealthCheck()
     // 不要在页面消失时自动关闭 Runtime。
     // 页面切换、预览刷新、生命周期变化都可能触发 aboutToDisappear(),
     // 切到设置页或弹模态都会杀 Runtime,导致 Chat 残影和未连接状态。
     // Runtime 应该由用户明确点击"停止 Runtime"按钮,或应用真正退出时统一处理。
-    Logger.info('Index page disappeared; Runtime kept alive (no shutdown)');
+    Logger.info('Index page disappeared; health timer stopped, Runtime kept alive (no shutdown)');
   }
 
   /**
@@ -143,6 +246,31 @@ struct Index {
    */
   async loadRecentProjects(): Promise<void> {
     try {
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+          this.viewModel.runtimeMode !== 'local-embedded') {
+        const remote = await this.viewModel.listProjects()
+        const remoteProjects: ProjectEntry[] = []
+        for (let i = 0; i < remote.length; i++) {
+          const item = remote[i] as Record<string, Object>
+          const directory = (item['worktree'] as string) ?? (item['directory'] as string) ?? ''
+          if (directory.length === 0 || directory === '/') continue
+          const project = new ProjectEntry()
+          project.id = (item['id'] as string) ?? directory
+          project.name = directory.split('/').pop() ?? directory
+          project.directory = directory
+          project.worktree = directory
+          const time = item['time'] as Record<string, Object>
+          const updated = time ? ((time['updated'] as number) ?? 0) : 0
+          project.lastOpened = updated > 0 ? new Date(updated).toISOString() : ''
+          project.isActive = directory === this.viewModel.serverInfo.projectPath
+          remoteProjects.push(project)
+        }
+        if (remoteProjects.length > 0) {
+          this.homeProjects = remoteProjects
+          return
+        }
+      }
+
       const raw = await storageSingleton.getRecentWorkspaces()
       const projects: ProjectEntry[] = []
       for (const dir of raw) {
@@ -184,14 +312,99 @@ struct Index {
       return
     }
     try {
+      const selected = await this.viewModel.selectProject(directory)
+      if (!selected) {
+        this.showToast('项目切换失败，请检查电脑端目录是否仍存在')
+        return
+      }
       await storageSingleton.saveWorkspacePath(directory)
       await storageSingleton.addRecentWorkspace(directory)
 
       await this.loadRecentProjects()
-      this.currentView = AppView.Chat
+      // 官方首页负责项目选择；这个方法只保留给旧入口的兼容跳转。
+      this.openOfficialWebView(directory)
     } catch (err) {
       Logger.error(`openProject failed: ${errStr(err)}`)
     }
+  }
+
+  async loadRemoteFiles(directory: string = '.'): Promise<void> {
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.fileError = '请先连接电脑上的 OpenCode Server'
+      return
+    }
+    this.filesLoading = true
+    this.fileError = ''
+    try {
+      const raw = await this.viewModel.listWorkspaceDirectory(directory)
+      const entries: RemoteFileEntry[] = []
+      for (const value of raw) {
+        if (!value || typeof value !== 'object') continue
+        const record = value as Record<string, Object>
+        const entry = new RemoteFileEntry()
+        entry.path = (record['path'] as string) || ''
+        entry.name = (record['name'] as string) || this.fileName(entry.path)
+        entry.type = (record['type'] as string) || (entry.path.endsWith('/') ? 'directory' : 'file')
+        entry.ignored = record['ignored'] === true
+        if (entry.path.length > 0) entries.push(entry)
+      }
+      this.fileDirectory = directory.length > 0 ? directory : '.'
+      this.remoteFiles = entries
+      this.selectedFilePath = ''
+      this.selectedFileContent = ''
+    } catch (e) {
+      this.fileError = errStr(e)
+    } finally {
+      this.filesLoading = false
+    }
+  }
+
+  async openRemoteFile(entry: RemoteFileEntry): Promise<void> {
+    if (entry.type === 'directory' || entry.path.endsWith('/')) {
+      await this.loadRemoteFiles(entry.path)
+      return
+    }
+    this.filesLoading = true
+    this.fileError = ''
+    try {
+      const result = await this.viewModel.readWorkspaceFile(entry.path)
+      const type = (result['type'] as string) || 'text'
+      this.selectedFilePath = entry.path
+      this.selectedFileContent = type === 'text'
+        ? ((result['content'] as string) || '')
+        : '这是二进制文件，暂不提供文本预览。'
+    } catch (e) {
+      this.fileError = `打开文件失败: ${errStr(e)}`
+    } finally {
+      this.filesLoading = false
+    }
+  }
+
+  /**
+   * Keep the source of truth on the computer: ask the connected OpenCode
+   * session to edit the selected remote file, then review/approve the change
+   * through the normal permission and diff flow.
+   */
+  private requestRemoteFileEdit(): void {
+    if (this.selectedFilePath.length === 0) return
+    this.inputText = `请修改电脑端项目文件 ${this.selectedFilePath}：`
+    this.currentView = AppView.Chat
+    this.sidebarCollapsed = true
+    this.showToast('已带入文件路径，请补充修改内容后发送。', 2200)
+  }
+
+  private fileName(path: string): string {
+    const normalized = path.endsWith('/') ? path.substring(0, path.length - 1) : path
+    return normalized.split('/').pop() || normalized
+  }
+
+  private parentFileDirectory(): string {
+    if (this.fileDirectory === '.' || this.fileDirectory.length === 0) return '.'
+    const normalized = this.fileDirectory.endsWith('/')
+      ? this.fileDirectory.substring(0, this.fileDirectory.length - 1)
+      : this.fileDirectory
+    const index = normalized.lastIndexOf('/')
+    return index > 0 ? normalized.substring(0, index + 1) : '.'
   }
 
   /**
@@ -207,14 +420,25 @@ struct Index {
   }
 
   build() {
-    // ── Home 全屏模式: 与 opencode-dev 的 LegacyHome 完全对齐 ──
-    // 默认 currentView=Home 时直接显示 OpenCodeHomeLaunch,不带侧栏,
-    // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
-    if (this.currentView === AppView.Home) {
-      this.FullScreenHome()
-    } else {
-      this.SidebarLayout()
+    Stack() {
+      // ── Home 全屏模式: 与 opencode-dev 的 LegacyHome 完全对齐 ──
+      // 默认 currentView=Home 时直接显示 OpenCodeHomeLaunch,不带侧栏,
+      // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
+      if (this.currentView === AppView.Home) {
+        this.FullScreenHome()
+      } else if (this.currentView === AppView.WebView) {
+        // 官方工作区全屏展示，避免再套一层原生侧栏造成视觉割裂。
+        this.WebViewContent()
+      } else {
+        this.SidebarLayout()
+      }
+
+      if (this.showSettings) {
+        this.SettingsModal()
+      }
     }
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
@@ -295,9 +519,9 @@ struct Index {
       OpenCodeHomeLaunch({
         activeRunner: null,
         sessions: this.viewModel.sessions,
-        projectName: '',
-        projectPath: '',
-        branchName: '',
+        projectName: this.viewModel.serverInfo.projectPath.split('/').pop() ?? '',
+        projectPath: this.viewModel.serverInfo.projectPath,
+        branchName: this.viewModel.currentBranch,
         modelName: this.viewModel.selectedModel,
         isConnected: this.viewModel.connectionStatus === ConnectionStatus.Connected,
         serverVersion: this.viewModel.serverInfo.url,
@@ -307,14 +531,17 @@ struct Index {
                         this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ||
                         this.viewModel.connectionStatus === ConnectionStatus.Connecting ||
                         this.viewModel.connectionStatus === ConnectionStatus.StartFailed,
+        // 本地运行尚未开放，不用本地 Provider 提示干扰连接电脑主路径。
+        hasMissingApiKey: false,
         onNewSession: () => {
-          this.newSessionAndOpenChat()
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
         },
         onOpenChat: () => {
-          this.currentView = AppView.Chat
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
         },
         onOpenSettings: () => {
-          this.showSettings = !this.showSettings
+          this.settingsTab = this.viewModel.connectionStatus === ConnectionStatus.Connected ? 'general' : 'servers'
+          this.showSettings = true
         },
         onOpenHelp: () => {
           this.showHelpDialog = true
@@ -327,6 +554,29 @@ struct Index {
         },
         onOpenProject: (directory: string) => {
           this.openProject(directory)
+        },
+        onOpenProviders: () => {
+          // 直接跳到 Settings 的 providers tab,不用先开 Settings 再切 tab
+          this.settingsTab = 'providers'
+          this.showSettings = true
+          this.refreshProviderData()
+        },
+        onConnectComputer: () => {
+          if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+              this.runtimeConnectionMode === 'dev-pc') {
+            this.openOfficialWebView('')
+          } else {
+            this.switchRuntimeMode('dev-pc')
+            this.settingsTab = 'servers'
+            this.showSettings = true
+          }
+        },
+        onOpenLocalRuntime: () => {
+          this.showToast('本地运行功能正在开发中，当前请先使用“连接电脑”。', 2600)
+        },
+        onOpenSession: (sessionId: string) => {
+          // 会话详情交给官方 Web UI，避免移动端重复实现 Agent 工作区。
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath, sessionId)
         }
       })
 
@@ -334,7 +584,7 @@ struct Index {
       DirectoryPicker({
         visible: this.showDirectoryPicker,
         projects: this.homeProjects,
-        currentDirectory: this.viewModel.serverInfo.url,
+        currentDirectory: this.viewModel.serverInfo.projectPath,
         onSelect: (directory: string) => {
           this.showDirectoryPicker = false
           this.openProject(directory)
@@ -354,28 +604,6 @@ struct Index {
         this.HelpDialog()
       }
 
-      // ── Settings 全屏覆盖 (从 Home 齿轮按钮进入) ──
-      if (this.showSettings) {
-        Column() {
-          Row() {
-            Text('← 返回')
-              .fontSize(13)
-              .fontColor('#FFFFFF')
-              .padding({ left: 16, top: 12, bottom: 12 })
-              .onClick(() => {
-                this.showSettings = false
-              })
-          }
-          .width('100%')
-          .height(44)
-          .backgroundColor('#1A1A1A')
-
-          this.SettingsContent()
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#111111')
-      }
     }
     .width('100%')
     .height('100%')
@@ -388,139 +616,166 @@ struct Index {
 
   @Builder
   SidebarLayout() {
-    Row() {
-      // Sidebar
-      if (!this.sidebarCollapsed) {
-        Column() {
-          // Logo area
-          Row() {
-            Text('OpenCode')
-              .fontSize(18)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-              .margin({ left: 16 })
-            Blank()
+    Stack({ alignContent: Alignment.Start }) {
+      Row() {
+        if (this.sidebarCollapsed) {
+          Column() {
             Button() {
-              SymbolGlyph($r('sys.symbol.chevron_left'))
+              SymbolGlyph($r('sys.symbol.chevron_right'))
                 .fontSize(16)
                 .fontColor(['#FFFFFF'])
             }
-            .width(28)
-            .height(28)
-            .backgroundColor(Color.Transparent)
-            .onClick(() => {
-              this.sidebarCollapsed = true;
-            })
+            .width(32)
+            .height(32)
+            .backgroundColor('#2D2D2D')
+            .borderRadius(16)
+            .onClick(() => { this.sidebarCollapsed = false })
           }
-          .width('100%')
-          .height(Constants.TITLE_BAR_HEIGHT)
-          .padding({ left: 8, right: 8 })
-          .alignItems(VerticalAlign.Center)
-
-          Divider()
-            .color('#404040')
-            .width('100%')
-
-          // Nav items — simplified menu v21
-          Column() {
-            this.NavItem(AppView.Chat, $r('app.media.chat'), 'Chat')
-            this.NavItem(AppView.Files, $r('app.media.home'), 'Projects')
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .padding({ top: 8 })
-
-          Divider()
-            .color('#404040')
-            .width('100%')
-
-          // Connection status
-          Row() {
-            Circle()
-              .width(8)
-              .height(8)
-              .fill(this.getStatusColor())
-            Text(this.getStatusText())
-              .fontSize(12)
-              .fontColor('#FFFFFF')
-              .margin({ left: 8 })
-          }
-          .width('100%')
-          .height(40)
-          .padding({ left: 16, right: 16 })
-          .alignItems(VerticalAlign.Center)
-
-          // Settings button
-          Button() {
-            Row() {
-              Text('⚙️').fontSize(16)
-                .fontColor('#FFFFFF')
-              Text('Settings')
-                .fontSize(14)
-                .fontColor('#FFFFFF')
-                .margin({ left: 12 })
-            }
-          }
-          .width('100%')
-          .height(44)
-          .backgroundColor(Color.Transparent)
-          .onClick(() => {
-            this.showSettings = !this.showSettings;
-          })
+          .width(48)
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor('#111111')
         }
-        .width(Constants.SIDEBAR_WIDTH)
-        .height('100%')
-        .backgroundColor('#1A1A1A')
-      }
 
-      // Collapse/expand handle
-      if (this.sidebarCollapsed) {
-        Column() {
-          Button() {
-            SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(16)
-              .fontColor(['#FFFFFF'])
-          }
-          .width(32)
-          .height(32)
-          .backgroundColor('#2D2D2D')
-          .borderRadius(16)
-          .onClick(() => {
-            this.sidebarCollapsed = false;
-          })
-        }
-        .width(48)
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor('#111111')
+        this.MainWorkspaceContent()
       }
-
-      // Main content area
-      Column() {
-        if (this.showSettings) {
-          this.SettingsContent()
-        } else if (this.currentView === AppView.Home) {
-          this.HomeContent()
-        } else if (this.currentView === AppView.Chat) {
-          this.ChatContent()
-        } else if (this.currentView === AppView.Files) {
-          this.FilesContent()
-        } else if (this.currentView === AppView.Provider) {
-          ProviderPage({ activeRunner: null })
-        } else if (this.currentView === AppView.WebView) {
-          this.WebViewContent()
-        } else if (this.currentView === AppView.Terminal) {
-          this.TerminalContent()
-        } else if (this.currentView === AppView.Runtime) {
-          this.RuntimeContent()
-        }
-      }
-      .layoutWeight(1)
+      .width('100%')
       .height('100%')
-      .backgroundColor('#111111')
+
+      if (!this.sidebarCollapsed) {
+        Button() {}
+          .width('100%')
+          .height('100%')
+          .backgroundColor('#00000066')
+          .borderRadius(0)
+          .onClick(() => { this.sidebarCollapsed = true })
+
+        this.SidebarDrawer()
+      }
     }
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  MainWorkspaceContent() {
+    Column() {
+      if (this.currentView === AppView.Home) {
+        this.HomeContent()
+      } else if (this.currentView === AppView.Chat) {
+        this.ChatContent()
+      } else if (this.currentView === AppView.Files) {
+        this.FilesContent()
+      } else if (this.currentView === AppView.Settings) {
+        this.HomeContent()
+      } else if (this.currentView === AppView.Provider) {
+        ProviderPage({ activeRunner: null })
+      } else if (this.currentView === AppView.WebView) {
+        this.WebViewContent()
+      } else if (this.currentView === AppView.Terminal) {
+        this.TerminalContent()
+      } else if (this.currentView === AppView.Runtime) {
+        this.RuntimeContent()
+      }
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor('#111111')
+  }
+
+  @Builder
+  SidebarDrawer() {
+    Column() {
+      Row() {
+        Text('OpenCode')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .margin({ left: 16 })
+        Blank()
+        Button() {
+          SymbolGlyph($r('sys.symbol.chevron_left'))
+            .fontSize(16)
+            .fontColor(['#FFFFFF'])
+        }
+        .width(28)
+        .height(28)
+        .backgroundColor(Color.Transparent)
+        .onClick(() => { this.sidebarCollapsed = true })
+      }
+      .width('100%')
+      .height(Constants.TITLE_BAR_HEIGHT)
+      .padding({ left: 8, right: 8 })
+      .alignItems(VerticalAlign.Center)
+
+      Divider().color('#404040').width('100%')
+
+      Column() {
+        this.NavItem(AppView.Chat, $r('app.media.chat'), i18n.t('sidebar.chat'))
+        this.NavItem(AppView.Files, $r('app.media.home'), i18n.t('sidebar.projects'))
+      }
+      .width('100%')
+      .padding({ top: 8, bottom: 8 })
+
+      Text(i18n.t('sidebar.sessions'))
+        .fontSize(11)
+        .fontColor('#8A8A8A')
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 8, bottom: 6 })
+
+      List() {
+        ForEach(this.viewModel.sessions.slice(0, 20), (session: SessionInfo) => {
+          ListItem() {
+            Text(session.title.length > 0 ? session.title : i18n.t('session.untitled'))
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+              .padding({ left: 16, right: 12 })
+          }
+          .height(38)
+          .width('100%')
+          .backgroundColor(this.viewModel.currentSessionId === session.id ? '#2A2A2A' : Color.Transparent)
+          .onClick(() => { this.openSessionFromDrawer(session.id) })
+        }, (session: SessionInfo) => session.id)
+      }
+      .width('100%')
+      .layoutWeight(1)
+
+      Divider().color('#404040').width('100%')
+
+      Row() {
+        Circle().width(8).height(8).fill(this.getStatusColor())
+        Text(this.getStatusText())
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .margin({ left: 8 })
+      }
+      .width('100%')
+      .height(40)
+      .padding({ left: 16, right: 16 })
+      .alignItems(VerticalAlign.Center)
+
+      Button() {
+        Row() {
+          Text('⚙️').fontSize(16).fontColor('#FFFFFF')
+          Text(i18n.t('sidebar.settings')).fontSize(14).fontColor('#FFFFFF').margin({ left: 12 })
+        }
+      }
+      .width('100%')
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .onClick(() => {
+        this.sidebarCollapsed = true
+        this.settingsTab = 'general'
+        this.showSettings = true
+      })
+    }
+    .width(Constants.SIDEBAR_WIDTH)
+    .height('100%')
+    .backgroundColor('#1A1A1A')
+    .shadow({ radius: 18, color: '#00000099', offsetX: 6, offsetY: 0 })
   }
 
   @Builder
@@ -543,9 +798,30 @@ struct Index {
     .borderRadius(8)
     .margin({ left: 8, right: 8, top: 2, bottom: 2 })
     .onClick(() => {
+      if (view === AppView.Chat) {
+        if (this.viewModel.connectionStatus === ConnectionStatus.Connected) {
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
+        } else {
+          this.settingsTab = 'servers'
+          this.showSettings = true
+        }
+        return
+      }
       this.currentView = view;
       this.showSettings = false;
+      this.sidebarCollapsed = true;
+      if (view === AppView.Files) this.loadRemoteFiles('.')
     })
+  }
+
+  private async openSessionFromDrawer(sessionId: string): Promise<void> {
+    this.sidebarCollapsed = true
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.settingsTab = 'servers'
+      this.showSettings = true
+      return
+    }
+    this.openOfficialWebView(this.viewModel.serverInfo.projectPath, sessionId)
   }
 
   @Builder
@@ -756,6 +1032,8 @@ struct Index {
           .fontSize(14)
           .margin({ left: 8 })
           .onClick(() => {
+            // S5 fix: 给用户即时反馈,让"按下去有事发生"这件事可见
+            this.showToast('正在重启 Runtime...', 1500)
             this.viewModel.autoStartAndConnect()
           })
       }
@@ -799,13 +1077,37 @@ struct Index {
     Column() {
       // Chat header
       Row() {
-        Text(this.viewModel.currentSessionId.length > 0 ? `Session ${this.viewModel.serverMode}` : 'New Chat')
+        // 固定的项目首页入口：抽屉只负责历史会话，不能代替项目导航。
+        Button() {
+          Row() {
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+              .fontSize(15)
+              .fontColor(['#FFFFFF'])
+            Text('项目首页')
+              .fontSize(13)
+              .fontColor('#FFFFFF')
+              .margin({ left: 5 })
+          }
+        }
+        .height(34)
+        .padding({ left: 10, right: 10 })
+        .backgroundColor('#2D2D2D')
+        .borderRadius(7)
+        .margin({ right: 10 })
+        .onClick(() => {
+          this.sidebarCollapsed = true
+          this.currentView = AppView.Home
+          this.loadRecentProjects()
+        })
+        Text(this.currentSessionTitle())
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .fontColor('#FFFFFF')
-        Blank()
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.viewModel.isGenerating) {
-          Button('Stop')
+          Button(i18n.t('composer.stop'))
             .fontSize(13)
             .height(32)
             .backgroundColor('#FF5252')
@@ -813,14 +1115,19 @@ struct Index {
             .borderRadius(6)
             .onClick(() => { this.viewModel.stopGeneration() })
         }
-        Button('New Session')
+        Button(i18n.t('session.new'))
           .fontSize(13)
           .height(32)
           .backgroundColor('#2D2D2D')
           .fontColor('#FFFFFF')
           .borderRadius(6)
           .margin({ left: 8 })
-          .onClick(() => { this.viewModel.currentSessionId = '' })
+          .enabled(!this.viewModel.isGenerating)
+          .opacity(this.viewModel.isGenerating ? 0.45 : 1)
+          .onClick(() => {
+            this.inputText = ''
+            this.viewModel.beginNewSession()
+          })
       }
       .width('100%')
       .height(Constants.TITLE_BAR_HEIGHT)
@@ -1030,51 +1337,66 @@ struct Index {
               .width('100%')
               .margin({ bottom: 6 })
 
-              if (q.header.length > 0) {
-                Text(q.header)
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
-                  .fontWeight(FontWeight.Medium)
-                  .width('100%')
-                  .margin({ bottom: 4 })
-              }
-
-              Text(q.question)
-                .fontSize(13)
-                .fontColor('#FFFFFF')
-                .width('100%')
-                .margin({ bottom: 8 })
-
-              // Options
-              ForEach(q.options, (opt: QuestionOption) => {
-                Row() {
-                  Button(opt.label)
-                    .fontSize(13)
-                    .height(32)
-                    .backgroundColor('#007DFF')
-                    .fontColor('#FFFFFF')
-                    .borderRadius(6)
-                    .onClick(() => { this.viewModel.replyQuestion(q.id, [opt.id]) })
-                  if (opt.description.length > 0) {
-                    Text(opt.description)
-                      .fontSize(12)
+              ForEach(q.questions, (question: PendingQuestionItem, questionIndex: number) => {
+                Column() {
+                  if (question.header.length > 0) {
+                    Text(question.header)
+                      .fontSize(14)
                       .fontColor('#FFFFFF')
-                      .margin({ left: 8 })
+                      .fontWeight(FontWeight.Medium)
+                      .width('100%')
+                      .margin({ bottom: 4 })
                   }
+
+                  Text(question.question)
+                    .fontSize(13)
+                    .fontColor('#FFFFFF')
+                    .width('100%')
+                    .margin({ bottom: 8 })
+
+                  ForEach(question.options, (opt: QuestionOption) => {
+                    Row() {
+                      Button(`${this.viewModel.isQuestionOptionSelected(q.id, questionIndex, opt.label) ? '✓ ' : ''}${opt.label}`)
+                        .fontSize(13)
+                        .height(32)
+                        .backgroundColor(this.viewModel.isQuestionOptionSelected(q.id, questionIndex, opt.label) ? '#3DDC84' : '#007DFF')
+                        .fontColor('#FFFFFF')
+                        .borderRadius(6)
+                        .onClick(() => { this.viewModel.selectQuestionOption(q.id, questionIndex, opt.label) })
+                      if (opt.description.length > 0) {
+                        Text(opt.description)
+                          .fontSize(12)
+                          .fontColor('#FFFFFF')
+                          .margin({ left: 8 })
+                      }
+                    }
+                    .width('100%')
+                    .margin({ bottom: 4 })
+                  }, (opt: QuestionOption) => opt.id)
                 }
                 .width('100%')
-                .margin({ bottom: 4 })
-              }, (opt: QuestionOption) => opt.id)
+                .alignItems(HorizontalAlign.Start)
+                .margin({ bottom: 8 })
+              }, (_question: PendingQuestionItem, questionIndex: number) => `${q.id}-${questionIndex}`)
 
-              // Reject button
-              Button('拒绝')
-                .fontSize(12)
-                .height(28)
-                .backgroundColor('#2D2D2D')
-                .fontColor('#FFFFFF')
-                .borderRadius(6)
-                .margin({ top: 4 })
-                .onClick(() => { this.viewModel.rejectQuestion(q.id) })
+              Row() {
+                Button('提交回答')
+                  .fontSize(12)
+                  .height(30)
+                  .enabled(this.viewModel.canSubmitQuestion(q.id))
+                  .backgroundColor(this.viewModel.canSubmitQuestion(q.id) ? '#3DDC84' : '#555555')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .onClick(() => { this.viewModel.replyQuestion(q.id) })
+                Button('拒绝')
+                  .fontSize(12)
+                  .height(30)
+                  .backgroundColor('#2D2D2D')
+                  .fontColor('#FFFFFF')
+                  .borderRadius(6)
+                  .margin({ left: 8 })
+                  .onClick(() => { this.viewModel.rejectQuestion(q.id) })
+              }
             }
             .width('100%')
             .padding(12)
@@ -1092,7 +1414,7 @@ struct Index {
 
       // Input area
       Row() {
-        TextInput({ placeholder: 'Type a message...', text: this.inputText })
+        TextInput({ placeholder: i18n.t('composer.placeholder'), text: this.inputText })
           .layoutWeight(1)
           .height(40)
           .backgroundColor('#2D2D2D')
@@ -1101,7 +1423,7 @@ struct Index {
           .placeholderColor('#666666')
           .onChange((value: string) => { this.inputText = value })
           .onSubmit(() => { this.sendInput() })
-        Button('Send')
+        Button(i18n.t('composer.send'))
           .height(40)
           .width(72)
           .backgroundColor('#007DFF')
@@ -1127,6 +1449,9 @@ struct Index {
     if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
       this.viewModel.errorMessage = '本地 Runtime 未连接。请先启动或连接 Runtime。'
       this.viewModel.serverStatusMessage = this.viewModel.errorMessage
+      // W3 fix: 显式 toast,用户按 Send 后立刻看到反馈,
+      // RuntimeDisconnectedCard 已经在显示了,但那是被动反馈,toast 是主动反馈
+      this.showToast('本地 Runtime 未连接,请先启动或连接', 2000)
       return
     }
 
@@ -1136,18 +1461,182 @@ struct Index {
 
   @Builder
   WebViewContent() {
-    Column() {
-      Text('Web View')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-        .margin(16)
-      Text('连接本地 OpenCode Runtime 后可继续使用')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
+    Stack({ alignContent: Alignment.TopStart }) {
+      if (this.officialWebViewError.length > 0) {
+        Column() {
+          Text('电脑端 OpenCode 页面加载失败')
+            .fontSize(18)
+            .fontColor('#FFFFFF')
+            .margin({ bottom: 10 })
+          Text(this.officialWebViewError)
+            .fontSize(13)
+            .fontColor('#AAAAAA')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 16 })
+          Button('重新加载')
+            .height(40)
+            .width(120)
+            .backgroundColor('#007DFF')
+            .fontColor('#FFFFFF')
+            .borderRadius(8)
+            .onClick(() => {
+              this.officialWebViewError = ''
+              this.officialWebViewLoading = true
+              this.officialWebController.loadUrl(this.officialWebViewUrl)
+            })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .padding(32)
+      } else {
+        Web({ src: this.officialWebViewUrl, controller: this.officialWebController })
+          .width('100%')
+          .height('100%')
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .zoomAccess(false)
+          .keyboardAvoidMode(WebKeyboardAvoidMode.RESIZE_CONTENT)
+          .onPageBegin(() => {
+            this.officialWebViewLoading = true
+            this.officialWebViewError = ''
+          })
+          .onPageEnd(() => {
+            this.officialWebViewLoading = false
+            this.applyOfficialWebState()
+          })
+          .onErrorReceive(() => {
+            this.officialWebViewLoading = false
+            // 不把包含 auth_token 的完整 URL 显示到页面，避免凭据泄露。
+            this.officialWebViewError = '无法连接电脑端 OpenCode Server，请检查网络、地址或登录密码。'
+            Logger.warn(`Official OpenCode WebView failed to load: ${this.viewModel.serverInfo.url}`)
+          })
+
+      }
+
+      if (this.officialWebViewLoading && this.officialWebViewError.length === 0) {
+        LoadingProgress()
+          .width(20)
+          .height(20)
+          .color('#8A8A8A')
+          .position({ x: '96%', y: 18 })
+      }
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#111111')
+  }
+
+  private async applyOfficialWebState(): Promise<void> {
+    const serverScope = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+    if (serverScope.length === 0) return
+    const projectPaths: string[] = []
+    for (const project of this.homeProjects) {
+      if (project.directory.length > 0 && project.directory !== '/') projectPaths.push(project.directory)
+    }
+    const scopeJson = JSON.stringify(serverScope)
+    const pathJson = JSON.stringify(this.viewModel.serverInfo.projectPath)
+    const projectsJson = JSON.stringify(projectPaths)
+    const script = `(() => {
+      const themeKey = 'opencode-color-scheme';
+      localStorage.setItem(themeKey, 'dark');
+      document.documentElement.dataset.colorScheme = 'dark';
+      document.documentElement.style.colorScheme = 'dark';
+      document.documentElement.style.backgroundColor = '#080808';
+      const metas = document.querySelectorAll('meta[name="theme-color"]');
+      if (metas.length > 0) metas[0].setAttribute('content', '#080808');
+      const serverKey = 'opencode.global.dat:server';
+      const scope = ${scopeJson};
+      const paths = ${projectsJson};
+      const currentDirectory = ${pathJson};
+      let state = {};
+      try {
+        const raw = localStorage.getItem(serverKey);
+        if (raw) state = JSON.parse(raw) || {};
+      } catch (_) { state = {}; }
+      if (!state.projects || typeof state.projects !== 'object') state.projects = {};
+      if (!state.lastProject || typeof state.lastProject !== 'object') state.lastProject = {};
+      const existing = Array.isArray(state.projects[scope]) ? state.projects[scope] : [];
+      const seedKey = 'ohopencode.official-projects-seeded:' + scope;
+      const hasSeededProjects = localStorage.getItem(seedKey) === '1';
+      let changed = false;
+      if (!hasSeededProjects && existing.length === 0 && paths.length > 0) {
+        state.projects[scope] = paths.map((worktree) => ({ worktree, expanded: true }));
+        localStorage.setItem(seedKey, '1');
+        changed = true;
+      } else if (!hasSeededProjects && existing.length > 0) {
+        // Existing official state predates this compatibility marker. Mark it
+        // as initialized without changing the user's project choices.
+        localStorage.setItem(seedKey, '1');
+      }
+      if (currentDirectory && !state.lastProject[scope]) {
+        state.lastProject[scope] = currentDirectory;
+        changed = true;
+      }
+      if (changed) {
+        localStorage.setItem(serverKey, JSON.stringify(state));
+        return 'reload';
+      }
+      return 'ready';
+    })()`
+    try {
+      const result = await this.officialWebController.runJavaScript(script)
+      if (result.indexOf('reload') >= 0 && this.officialWebStateSeededUrl !== serverScope) {
+        this.officialWebStateSeededUrl = serverScope
+        this.officialWebViewLoading = true
+        this.officialWebController.refresh()
+      }
+    } catch (err) {
+      Logger.warn(`applyOfficialWebState: ${errStr(err)}`)
+    }
+  }
+
+  private encodeDirectoryForOpenCode(directory: string): string {
+    if (directory.length === 0) return ''
+    const encoder = new util.TextEncoder()
+    const bytes = encoder.encodeInto(directory)
+    const helper = new util.Base64Helper()
+    return helper.encodeToStringSync(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  }
+
+  private openOfficialWebView(directory: string = '', sessionId: string = ''): void {
+    let url = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+    if (url.length === 0) {
+      this.settingsTab = 'servers'
+      this.showSettings = true
+      this.showToast('请先连接电脑端 OpenCode Server')
+      return
+    }
+    if (!url.endsWith('/')) url += '/'
+    const encodedDirectory = this.encodeDirectoryForOpenCode(directory)
+    if (encodedDirectory.length > 0) {
+      url += encodedDirectory
+      if (sessionId.length > 0) {
+        url += `/session/${encodeURIComponent(sessionId)}`
+      } else {
+        url += '/'
+      }
+    }
+    if (this.viewModel.serverInfo.password.length > 0) {
+      const username = this.viewModel.serverInfo.username.length > 0
+        ? this.viewModel.serverInfo.username
+        : 'opencode'
+      const token = this.encodeBase64(`${username}:${this.viewModel.serverInfo.password}`)
+      url += `?auth_token=${encodeURIComponent(token)}`
+    }
+    this.officialWebViewUrl = url
+    this.officialWebViewError = ''
+    this.officialWebViewLoading = true
+    this.showSettings = false
+    this.sidebarCollapsed = true
+    this.currentView = AppView.WebView
+  }
+
+  private encodeBase64(value: string): string {
+    const encoder = new util.TextEncoder()
+    const bytes = encoder.encodeInto(value)
+    const helper = new util.Base64Helper()
+    return helper.encodeToStringSync(bytes)
   }
 
   @Builder
@@ -1188,17 +1677,143 @@ struct Index {
   @Builder
   FilesContent() {
     Column() {
-      Text('Files')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-        .margin(16)
-      Text('File browser will appear here')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
+      Row() {
+        if (this.fileDirectory !== '.') {
+          Button('‹ 返回')
+            .height(34)
+            .fontSize(13)
+            .backgroundColor('#2D2D2D')
+            .fontColor('#FFFFFF')
+            .borderRadius(7)
+            .onClick(() => { this.loadRemoteFiles(this.parentFileDirectory()) })
+        }
+        Column() {
+          Text('电脑端项目文件')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+          Text(this.fileDirectory)
+            .fontSize(11)
+            .fontColor('#999999')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        .margin({ left: this.fileDirectory !== '.' ? 10 : 0 })
+        Button('刷新')
+          .height(34)
+          .fontSize(13)
+          .backgroundColor('#2D2D2D')
+          .fontColor('#FFFFFF')
+          .borderRadius(7)
+          .onClick(() => { this.loadRemoteFiles(this.fileDirectory) })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 14, bottom: 12 })
+
+      Divider().color('#2D2D2D').width('100%')
+
+      if (this.filesLoading) {
+        Column() {
+          LoadingProgress().width(30).height(30).color('#007DFF')
+          Text('正在读取电脑端项目…').fontSize(13).fontColor('#999999').margin({ top: 10 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+      } else if (this.fileError.length > 0) {
+        Column() {
+          Text(this.fileError).fontSize(14).fontColor('#FF6B6B').textAlign(TextAlign.Center)
+          Button('重试')
+            .margin({ top: 14 })
+            .onClick(() => { this.loadRemoteFiles(this.fileDirectory) })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .padding(24)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.selectedFilePath.length > 0) {
+        Column() {
+          Row() {
+            Button('‹ 文件列表')
+              .height(32)
+              .fontSize(12)
+              .backgroundColor('#2D2D2D')
+              .fontColor('#FFFFFF')
+              .onClick(() => {
+                this.selectedFilePath = ''
+                this.selectedFileContent = ''
+              })
+            Text(this.selectedFilePath)
+              .layoutWeight(1)
+              .fontSize(12)
+              .fontColor('#CCCCCC')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ left: 10 })
+            Button('让 OpenCode 修改')
+              .height(32)
+              .fontSize(12)
+              .backgroundColor('#007DFF')
+              .fontColor('#FFFFFF')
+              .borderRadius(6)
+              .margin({ left: 10 })
+              .onClick(() => { this.requestRemoteFileEdit() })
+          }
+          .width('100%')
+          .margin({ bottom: 10 })
+          Scroll() {
+            Text(this.selectedFileContent)
+              .fontSize(12)
+              .fontFamily('monospace')
+              .fontColor('#E6E6E6')
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .backgroundColor('#171717')
+          .padding(12)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .padding(14)
+      } else {
+        List() {
+          ForEach(this.remoteFiles, (entry: RemoteFileEntry) => {
+            ListItem() {
+              Row() {
+                Text(entry.type === 'directory' || entry.path.endsWith('/') ? '📁' : '📄')
+                  .fontSize(18)
+                Column() {
+                  Text(entry.name)
+                    .fontSize(14)
+                    .fontColor(entry.ignored ? '#777777' : '#FFFFFF')
+                    .maxLines(1)
+                  Text(entry.path)
+                    .fontSize(10)
+                    .fontColor('#777777')
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                .margin({ left: 10 })
+                Text('›').fontSize(18).fontColor('#777777')
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+              .onClick(() => { this.openRemoteFile(entry) })
+            }
+          }, (entry: RemoteFileEntry) => entry.path)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .divider({ strokeWidth: 1, color: '#242424', startMargin: 44 })
+      }
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
   }
 
   @Builder
@@ -1349,55 +1964,63 @@ struct Index {
     .height('100%')
   }
 
+  // ── Settings 弹窗: 与桌面版一致,覆盖在当前页面上方而不是替换主内容 ──
+
   @Builder
-  ModelsContent() {
-    Column() {
-      Text('Models')
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .margin({ bottom: 24 })
-
-      Text('Current Model')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
-        .margin({ bottom: 8 })
-
-      TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
+  SettingsModal() {
+    Stack({ alignContent: Alignment.Center }) {
+      Rect()
+        .fill('#00000099')
         .width('100%')
-        .height(40)
-        .backgroundColor('#2D2D2D')
-        .borderRadius(8)
-        .fontColor('#FFFFFF')
-        .onChange((value: string) => {
-          this.viewModel.selectedModel = value
-        })
-
-      Button('保存模型')
-        .height(40)
-        .backgroundColor('#007DFF')
-        .fontColor('#FFFFFF')
-        .borderRadius(8)
-        .margin({ top: 16 })
-        .onClick(async () => {
-          await this.viewModel.saveServerConfig()
-          await this.viewModel.syncModelToRuntime()
-        })
-
-      Button('从 Provider 页面选择模型')
-        .height(40)
-        .backgroundColor('#2D2D2D')
-        .fontColor('#FFFFFF')
-        .borderRadius(8)
-        .margin({ top: 12 })
+        .height('100%')
         .onClick(() => {
-          this.currentView = AppView.Provider
+          if (!this.providerDialogSubmitting) {
+            this.showSettings = false
+            this.closeProviderDialog()
+          }
         })
+
+      Stack({ alignContent: Alignment.TopEnd }) {
+        this.SettingsContent()
+
+        if (this.showProviderDialog) {
+          ProviderConnectDialog({
+            visible: this.showProviderDialog,
+            prefill: this.providerDialogPrefill,
+            submitting: this.providerDialogSubmitting,
+            onCancel: () => this.closeProviderDialog(),
+            onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
+          })
+        }
+
+        if (!this.showProviderDialog) {
+          Text('\u00d7')
+            .fontSize(24)
+            .fontColor('#A3A3A3')
+            .width(40)
+            .height(40)
+            .textAlign(TextAlign.Center)
+            .borderRadius(8)
+            .margin({ top: 10, right: 10 })
+            .zIndex(2)
+            .onClick(() => {
+              this.showSettings = false
+              this.closeProviderDialog()
+            })
+        }
+      }
+      .width('96%')
+      .height('92%')
+      .constraintSize({ maxWidth: 1180, maxHeight: 860 })
+      .borderRadius(12)
+      .clip(true)
+      .borderWidth(1)
+      .borderColor('#2A2A2A')
+      .shadow({ radius: 28, color: '#66000000', offsetX: 0, offsetY: 14 })
     }
     .width('100%')
     .height('100%')
-    .padding(32)
-    .alignItems(HorizontalAlign.Start)
+    .zIndex(1000)
   }
 
   @Builder
@@ -1405,28 +2028,39 @@ struct Index {
     Row() {
       // ── Settings sidebar ──
       Column() {
-        Text('设置')
+        Text('OHOpenCode')
           .fontSize(18)
           .fontWeight(FontWeight.Bold)
           .fontColor('#FFFFFF')
           .width('100%')
           .padding({ left: 20, top: 20, bottom: 16 })
 
-        this.SettingNavItem('桌面', 'desktop')
+        Text('应用')
+          .fontSize(13)
+          .fontColor('#777777')
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .padding({ left: 20, top: 8, bottom: 6 })
         this.SettingNavItem('通用', 'general')
-        this.SettingNavItem('快捷键', 'shortcuts')
+
+        Text('OpenCode')
+          .fontSize(13)
+          .fontColor('#777777')
+          .fontWeight(FontWeight.Bold)
+          .width('100%')
+          .padding({ left: 20, top: 18, bottom: 6 })
         this.SettingNavItem('服务器', 'servers')
         this.SettingNavItem('提供商', 'providers')
         this.SettingNavItem('模型', 'models')
 
         Blank()
 
-        Text('OpenCode Desktop v1.16.2')
+        Text('HarmonyOS 客户端')
           .fontSize(11)
           .fontColor('#FFFFFF')
           .padding({ left: 20, bottom: 16 })
       }
-      .width(180)
+      .width(124)
       .height('100%')
       .backgroundColor('#1A1A1A')
 
@@ -1434,20 +2068,18 @@ struct Index {
       Scroll() {
         Column() {
           if (this.settingsTab === 'general') {
-            this.SettingsGeneralContent()
-          } else if (this.settingsTab === 'desktop') {
-            this.SettingsDesktopContent()
-          } else if (this.settingsTab === 'shortcuts') {
-            this.SettingsShortcutsContent()
+            this.SettingsAppOverviewContent()
           } else if (this.settingsTab === 'servers') {
             this.SettingsServerContent()
           } else if (this.settingsTab === 'providers') {
             this.SettingsProvidersContent()
           } else if (this.settingsTab === 'models') {
             this.SettingsModelsContent()
+          } else {
+            this.SettingsAppOverviewContent()
           }
         }
-        .padding({ left: 32, right: 32, top: 24, bottom: 40 })
+        .padding({ left: 16, right: 16, top: 20, bottom: 36 })
         .width('100%')
       }
       .layoutWeight(1)
@@ -1456,6 +2088,7 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor('#111111')
   }
 
   @Builder
@@ -1471,6 +2104,9 @@ struct Index {
       .margin({ left: 8, right: 8, top: 1, bottom: 1 })
       .onClick(() => {
         this.settingsTab = tab
+        if (tab === 'providers' || tab === 'models') {
+          this.refreshProviderData()
+        }
       })
   }
 
@@ -1483,6 +2119,48 @@ struct Index {
       .fontColor('#FFFFFF')
       .width('100%')
       .margin({ top: 28, bottom: 12 })
+  }
+
+  @Builder
+  SettingsAppOverviewContent() {
+    Text('通用')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('这台鸿蒙设备作为客户端，所有代码执行都由电脑上的 OpenCode 完成。')
+      .fontSize(13)
+      .fontColor('#AAAAAA')
+      .margin({ bottom: 22 })
+
+    this.SettingsRowText('连接状态', '电脑端 OpenCode Server', this.getStatusText())
+    Divider().color('#222222')
+    this.SettingsRowText('当前项目', '电脑端工作目录', this.viewModel.serverInfo.projectPath.length > 0 ? this.viewModel.serverInfo.projectPath : '尚未选择')
+    Divider().color('#222222')
+    this.SettingsRowText('当前模型', '消息将发送给这个模型', this.viewModel.selectedModel.length > 0 ? this.viewModel.selectedModel : '尚未选择')
+    Divider().color('#222222')
+    this.SettingsRowText('接口模式', '由客户端自动探测', this.viewModel.serverMode === 'api-v2' ? 'OpenCode API v2' : this.viewModel.serverMode)
+
+    Row() {
+      Button('重新连接')
+        .height(38)
+        .layoutWeight(1)
+        .backgroundColor('#007DFF')
+        .fontColor('#FFFFFF')
+        .borderRadius(7)
+        .onClick(() => { this.viewModel.connect() })
+      Button('刷新项目')
+        .height(38)
+        .layoutWeight(1)
+        .backgroundColor('#2D2D2D')
+        .fontColor('#FFFFFF')
+        .borderRadius(7)
+        .margin({ left: 10 })
+        .onClick(() => { this.loadRecentProjects() })
+    }
+    .width('100%')
+    .margin({ top: 24 })
   }
 
   // ── Toggle row ──
@@ -1820,6 +2498,129 @@ struct Index {
     this.ShortcutRow('搜索', 'Ctrl + F')
   }
 
+  // ══════════════════════════════════════════════════════════
+  //  PR 3:权限 (Permissions) Tab
+  // ══════════════════════════════════════════════════════════
+  @Builder
+  SettingsPermissionsContent() {
+    Text('权限')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('控制 AI 在执行工具调用、读写文件、运行命令时的询问策略。')
+      .fontSize(12)
+      .fontColor('#999999')
+      .margin({ bottom: 20 })
+
+    this.SSection('工具调用')
+    this.SNotifRow(
+      '文件读取',
+      '读取项目内文件时是否需要确认。',
+      this.permissionFileRead,
+      () => { this.permissionFileRead = !this.permissionFileRead }
+    )
+    Divider().color('#222222')
+    this.SNotifRow(
+      '文件写入',
+      '写入 / 覆盖项目内文件时是否需要确认。',
+      this.permissionFileWrite,
+      () => { this.permissionFileWrite = !this.permissionFileWrite }
+    )
+    Divider().color('#222222')
+    this.SNotifRow(
+      'Shell 命令',
+      '运行 shell 命令时是否需要确认。',
+      this.permissionShell,
+      () => { this.permissionShell = !this.permissionShell }
+    )
+
+    this.SSection('会话')
+    this.SNotifRow(
+      '自动接受所有权限请求',
+      '开启后所有权限请求自动放行(慎用)。',
+      this.permissionAutoAccept,
+      () => { this.permissionAutoAccept = !this.permissionAutoAccept }
+    )
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  PR 3:高级 (Advanced) Tab
+  //  集中放 Runtime / WebUI / Terminal / Logs / Developer Mode
+  // ══════════════════════════════════════════════════════════
+  @Builder
+  SettingsAdvancedContent() {
+    Text('高级')
+      .fontSize(22)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 8 })
+
+    Text('Runtime 状态、Web UI、Terminal、Logs 等开发/调试入口。普通用户可忽略。')
+      .fontSize(12)
+      .fontColor('#999999')
+      .margin({ bottom: 20 })
+
+    this.SSection('Runtime')
+    this.AdvancedLinkRow('Runtime 状态', '查看 / 启动 / 停止本地 OpenCode Runtime', () => {
+      this.currentView = AppView.Runtime
+    })
+    Divider().color('#222222')
+    this.AdvancedLinkRow('服务器配置', '配置远端 OpenCode Server URL(原"服务器"Tab)', () => {
+      // PR 3:服务器配置仍走 Settings 内部 tab(legacy),后续 PR 6 再迁
+      this.settingsTab = 'servers_legacy'
+    })
+
+    this.SSection('Web & Terminal')
+    this.AdvancedLinkRow('Web UI', '内置 OpenCode Web 界面', () => {
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected) {
+        this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
+      } else {
+        this.settingsTab = 'servers'
+        this.showSettings = true
+      }
+    })
+    Divider().color('#222222')
+    this.AdvancedLinkRow('Terminal', '本地 shell 终端', () => {
+      this.currentView = AppView.Terminal
+    })
+
+    this.SSection('调试')
+    this.AdvancedLinkRow('Logs', '查看 Runtime / App 日志(即将推出)', () => {})
+    Divider().color('#222222')
+    this.SNotifRow(
+      'Developer Mode',
+      '开启后显示实验性功能和详细错误日志。',
+      this.developerMode,
+      () => { this.developerMode = !this.developerMode }
+    )
+  }
+
+  @Builder
+  AdvancedLinkRow(title: string, desc: string, onClick: () => void) {
+    Row() {
+      Column() {
+        Text(title)
+          .fontSize(14)
+          .fontColor('#FFFFFF')
+        Text(desc)
+          .fontSize(12)
+          .fontColor('#999999')
+          .margin({ top: 3 })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+
+      Text('›')
+        .fontSize(18)
+        .fontColor('#999999')
+    }
+    .width('100%')
+    .padding({ top: 13, bottom: 13 })
+    .onClick(() => onClick())
+  }
+
   @Builder
   ShortcutRow(action: string, keys: string) {
     Row() {
@@ -1852,16 +2653,15 @@ struct Index {
       .fontColor('#FFFFFF')
       .margin({ bottom: 12 })
 
-    Text('默认使用本机 OpenCode Runtime。远程连接只是高级模式。')
+    Text('填写电脑上 OpenCode Server 的局域网地址。手机只作为控制端，不在本机运行代码。')
       .fontSize(12)
       .fontColor('#FFFFFF')
       .margin({ bottom: 16 })
 
     // ── 模式切换器 ──
     Row() {
-      this.RuntimeModePill('dev-pc', '开发电脑 / 局域网')
-      this.RuntimeModePill('local', '本机模式')
-      this.RuntimeModePill('remote', '远程服务器')
+      this.RuntimeModePill('dev-pc', '局域网电脑')
+      this.RuntimeModePill('remote', '远程地址')
     }
     .backgroundColor('#1E1E1E')
     .borderRadius(8)
@@ -1873,7 +2673,7 @@ struct Index {
       .fontSize(14)
       .fontColor('#FFFFFF')
       .margin({ bottom: 8 })
-    TextInput({ placeholder: 'http://127.0.0.1:4096', text: this.viewModel.serverInfo.url })
+    TextInput({ placeholder: '例如 http://192.168.1.85:4096', text: this.viewModel.serverInfo.url })
       .width('100%')
       .height(40)
       .backgroundColor('#2D2D2D')
@@ -1882,6 +2682,22 @@ struct Index {
       .onChange((value: string) => {
         this.viewModel.serverInfo.url = value;
       })
+
+    if (this.isInsecureRemoteServer()) {
+      Row() {
+        Text('⚠').fontSize(14).fontColor('#FFB454')
+        Text('当前为未加密的 HTTP 局域网连接。账号和消息可能被同一网络中的设备看到；在不可信网络上请使用 HTTPS 或 VPN。')
+          .fontSize(11)
+          .fontColor('#FFCC80')
+          .layoutWeight(1)
+          .margin({ left: 8 })
+      }
+      .width('100%')
+      .padding(10)
+      .margin({ top: 10 })
+      .backgroundColor('#2A1F0E')
+      .borderRadius(7)
+    }
 
     Text('Username')
       .fontSize(14)
@@ -1965,34 +2781,6 @@ struct Index {
     .width('100%')
     .margin({ top: 20 })
 
-    // ── 内置 Runtime 控制 ──
-    this.SSection('内置 Runtime')
-    Row() {
-      Button(this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ? '启动中...' : '启动内置 Runtime')
-        .height(36)
-        .backgroundColor('#007DFF')
-        .fontColor('#FFFFFF')
-        .borderRadius(6)
-        .layoutWeight(1)
-        .enabled(this.viewModel.connectionStatus !== ConnectionStatus.AutoStarting)
-        .onClick(() => {
-          this.viewModel.autoStartAndConnect();
-        })
-
-      Button('停止 Runtime')
-        .height(36)
-        .backgroundColor('#FF5252')
-        .fontColor('#FFFFFF')
-        .borderRadius(6)
-        .margin({ left: 8 })
-        .layoutWeight(1)
-        .onClick(() => {
-          this.viewModel.shutdown();
-        })
-    }
-    .width('100%')
-    .margin({ top: 8 })
-
     if (this.viewModel.errorMessage.length > 0) {
       Text(this.viewModel.errorMessage)
         .fontSize(13)
@@ -2024,17 +2812,24 @@ struct Index {
       return
     }
     this.runtimeConnectionMode = mode;
+    this.viewModel.runtimeMode = toRuntimeMode(mode)
     localOpenCodeServerManager.loadLastConfig().then((cfg) => {
       cfg.mode = mode;
       if (mode === 'local') {
         cfg.host = '127.0.0.1';
         this.viewModel.serverInfo.url = `http://127.0.0.1:${cfg.port}`;
       } else if (mode === 'dev-pc') {
-        // dev-pc: keep previous host if non-empty and not localhost
+        // dev-pc: preserve the host already shown in the URL when the saved
+        // runtime config was created by an older build with an empty host.
+        // Clearing it here produced an invalid `http://:4096` URL on tablets.
         if (cfg.host.length === 0 || cfg.host === '127.0.0.1') {
-          cfg.host = '';  // 用户需要手动输入局域网 IP
+          const currentUrl: string = this.viewModel.serverInfo.url;
+          const hostMatch = currentUrl.match(/^https?:\/\/([^:/]+)(?::\d+)?/);
+          const currentHost: string = hostMatch && hostMatch.length > 1 ? hostMatch[1] : '';
+          cfg.host = currentHost.length > 0 && currentHost !== '127.0.0.1' ? currentHost : '';
         }
-        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`;
+        const nextUrl = cfg.host.length > 0 ? `http://${cfg.host}:${cfg.port}` : '';
+        this.viewModel.serverInfo.url = isValidExternalRuntimeUrl(nextUrl, 'dev-pc') ? nextUrl : '';
       }
       localOpenCodeServerManager.saveLastConfig(cfg).catch((e: Error) => {
         Logger.warn(`Failed to save runtime mode: ${errStr(e)}`)
@@ -2109,20 +2904,26 @@ struct Index {
         input.providerId = this.editingProviderId
       }
       const result = await providerConnectionService.connectProvider(input, null)
+      if (!result.ok) {
+        const error = result.error.length > 0 ? result.error : (result.message.length > 0 ? result.message : '保存失败')
+        this.showToast(error, 3000)
+        return
+      }
+      await localRuntimeService.syncFromProviderRegistry()
       this.showProviderDialog = false
       await this.viewModel.loadProviders()
-      const message = result.ok
-        ? (result.message.length > 0 ? result.message : '提供商已保存')
-        : (result.error.length > 0 ? result.error : '保存失败')
-      promptAction.showToast({ message, duration: 2500 })
+      this.refreshProviderMissingState()
+      const message = result.message.length > 0 ? result.message : '提供商已保存'
+      this.showToast(message, 2500)
     } catch (e) {
-      promptAction.showToast({ message: '保存失败: ' + errStr(e), duration: 3000 })
+      this.showToast('保存失败: ' + errStr(e), 3000)
     } finally {
       this.providerDialogSubmitting = false
     }
   }
 
   private closeProviderDialog(): void {
+    if (this.providerDialogSubmitting) return
     this.showProviderDialog = false
     this.editingProviderId = ''
     this.providerDialogPrefill = null
@@ -2147,11 +2948,35 @@ struct Index {
         .borderRadius(8)
         .backgroundColor('#3B82F6')
         .onClick(() => this.openAddProviderDialog())
+
+      Text(this.providerRefreshing ? '刷新中...' : '刷新')
+        .fontSize(13)
+        .fontColor(this.providerRefreshing ? '#777777' : '#D4D4D4')
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(8)
+        .backgroundColor('#2A2A2A')
+        .margin({ left: 8 })
+        .enabled(!this.providerRefreshing)
+        .onClick(() => this.refreshProviderData())
     }
     .width('100%')
     .margin({ bottom: 20 })
 
-    if (this.viewModel.providers.length === 0) {
+    if (this.providerRefreshing && this.viewModel.providers.length === 0) {
+      Column() {
+        LoadingProgress()
+          .width(28)
+          .height(28)
+          .color('#3B82F6')
+        Text('正在读取提供商...')
+          .fontSize(13)
+          .fontColor('#999999')
+          .margin({ top: 12 })
+      }
+      .width('100%')
+      .padding(32)
+    } else if (this.viewModel.providers.length === 0) {
       Column() {
         Text('未检测到任何提供商。请先连接 Runtime。')
           .fontSize(14)
@@ -2212,17 +3037,6 @@ struct Index {
       }, (p: ProviderInfo) => p.id)
     }
 
-    Stack() {
-      ProviderConnectDialog({
-        visible: this.showProviderDialog,
-        prefill: this.providerDialogPrefill,
-        onCancel: () => this.closeProviderDialog(),
-        onSubmit: (input: ProviderConnectInput) => this.onProviderDialogSubmit(input)
-      })
-    }
-    .position({ x: 0, y: 0 })
-    .width('100%')
-    .height('100%')
   }
 
   // ══════════════════════════════════════════════════════════
@@ -2230,82 +3044,170 @@ struct Index {
   // ══════════════════════════════════════════════════════════
   @Builder
   SettingsModelsContent() {
-    Text('模型')
-      .fontSize(22)
-      .fontWeight(FontWeight.Bold)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 20 })
-
-    Text('当前选中')
-      .fontSize(14)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 8 })
-
-    TextInput({ placeholder: 'providerId/modelId', text: this.viewModel.selectedModel })
-      .width('100%')
-      .height(40)
-      .backgroundColor('#2D2D2D')
-      .borderRadius(8)
-      .fontColor('#FFFFFF')
-      .margin({ bottom: 16 })
-      .onChange((value: string) => {
-        this.viewModel.selectedModel = value
-      })
-
-    Button('保存')
-      .height(36)
-      .backgroundColor('#007DFF')
-      .fontColor('#FFFFFF')
-      .borderRadius(8)
-      .margin({ bottom: 24 })
-      .onClick(() => {
-        this.viewModel.saveServerConfig()
-        this.viewModel.syncModelToRuntime()
-      })
-
-    // 按提供商分组显示可用模型
-    if (this.viewModel.providers.length > 0) {
-      Text('可用模型')
-        .fontSize(16)
+    Row() {
+      Text('模型')
+        .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor('#FFFFFF')
-        .margin({ bottom: 12 })
+      Blank()
+      Text(this.providerRefreshing ? '刷新中...' : '刷新')
+        .fontSize(13)
+        .fontColor(this.providerRefreshing ? '#777777' : '#D4D4D4')
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(8)
+        .backgroundColor('#2A2A2A')
+        .enabled(!this.providerRefreshing)
+        .onClick(() => this.refreshProviderData())
+    }
+    .width('100%')
+    .margin({ bottom: 20 })
 
+    TextInput({ placeholder: '搜索模型', text: this.settingsModelSearch })
+      .width('100%')
+      .height(44)
+      .backgroundColor('#1A1A1A')
+      .borderRadius(10)
+      .fontColor('#FFFFFF')
+      .margin({ bottom: 22 })
+      .onChange((value: string) => {
+        this.settingsModelSearch = value
+      })
+
+    if (this.providerRefreshing && this.viewModel.providers.length === 0) {
+      Column() {
+        LoadingProgress()
+          .width(28)
+          .height(28)
+          .color('#3B82F6')
+        Text('正在读取模型...')
+          .fontSize(13)
+          .fontColor('#999999')
+          .margin({ top: 12 })
+      }
+      .width('100%')
+      .padding(32)
+    } else if (this.viewModel.providers.length > 0) {
       ForEach(this.viewModel.providers, (p: ProviderInfo) => {
         if (p.models.length > 0) {
-          Text(p.name)
-            .fontSize(13)
-            .fontColor('#FFFFFF')
-            .margin({ top: 12, bottom: 8 })
+          Row() {
+            Text(p.name.length > 0 ? p.name : p.id)
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+            Text(p.connected ? '已连接' : '未连接')
+              .fontSize(11)
+              .fontColor(p.connected ? '#00C853' : '#999999')
+              .backgroundColor(p.connected ? '#14351F' : '#2A2A2A')
+              .borderRadius(4)
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .margin({ left: 10 })
+          }
+          .width('100%')
+          .margin({ top: 20, bottom: 10 })
 
-          ForEach(p.models, (modelId: string) => {
-            Row() {
-              Text(`${p.id}/${modelId}`)
-                .fontSize(13)
-                .fontColor('#FFFFFF')
-                .fontFamily('monospace')
-                .layoutWeight(1)
+          Column() {
+            ForEach(p.models, (modelId: string) => {
+              if (this.modelVisible(p.id, modelId)) {
+                Row() {
+                  Text(this.modelDisplayName(modelId))
+                    .fontSize(15)
+                    .fontColor('#FFFFFF')
+                    .layoutWeight(1)
 
-              if (this.viewModel.selectedModel === `${p.id}/${modelId}`) {
-                Text('✓')
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
+                  Toggle({
+                    type: ToggleType.Switch,
+                    isOn: this.viewModel.selectedModel === `${p.id}/${modelId}`
+                  })
+                    .selectedColor('#FFFFFF')
+                    .onChange((isOn: boolean) => {
+                      if (!isOn) return
+                      this.selectSettingsModel(`${p.id}/${modelId}`, this.modelDisplayName(modelId))
+                    })
+                }
+                .width('100%')
+                .height(58)
+                .padding({ left: 16, right: 16 })
+                .borderColor('#2A2A2A')
+                .borderWidth({ bottom: 1 })
+                .onClick(() => {
+                  this.selectSettingsModel(`${p.id}/${modelId}`, this.modelDisplayName(modelId))
+                })
               }
-            }
-            .width('100%')
-            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-            .backgroundColor(this.viewModel.selectedModel === `${p.id}/${modelId}` ? '#1A2A3D' : '#1E1E1E')
-            .borderRadius(6)
-            .margin({ bottom: 4 })
-            .onClick(() => {
-              this.viewModel.selectedModel = `${p.id}/${modelId}`
-              this.viewModel.saveServerConfig()
-              this.viewModel.syncModelToRuntime()
-            })
-          }, (modelId: string) => `${p.id}/${modelId}`)
+            }, (modelId: string) => `${p.id}/${modelId}`)
+          }
+          .width('100%')
+          .backgroundColor('#171717')
+          .borderRadius(10)
         }
       }, (p: ProviderInfo) => p.id)
+    } else {
+      Text('未读取到模型。请先在提供商页添加或连接供应商。')
+        .fontSize(13)
+        .fontColor('#999999')
+        .padding(18)
+        .backgroundColor('#171717')
+        .borderRadius(10)
     }
+  }
+
+  private modelVisible(providerId: string, modelId: string): boolean {
+    const q = this.settingsModelSearch.trim().toLowerCase()
+    if (q.length === 0) return true
+    return providerId.toLowerCase().includes(q) || modelId.toLowerCase().includes(q)
+  }
+
+  private async selectSettingsModel(modelRef: string, displayName: string): Promise<void> {
+    if (this.modelSelectionSaving || this.viewModel.selectedModel === modelRef) return
+    const previous = this.viewModel.selectedModel
+    this.modelSelectionSaving = true
+    this.viewModel.selectedModel = modelRef
+    try {
+      await this.viewModel.saveServerConfig()
+      await this.viewModel.syncModelToRuntime()
+      this.showToast(`已选择 ${displayName}`)
+    } catch (e) {
+      this.viewModel.selectedModel = previous
+      this.showToast('模型保存失败: ' + errStr(e))
+    } finally {
+      this.modelSelectionSaving = false
+    }
+  }
+
+  private async refreshProviderData(): Promise<void> {
+    if (this.providerRefreshing) return
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.showToast('Runtime 未连接，暂时无法刷新提供商和模型')
+      return
+    }
+    this.providerRefreshing = true
+    try {
+      await this.viewModel.loadProviders()
+      this.refreshProviderMissingState()
+    } catch (e) {
+      Logger.warn(`refreshProviderData failed: ${errStr(e)}`)
+      this.showToast('刷新提供商失败: ' + errStr(e))
+    } finally {
+      this.providerRefreshing = false
+    }
+  }
+
+  private showToast(message: string, duration: number = 2000): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message, duration })
+    } catch (e) {
+      Logger.warn(`showToast failed: ${errStr(e)}`)
+    }
+  }
+
+  private modelDisplayName(modelId: string): string {
+    const parts = modelId.split('-')
+    const names: string[] = []
+    for (const part of parts) {
+      if (part.length === 0) continue
+      names.push(part.charAt(0).toUpperCase() + part.slice(1))
+    }
+    return names.length > 0 ? names.join(' ') : modelId
   }
 
   private getStatusColor(): ResourceColor {
@@ -2326,18 +3228,35 @@ struct Index {
   private getStatusText(): string {
     switch (this.viewModel.connectionStatus) {
       case ConnectionStatus.Connected:
-        return 'Connected';
+        return i18n.t('status.connected');
       case ConnectionStatus.AutoStarting:
-        return 'Starting...';
+        return i18n.t('status.connecting');
       case ConnectionStatus.Connecting:
-        return 'Connecting...';
+        return i18n.t('status.connecting');
       case ConnectionStatus.StartFailed:
-        return 'Start Failed';
+        return i18n.t('status.error');
       case ConnectionStatus.Error:
-        return 'Error';
+        return i18n.t('status.error');
       default:
-        return 'Disconnected';
+        return i18n.t('status.disconnected');
     }
+  }
+
+  private currentSessionTitle(): string {
+    if (this.viewModel.currentSessionId.length === 0) return i18n.t('session.new')
+    const current = this.viewModel.sessions.find((session: SessionInfo) => {
+      return session.id === this.viewModel.currentSessionId
+    })
+    if (current && current.title.length > 0) return current.title
+    return i18n.t('session.title')
+  }
+
+  private isInsecureRemoteServer(): boolean {
+    const url = this.viewModel.serverInfo.url.trim().toLowerCase()
+    if (!url.startsWith('http://')) return false
+    return !url.startsWith('http://127.0.0.1') &&
+      !url.startsWith('http://localhost') &&
+      !url.startsWith('http://[::1]')
   }
 
   // ─────────────────────────────────────────────────────────

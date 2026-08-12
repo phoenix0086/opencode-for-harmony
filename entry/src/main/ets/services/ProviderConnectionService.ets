@@ -198,55 +198,15 @@ export class ProviderConnectionService {
     return result
   }
 
-  private async testBedrockConverse(input: ProviderConnectInput, modelId: string, startTime: number): Promise<TestConnectionResult> {
+  private async testBedrockConverse(_input: ProviderConnectInput, modelId: string, startTime: number): Promise<TestConnectionResult> {
     const result = new TestConnectionResult()
     result.modelUsed = modelId
 
-    let region = 'us-east-1'
-    const urlMatch = input.baseURL.match(/bedrock-runtime\.([a-z0-9-]+)\.amazonaws/)
-    if (urlMatch !== null && urlMatch.length > 1) {
-      region = urlMatch[1]
-    }
-
-    const url = `${input.baseURL}/model/${encodeURIComponent(modelId)}/converse`
-    const now = new Date()
-    const amzDate = this.awsAmzDate(now)
-
-    const body = `{"messages":[{"role":"user","content":[{"text":"Say ok only."}]}],"inferenceConfig":{"maxTokens":10}}`
-
-    const headers: Record<string, string> = {}
-    headers['Content-Type'] = 'application/json'
-    headers['x-amz-date'] = amzDate
-    headers['x-amz-target'] = 'AmazonBedrockGatewayService.Converse'
-    this.mergeCustomHeaders(headers, input.headers)
-
-    // AWS SigV4 signing
-    const accessKeyId = input.apiKey.includes('|') ? input.apiKey.split('|')[0] : input.apiKey
-    const secretKey = input.apiKey.includes('|') ? input.apiKey.split('|')[1] : ''
-
-    if (secretKey.length > 0) {
-      this.signAwsV4(headers, body, url, region, 'bedrock', accessKeyId, secretKey, now)
-    } else {
-      headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}`
-    }
-
-    try {
-      const resp = await this.httpPost(url, headers, body, 15000)
-      result.latencyMs = Date.now() - startTime
-
-      if (resp.responseCode >= 200 && resp.responseCode < 300) {
-        result.ok = true
-        result.responsePreview = this.extractBedrockResponse(resp.result as string)
-      } else {
-        result.ok = false
-        result.error = this.extractError(resp.result as string, resp.responseCode)
-      }
-    } catch (e) {
-      result.ok = false
-      result.latencyMs = Date.now() - startTime
-      result.error = `请求 ${url} 失败: ${errStr(e)}`
-    }
-
+    // BUG-03: 当前版本 signAwsV4 为占位实现, 无法生成合法 AWS SigV4 签名,
+    // 直接发起请求只会得到 403 鉴权失败。这里提前返回清晰错误, 避免误导用户。
+    result.ok = false
+    result.latencyMs = Date.now() - startTime
+    result.error = '暂不支持 AWS SigV4 签名（当前为占位实现，无法生成合法签名）。请改用其他 Provider，或通过支持 SigV4 的代理 / 预签名 URL 接入 Bedrock。'
     return result
   }
 
@@ -313,21 +273,6 @@ export class ProviderConnectionService {
     return '(parse error)'
   }
 
-  private extractBedrockResponse(raw: string): string {
-    try {
-      const data = JSON.parse(raw) as Record<string, Object>
-      const output = data['output'] as Record<string, Object>
-      const msg = output['message'] as Record<string, Object>
-      const content = msg['content'] as Array<Record<string, string>>
-      if (content !== undefined && content.length > 0) {
-        return (content[0]['text'] || '').substring(0, 100)
-      }
-    } catch (e) {
-      // ignore
-    }
-    return '(parse error)'
-  }
-
   private extractError(raw: string, statusCode: number): string {
     try {
       const err = JSON.parse(raw) as Record<string, Object>
@@ -375,32 +320,6 @@ export class ProviderConnectionService {
 
   private esc(s: string): string {
     return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
-  }
-
-  // ══════════ AWS SigV4 Helpers ══════════
-  // NOTE: Real AWS SigV4 requires HMAC-SHA256 which is not available in ArkTS
-  // without an external crypto library. Bedrock providers should configure
-  // credentials externally and use a proxy or pre-signed URL.
-
-  private awsAmzDate(d: Date): string {
-    const y = d.getUTCFullYear()
-    const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-    const day = String(d.getUTCDate()).padStart(2, '0')
-    const h = String(d.getUTCHours()).padStart(2, '0')
-    const min = String(d.getUTCMinutes()).padStart(2, '0')
-    const s = String(d.getUTCSeconds()).padStart(2, '0')
-    return `${y}${m}${day}T${h}${min}${s}Z`
-  }
-
-  private signAwsV4(headers: Record<string, string>, _body: string, _url: string, _region: string, _service: string, accessKeyId: string, secretKey: string, _now: Date): void {
-    // ArkTS does not provide HMAC-SHA256 natively.
-    // Fall back to a bearer-style auth header; real SigV4 signing must be
-    // done externally (e.g. via a proxy or pre-signed URL).
-    if (secretKey.length > 0) {
-      headers['Authorization'] = `Bearer ${accessKeyId}:${secretKey}`
-    } else {
-      headers['Authorization'] = `Bearer ${accessKeyId}`
-    }
   }
 
   // ══════════ Connect Provider ══════════
@@ -551,25 +470,7 @@ export class ProviderConnectionService {
   }
 
   private async saveLocal(provider: CNProvider): Promise<void> {
-    const existing = providerRegistry.getById(provider.id)
-    if (!existing) {
-      await providerRegistry.createCustomProvider(provider.id, provider.name, provider.baseURL, provider.apiKey, '')
-    }
-    await providerRegistry.setProviderConfig(provider.id, provider.name, provider.baseURL, provider.npm, provider.authEnv)
-    await providerRegistry.setProviderEnabled(provider.id, true)
-    if (provider.apiKey.length > 0) {
-      await providerRegistry.setApiKey(provider.id, provider.apiKey, 'direct')
-    }
-
-    for (let i = 0; i < provider.models.length; i++) {
-      const m = provider.models[i]
-      await providerRegistry.addOrUpdateModel(provider.id, m.id, m.name, true)
-    }
-
-    for (let i = 0; i < provider.headers.length; i++) {
-      const h = provider.headers[i]
-      await providerRegistry.addOrUpdateHeader(provider.id, h.name, h.value)
-    }
+    await providerRegistry.upsertProvider(provider)
   }
 
   private buildProviderPatch(provider: CNProvider): Record<string, Object> {

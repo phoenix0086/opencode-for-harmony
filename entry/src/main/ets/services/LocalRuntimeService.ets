@@ -264,6 +264,7 @@ export class LocalRuntimeService {
     // Fallback to config defaults
     if (s.providerID.length === 0) s.providerID = this.config.defaultProviderID;
     if (s.modelID.length === 0) s.modelID = this.config.defaultModelID;
+    s.agent = (input?.['agent'] as string) || s.agent;
 
     this.sessions.push(s);
     this.messages.set(s.id, []);
@@ -348,6 +349,7 @@ export class LocalRuntimeService {
     userMsg.status = 'completed';
     userMsg.createdAt = Date.now();
     userMsg.updatedAt = Date.now();
+    userMsg.agent = input.agent;
     this.addMessage(sessionID, userMsg);
 
     // Create assistant message (pending)
@@ -361,6 +363,7 @@ export class LocalRuntimeService {
     assistantMsg.updatedAt = Date.now();
     assistantMsg.providerID = providerID;
     assistantMsg.modelID = modelID;
+    assistantMsg.agent = input.agent;
     this.addMessage(sessionID, assistantMsg);
 
     result.ok = true;
@@ -984,7 +987,21 @@ export class LocalRuntimeService {
 
   private async saveProviders(): Promise<void> {
     try {
-      await this.prefsSet('local_providers', JSON.stringify(this.providers));
+      const persisted: LocalProviderConfig[] = [];
+      for (const provider of this.providers) {
+        const copy = new LocalProviderConfig();
+        copy.id = provider.id;
+        copy.name = provider.name;
+        copy.enabled = provider.enabled;
+        copy.protocol = provider.protocol;
+        copy.baseURL = provider.baseURL;
+        copy.apiKey = '';
+        copy.apiKeyEnv = provider.apiKeyEnv;
+        copy.headers = provider.headers;
+        copy.models = provider.models;
+        persisted.push(copy);
+      }
+      await this.prefsSet('local_providers', JSON.stringify(persisted));
     } catch (e) {
       Logger.warn(`saveProviders failed: ${errStr(e)}`);
     }
@@ -1003,6 +1020,7 @@ export class LocalRuntimeService {
         s.workspace = (r['workspace'] as string) || '';
         s.providerID = (r['providerID'] as string) || '';
         s.modelID = (r['modelID'] as string) || '';
+        s.agent = (r['agent'] as string) || 'build';
         s.createdAt = (r['createdAt'] as number) || 0;
         s.updatedAt = (r['updatedAt'] as number) || 0;
         s.messageCount = (r['messageCount'] as number) || 0;
@@ -1044,6 +1062,7 @@ export class LocalRuntimeService {
         m.error = (r['error'] as string) || '';
         m.providerID = (r['providerID'] as string) || '';
         m.modelID = (r['modelID'] as string) || '';
+        m.agent = (r['agent'] as string) || '';
         if (m.id.length > 0) msgs.push(m);
       }
       this.messages.set(sessionID, msgs);

@@ -47,21 +47,18 @@ function utilBase64Encode(input: string): string {
   let result: string = '';
   let i: number = 0;
   while (i < input.length) {
-    const a: number = input.charCodeAt(i++);
-    const b: number = i < input.length ? input.charCodeAt(i++) : 0;
-    const c: number = i < input.length ? input.charCodeAt(i++) : 0;
+    const a: number = input.charCodeAt(i++) & 0xFF;
+    const hasB: boolean = i < input.length;
+    const b: number = hasB ? input.charCodeAt(i++) & 0xFF : 0;
+    const hasC: boolean = i < input.length;
+    const c: number = hasC ? input.charCodeAt(i++) & 0xFF : 0;
     const idx1: number = a >> 2;
     const idx2: number = ((a & 3) << 4) | (b >> 4);
     const idx3: number = ((b & 15) << 2) | (c >> 6);
     const idx4: number = c & 63;
     result += chars.charAt(idx1) + chars.charAt(idx2);
-    if (i > input.length + 1) {
-      result += '==';
-    } else if (i > input.length) {
-      result += chars.charAt(idx3) + '=';
-    } else {
-      result += chars.charAt(idx3) + chars.charAt(idx4);
-    }
+    result += hasB ? chars.charAt(idx3) : '=';
+    result += hasC ? chars.charAt(idx4) : '=';
   }
   return result;
 }

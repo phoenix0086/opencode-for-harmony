@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { ConnectionStatus } from '../model/AppState';
 import { Constants } from '../utils/Constants';
@@ -41,7 +40,7 @@ struct ServerConfig {
         .height(36)
         .backgroundColor(Color.Transparent)
         .onClick(() => {
-          router.back();
+          this.goBack();
         })
 
         Text('Server Configuration')
@@ -152,7 +151,7 @@ struct ServerConfig {
                 this.viewModel.serverInfo.displayName = this.displayName;
                 this.viewModel.saveServerConfig();
                 this.viewModel.connect();
-                router.back();
+                this.goBack();
               })
           }
           .width('100%')
@@ -219,6 +218,14 @@ struct ServerConfig {
       this.testResult = 'Connection failed: ' + errStr(err);
     } finally {
       this.testingConnection = false;
+    }
+  }
+
+  private goBack(): void {
+    try {
+      this.getUIContext().getRouter().back()
+    } catch (_) {
+      // The page may already be leaving.
     }
   }
 }

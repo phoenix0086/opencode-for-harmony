@@ -15,6 +15,9 @@ import { Logger } from '../utils/Logger'
  * - Emits SESSION_MESSAGE_UPDATED when a new message appears OR an existing message changes.
  * - Handles OpenCode's in-place message updates, especially tool result/state changes.
  */
+// BUG-02 (annotation only): EventStreamClient 当前为死代码 —— 全工程无实例化调用方,
+// 其 pollingTimer / polling 状态不会被创建或清理。本批仅标注, 不删除。
+// 若未来启用, 必须在组件销毁/切换会话时停止其轮询以清除 pollingTimer, 避免定时器泄漏。
 export class EventStreamClient {
   private client: OpenCodeClient
   private sessionId: string = ''

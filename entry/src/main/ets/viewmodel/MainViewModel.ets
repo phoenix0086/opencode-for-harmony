@@ -1,22 +1,20 @@
 import { HttpService } from '../service/HttpService';
-import { WebSocketService } from '../service/WebSocketService';
-import { StorageService } from '../service/StorageService';
+import { StorageService } from '../services/StorageService';
 import { ServerInfo } from '../model/ServerInfo';
 import { ChatMessage, MessageRole, MessageStatus, ToolCall } from '../model/ChatMessage';
 import { ConnectionStatus, SessionInfo, ProviderInfo } from '../model/AppState';
-import { EmptyRequest, TextPromptPart, PromptAsyncRequest, ConfigModelPatch, ExecutionPollResult } from '../model/OpenCodeApiTypes';
+import { ExecutionPollResult } from '../model/OpenCodeApiTypes';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
-import { RuntimeMode, toRuntimeMode, needsServerUrl } from '../services/RuntimeMode';
+import { RuntimeMode, toRuntimeMode, needsServerUrl, isValidExternalRuntimeUrl, normalizeExternalRuntimeUrl } from '../services/RuntimeMode';
 import { localRuntimeClient } from '../services/LocalRuntimeClient';
 import { OpenCodeApiAdapter, PromptInput } from '../services/OpenCodeApiAdapter';
 import { ServerMode } from '../services/OpenCodeCapabilities';
 
 export class MainViewModel {
   httpService: HttpService = new HttpService();
-  wsService: WebSocketService = new WebSocketService();
   storageService: StorageService | null = null;
   connectionStatus: ConnectionStatus = ConnectionStatus.Disconnected;
   serverInfo: ServerInfo = new ServerInfo();
@@ -25,6 +23,7 @@ export class MainViewModel {
   currentSessionId: string = '';
   providers: ProviderInfo[] = [];
   selectedModel: string = Constants.DEFAULT_MODEL;
+  currentBranch: string = '';
   isGenerating: boolean = false;
   errorMessage: string = '';
   serverStatusMessage: string = '';
@@ -34,32 +33,51 @@ export class MainViewModel {
   pendingPermissions: PendingPermission[] = [] // 待审批的权限请求
   pendingQuestions: PendingQuestion[] = [] // 待回答的问题
   private healthTimer: number = -1;
+  private healthCheckInFlight: boolean = false;
+  private healthCheckFailures: number = 0;
+  private healthCheckGeneration: number = 0;
+  private reconnectTimer: number = -1;
   private sendLock: boolean = false; // 防止用户在轮询完成前发送第二条消息
   private activeTurnId: string = '' // 当前轮次 ID，防止上一轮迟到的 assistant 被当成本轮回复
   private apiAdapter: OpenCodeApiAdapter = new OpenCodeApiAdapter();
+  private lastSyncedModel: string = '';
 
   async init(storage: StorageService): Promise<void> {
     this.storageService = storage;
     this.serverInfo.url = await storage.getString(Constants.KEY_SERVER_URL, Constants.DEFAULT_SERVER_URL);
     if (this.serverInfo.url.length === 0) this.serverInfo.url = Constants.DEFAULT_SERVER_URL;
     this.serverInfo.username = await storage.getString(Constants.KEY_AUTH_USERNAME, '');
-    this.serverInfo.password = await storage.getString(Constants.KEY_AUTH_PASSWORD, '');
+    this.serverInfo.password = await storage.loadServerPassword();
     this.serverInfo.displayName = 'Local OpenCode Runtime';
     this.serverInfo.type = 'local';
     this.selectedModel = await storage.getString(Constants.KEY_MODEL, Constants.DEFAULT_MODEL);
     this.currentSessionId = await storage.getString(Constants.KEY_SESSION_ID, '');
     this.httpService.setServer(this.serverInfo);
-    this.wsService.setServer(this.serverInfo);
-    this.wsService.setMessageHandler((data: string) => this.onWsMessage(data));
-    this.wsService.setStatusHandler((connected: boolean) => this.onWsStatus(connected));
     Logger.info(`MainViewModel initialized: ${this.serverInfo.url}`);
   }
 
   async connect(): Promise<void> {
+    this.clearReconnectTimer()
     this.connectionStatus = ConnectionStatus.Connecting;
     this.errorMessage = '';
+    this.lastSyncedModel = '';
 
     try {
+      if (needsServerUrl(this.runtimeMode)) {
+        this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+      }
+      if (needsServerUrl(this.runtimeMode) && !isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+        this.connectionStatus = ConnectionStatus.StartFailed
+        this.serverInfo.connected = false
+        this.serverInfo.healthOk = false
+        this.serverStatusMessage = this.runtimeMode === 'dev-pc'
+          ? '请先填写电脑的局域网地址，例如 http://192.168.1.85:4096。'
+          : '请先填写远程 OpenCode Server 地址。'
+        this.errorMessage = this.serverStatusMessage
+        Logger.warn(`Connection skipped: invalid external Runtime URL (${this.serverInfo.url})`)
+        return
+      }
+
       // Set runtime mode on adapter
       this.apiAdapter.setRuntimeMode(this.runtimeMode);
 
@@ -90,6 +108,7 @@ export class MainViewModel {
       // dev-pc / remote: connect to external opencode server
       this.httpService.setServer(this.serverInfo);
       this.apiAdapter.setBaseUrl(this.serverInfo.url, this.serverInfo.getAuthHeader());
+      this.apiAdapter.setDirectory(this.serverInfo.projectPath);
 
       const caps = await this.apiAdapter.detectCapabilities();
       this.serverMode = caps.mode;
@@ -101,12 +120,13 @@ export class MainViewModel {
         this.errorMessage = `健康检查失败 (mode=${this.serverMode})。`
         this.serverInfo.connected = false
         this.serverInfo.healthOk = false
+        this.scheduleReconnect()
         return
       }
       this.connectionStatus = ConnectionStatus.Connected;
       this.serverInfo.connected = true; this.serverInfo.healthOk = true;
-      try { this.wsService.setServer(this.serverInfo); this.wsService.connect(); } catch (e) { Logger.warn(`Optional WS failed: ${errStr(e)}`); }
       await this.loadSessions(); await this.loadProviders();
+      await this.loadProjectMetadata();
       await this.autoSelectModel();
       if (this.selectedModel.length > 0) {
         try {
@@ -121,19 +141,24 @@ export class MainViewModel {
     } catch (err) {
       this.connectionStatus = ConnectionStatus.Error
       this.errorMessage = errStr(err)
+      // W1 fix: 同步更新 serverStatusMessage,否则左侧 "Start Failed" 标签 + 
+      // RuntimeDisconnectedCard 会显示上次的残留文本
+      this.serverStatusMessage = `连接失败: ${errStr(err)}`
       this.serverInfo.connected = false
       this.serverInfo.healthOk = false
       Logger.error(`Connection failed: ${errStr(err)}`)
+      this.scheduleReconnect()
     }
   }
   disconnect(): void {
-    this.wsService.disconnect();
+    this.clearReconnectTimer()
     this.stopHealthCheck();
     if (this.runtimeMode === 'local-embedded') {
       localRuntimeClient.stop();
     }
     this.connectionStatus = ConnectionStatus.Disconnected;
     this.serverInfo.connected = false;
+    this.lastSyncedModel = '';
   }
 
   /**
@@ -143,7 +168,7 @@ export class MainViewModel {
    */
   async autoStartAndConnect(): Promise<void> {
     this.connectionStatus = ConnectionStatus.AutoStarting;
-    this.serverStatusMessage = '正在启动本机 Runtime...';
+    this.serverStatusMessage = needsServerUrl(this.runtimeMode) ? '正在连接外部 Runtime...' : '正在启动本机 Runtime...';
     this.serverLogs = [];
     this.errorMessage = '';
     Logger.info('Auto-start: beginning runtime startup');
@@ -160,8 +185,39 @@ export class MainViewModel {
       }
     }
 
-    // Default: local-embedded mode (in-process runtime, no Linux binary)
-    this.runtimeMode = 'local-embedded';
+    // Persisted dev-pc/remote mode must connect directly to the configured server.
+    // Do not silently replace it with local-embedded: that makes the UI report a
+    // successful LAN connection while all requests still use the in-process runtime.
+    if (needsServerUrl(this.runtimeMode)) {
+      this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+      if (!isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+        this.connectionStatus = ConnectionStatus.StartFailed
+        this.serverStatusMessage = this.runtimeMode === 'dev-pc'
+          ? '请先在设置 > 服务器填写电脑的局域网地址。'
+          : '请先在设置 > 服务器填写远程 Runtime 地址。'
+        this.errorMessage = this.serverStatusMessage
+        Logger.warn(`Auto-start skipped: invalid external Runtime URL (${this.serverInfo.url})`)
+        return
+      }
+      Logger.info(`[Auto-start] connecting configured external runtime: ${this.runtimeMode}`)
+      try {
+        await this.connect()
+        const externalStatus: string = this.connectionStatus
+        if (externalStatus === ConnectionStatus.Connected) {
+          this.serverStatusMessage = '已连接外部 Runtime'
+          return
+        }
+      } catch (e) {
+        Logger.warn(`Auto-start external runtime failed: ${errStr(e)}`)
+      }
+      this.connectionStatus = ConnectionStatus.StartFailed
+      this.serverStatusMessage = '外部 Runtime 连接失败。请检查服务器地址和认证信息。'
+      this.errorMessage = this.serverStatusMessage
+      this.scheduleReconnect()
+      return
+    }
+
+    // local-embedded mode (in-process runtime, no Linux binary)
     this.serverStatusMessage = '正在启动本机 Runtime (Embedded)...';
     Logger.info('[Auto-start] using local-embedded mode');
 
@@ -204,6 +260,7 @@ export class MainViewModel {
    * Should be called when the app is closing.
    */
   shutdown(): void {
+    this.clearReconnectTimer()
     if (this.runtimeMode === 'local-embedded') {
       localRuntimeClient.stop();
       this.serverStatusMessage = '本机 Runtime 已停止';
@@ -215,6 +272,7 @@ export class MainViewModel {
     this.stopHealthCheck();
     this.connectionStatus = ConnectionStatus.Disconnected;
     this.serverInfo.connected = false;
+    this.lastSyncedModel = '';
   }
 
   async loadSessions(): Promise<void> {
@@ -225,9 +283,9 @@ export class MainViewModel {
         const s = sessions[i];
         const rec: Record<string, Object> = {};
         rec['id'] = s.id;
-        rec['name'] = s.name;
-        rec['createdAt'] = s.createdAt;
-        rec['updatedAt'] = s.updatedAt;
+        rec['title'] = s.name;
+        rec['createdAt'] = Number(s.createdAt);
+        rec['updatedAt'] = Number(s.updatedAt);
         rec['model'] = s.model;
         rec['agent'] = s.agent;
         mapped.push(SessionInfo.fromJson(rec));
@@ -263,11 +321,78 @@ export class MainViewModel {
       }
 
       this.providers = next
+      if (this.errorMessage.startsWith('加载 Provider 列表失败:')) this.errorMessage = ''
       Logger.info(`providers.loaded count=${next.length}`)
     } catch (err) {
+      // Preserve the last successful list on transient failures. Clearing it
+      // makes configured providers look deleted during a short Runtime outage.
       Logger.error(`loadProviders failed: ${errStr(err)}`)
-      this.providers = []
+      this.errorMessage = `加载 Provider 列表失败: ${errStr(err)}`
     }
+  }
+  async listProjects(): Promise<Object[]> {
+    try {
+      return await this.apiAdapter.listProjects()
+    } catch (e) {
+      Logger.warn(`listProjects failed: ${errStr(e)}`)
+      return []
+    }
+  }
+  async loadProjectMetadata(): Promise<void> {
+    if (this.runtimeMode === 'local-embedded') return
+    try {
+      const project = await this.apiAdapter.getCurrentProject()
+      const worktree = (project['worktree'] as string) ?? (project['directory'] as string) ?? ''
+      if (this.serverInfo.projectPath.length === 0 && worktree.length > 0 && worktree !== '/') {
+        this.serverInfo.projectPath = worktree
+        this.apiAdapter.setDirectory(worktree)
+        await this.storageService?.setString(Constants.KEY_WORKSPACE_PATH, worktree)
+      }
+    } catch (e) {
+      Logger.warn(`load current project failed: ${errStr(e)}`)
+    }
+    try {
+      const vcs = await this.apiAdapter.getVcs()
+      this.currentBranch = (vcs['branch'] as string) ?? ''
+    } catch (e) {
+      this.currentBranch = ''
+      Logger.warn(`load vcs failed: ${errStr(e)}`)
+    }
+  }
+  async selectProject(directory: string): Promise<boolean> {
+    if (directory.length === 0 || directory === '/') return false
+    this.serverInfo.projectPath = directory
+    this.apiAdapter.setDirectory(directory)
+    this.currentSessionId = ''
+    this.messages = []
+    this.pendingPermissions = []
+    this.pendingQuestions = []
+    try {
+      await this.storageService?.setString(Constants.KEY_WORKSPACE_PATH, directory)
+      await this.loadSessions()
+      await this.loadProviders()
+      await this.loadProjectMetadata()
+      await this.autoSelectModel()
+      Logger.info(`Project selected: ${directory}`)
+      return true
+    } catch (e) {
+      this.errorMessage = `切换项目失败: ${errStr(e)}`
+      Logger.error(this.errorMessage)
+      return false
+    }
+  }
+
+  async listWorkspaceDirectory(path: string): Promise<Object[]> {
+    try {
+      return await this.apiAdapter.listDirectory(path)
+    } catch (e) {
+      this.errorMessage = `读取项目目录失败: ${errStr(e)}`
+      return []
+    }
+  }
+
+  async readWorkspaceFile(path: string): Promise<Record<string, Object>> {
+    return this.apiAdapter.readFile(path)
   }
   async createSession(): Promise<string> {
     try {
@@ -295,7 +420,27 @@ export class MainViewModel {
       return '';
     }
   }
-  async selectSession(sessionId: string): Promise<void> { this.currentSessionId = sessionId; await this.storageService?.setString(Constants.KEY_SESSION_ID, sessionId); await this.loadMessages(sessionId); }
+  async selectSession(sessionId: string): Promise<void> {
+    if (sessionId.length === 0 || this.isGenerating) return
+    this.activeTurnId = this.newTurnId()
+    this.currentSessionId = sessionId
+    this.pendingPermissions = []
+    this.pendingQuestions = []
+    await this.storageService?.setString(Constants.KEY_SESSION_ID, sessionId)
+    await this.loadMessages(sessionId)
+    await this.checkAndLoadPermissions()
+  }
+
+  async beginNewSession(): Promise<void> {
+    if (this.isGenerating) return
+    this.activeTurnId = this.newTurnId()
+    this.currentSessionId = ''
+    this.messages = []
+    this.pendingPermissions = []
+    this.pendingQuestions = []
+    this.errorMessage = ''
+    await this.storageService?.setString(Constants.KEY_SESSION_ID, '')
+  }
   async loadMessages(sessionId: string = this.currentSessionId): Promise<void> {
     if (sessionId.length === 0) return;
     try {
@@ -360,8 +505,10 @@ export class MainViewModel {
       if (this.selectedModel.length > 0 && this.selectedModel.includes('/')) {
         const providerId = this.selectedModel.split('/')[0]
         try {
-          const providerData = await this.apiAdapter.listProviders()
-          const connectedList = this.extractConnectedProviderIds(providerData['connected'])
+          const connectedList: string[] = []
+          for (const provider of this.providers) {
+            if (provider.connected) connectedList.push(provider.id)
+          }
           if (connectedList.length > 0 && !connectedList.includes(providerId)) {
             let isDisabled = false
             try {
@@ -371,7 +518,7 @@ export class MainViewModel {
                 return (typeof d === 'string' && d === providerId) ||
                   (d && typeof d === 'object' && (d as Record<string, Object>)['id'] === providerId)
               })
-            } catch (_) {}
+            } catch (cfgErr) { Logger.warn(`getConfig 失败, 降级为"未禁用"判断: ${errStr(cfgErr)}`) }
             const hint = isDisabled
               ? `Provider "${providerId}" 已被禁用。请在 OpenCode 配置中启用该 provider，或切换到已连接的 provider 的模型。`
               : `Provider "${providerId}" 未连接。当前已连接：${connectedList.join(', ')}。请连接该 provider 或切换模型。`
@@ -389,11 +536,6 @@ export class MainViewModel {
       const before = await this.getRawMessages(sessionId)
       const beforeCount = before.length
 
-      const req = new PromptAsyncRequest()
-      const part = new TextPromptPart()
-      part.text = text
-      req.parts = [part]
-
       // Send prompt via adapter (v2: /api/session/:id/prompt, legacy: /session/:id/prompt_async)
       const promptInput = new PromptInput();
       promptInput.text = text;
@@ -406,17 +548,6 @@ export class MainViewModel {
         return
       }
       Logger.info(`prompt sent session=${sessionId} turn=${turnId} mode=${this.serverMode}`)
-
-      // v2: call wait endpoint
-      if (this.serverMode === 'api-v2') {
-        try {
-          await this.apiAdapter.waitSession(sessionId)
-          Logger.info(`wait completed for session=${sessionId}`)
-        } catch (waitErr) {
-          Logger.warn(`wait failed: ${errStr(waitErr)}`)
-        }
-      }
-
       // 等待 user message 出现在 raw messages 中，定位 userIndex
       let userIndex = -1
       for (let i = 0; i < 10; i++) {
@@ -475,7 +606,16 @@ export class MainViewModel {
       this.finalizeLastStreamingAssistant();
     }
   }
-  async saveServerConfig(): Promise<void> { if (!this.storageService) return; await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url); await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username); await this.storageService.setString(Constants.KEY_AUTH_PASSWORD, this.serverInfo.password); await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel); }
+  async saveServerConfig(): Promise<void> {
+    if (!this.storageService) return
+    if (needsServerUrl(this.runtimeMode)) {
+      this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+    }
+    await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url)
+    await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username)
+    await this.storageService.saveServerPassword(this.serverInfo.password)
+    await this.storageService.setString(Constants.KEY_MODEL, this.selectedModel)
+  }
 
   /**
    * Auto-select a model from a connected provider.
@@ -668,10 +808,35 @@ export class MainViewModel {
 
     return out.join('\n')
   }
-  async testModel(): Promise<string> { if (this.selectedModel.length === 0) return '未设置模型。'; const oldSid = this.currentSessionId; const oldMsgs = this.messages; try { const sid = await this.createSession(); if (sid.length === 0) return '创建测试 session 失败。'; await this.syncModelToRuntime(); const before = await this.getRawMessages(sid); const req = new PromptAsyncRequest(); const p = new TextPromptPart(); p.text = 'Say OK.'; req.parts = [p]; await this.httpService.post<Object>(this.sessionPromptAsyncPath(sid), req); const poll = await this.waitForExecution(sid, before.length, 30, 1000); await this.loadMessages(sid); return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`; } catch (err) { return `模型测试失败：${errStr(err)}`; } finally { if (oldSid.length > 0) { this.currentSessionId = oldSid; this.messages = oldMsgs; } } }
+  async testModel(): Promise<string> {
+    if (this.selectedModel.length === 0) return '未设置模型。'
+    const oldSid = this.currentSessionId
+    const oldMsgs = this.messages
+    try {
+      const sid = await this.createSession()
+      if (sid.length === 0) return '创建测试 session 失败。'
+      await this.syncModelToRuntime()
+      const before = await this.getRawMessages(sid)
+      const prompt = new PromptInput()
+      prompt.text = 'Say OK.'
+      prompt.model = this.selectedModel
+      prompt.agent = 'build'
+      const sent = await this.apiAdapter.sendPrompt(sid, prompt)
+      if (!sent.ok) return `模型测试失败：${sent.error}`
+      const poll = await this.waitForExecution(sid, before.length, 30, 1000)
+      return poll.ok ? `模型测试成功：${this.selectedModel}` : `模型测试失败：${poll.message}`
+    } catch (err) {
+      return `模型测试失败：${errStr(err)}`
+    } finally {
+      this.currentSessionId = oldSid
+      this.messages = oldMsgs
+      await this.storageService?.setString(Constants.KEY_SESSION_ID, oldSid)
+    }
+  }
 
   async syncModelToRuntime(): Promise<void> {
     if (this.selectedModel.length === 0) { Logger.warn('No selected model configured.'); return; }
+    if (this.lastSyncedModel === this.selectedModel) return;
     await this.storageService?.setString(Constants.KEY_MODEL, this.selectedModel);
 
     if (this.runtimeMode === 'local-embedded') {
@@ -685,18 +850,21 @@ export class MainViewModel {
         patchBody['defaultModelID'] = this.selectedModel;
       }
       await this.apiAdapter.patchConfig(patchBody);
+      this.lastSyncedModel = this.selectedModel;
       Logger.info(`syncModelToRuntime (local): ${this.selectedModel}`);
       return;
     }
 
     // dev-pc / remote: PATCH /config with model string
     if (this.serverMode === 'api-v2') {
+      this.lastSyncedModel = this.selectedModel;
       Logger.info(`syncModelToRuntime: skipped for api-v2 (model=${this.selectedModel})`);
       return;
     }
     const patchBody: Record<string, Object> = {};
     patchBody['model'] = this.selectedModel;
     await this.apiAdapter.patchConfig(patchBody);
+    this.lastSyncedModel = this.selectedModel;
     Logger.info(`syncModelToRuntime (remote): ${this.selectedModel}`);
   }
   private async getRawMessages(sessionId: string): Promise<Object[]> {
@@ -724,10 +892,9 @@ export class MainViewModel {
         // ONLY check messages at or after beforeCount to avoid matching stale responses
         for (let j=beforeCount;j<raw.length;j++){
           const item=raw[j] as Record<string,Object>;
-          const info=item['info'] as Record<string,Object>;
-          const role=info?(info['role'] as string):'';
+          const role=this.extractMessageRole(item);
           if(role==='assistant'){
-            const parts=item['parts'] as Object[];
+            const parts=this.extractMessageParts(item);
             if(parts&&parts.length>0){
               r.hasAssistant=true; r.ok=true; r.message='assistant response received (in-place update)'; return r;
             }
@@ -761,28 +928,70 @@ export class MainViewModel {
     r.message = `等待 assistant/tool/error/permission 超时。\n当前模型：${this.selectedModel}\nmessageCount=${r.messageCount}\n\nRaw messages preview:\n${rawText}`;
     return r;
   }
-  private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult { const r = new ExecutionPollResult(); for(let i=beforeCount;i<raw.length;i++){ const item=raw[i] as Record<string,Object>; const info=item['info'] as Record<string,Object>; const role=info?(info['role'] as string):''; if(role==='assistant') r.hasAssistant=true; const parts=item['parts'] as Object[]; if(!parts) continue; for(const pa of parts){ const part=pa as Record<string,Object>; const type=(part['type'] as string)??''; const text=this.extractPartText(part); if(this.isToolType(type)) r.hasTool=true; if(this.isPermissionType(type)) r.hasPermission=true; if(this.isErrorType(type)){r.hasError=true; if(r.errorText.length===0) r.errorText=text.length>0?text:`Runtime error part: ${type}`;} }} return r; }
+  private inspectMessages(raw: Object[], beforeCount: number): ExecutionPollResult {
+    const r = new ExecutionPollResult()
+    for (let i = beforeCount; i < raw.length; i++) {
+      const item = raw[i] as Record<string, Object>
+      const info = item['info'] as Record<string, Object>
+      const role = this.extractMessageRole(item)
+      const parts = this.extractMessageParts(item)
+      let assistantHasContent = false
+      for (let j = 0; j < parts.length; j++) {
+        const part = parts[j] as Record<string, Object>
+        const type = (part['type'] as string) ?? ''
+        const text = this.extractPartText(part)
+        if (type === 'text' && text.length > 0) assistantHasContent = true
+        if (this.isToolType(type)) r.hasTool = true
+        if (this.isPermissionType(type)) r.hasPermission = true
+        if (this.isErrorType(type)) {
+          r.hasError = true
+          if (r.errorText.length === 0) r.errorText = text.length > 0 ? text : `Runtime error part: ${type}`
+        }
+      }
+      const directText = item['text']
+      if (typeof directText === 'string' && directText.length > 0) assistantHasContent = true
+      const directError = this.extractErrorText(item['error'])
+      if (directError.length > 0) {
+        r.hasError = true
+        if (r.errorText.length === 0) r.errorText = directError
+      }
+      if (role === 'assistant' && assistantHasContent && this.isMessageComplete(item, info)) {
+        r.hasAssistant = true
+      }
+    }
+    return r
+  }
+
+  private isMessageComplete(item: Record<string, Object>, info: Record<string, Object>): boolean {
+    if (this.serverMode !== 'api-v2') return true
+    const finish = item['finish']
+    if (typeof finish === 'string' && finish.length > 0) return true
+    const itemTime = item['time'] as Record<string, Object>
+    const infoTime = info ? (info['time'] as Record<string, Object>) : undefined
+    const completed = itemTime ? itemTime['completed'] : (infoTime ? infoTime['completed'] : undefined)
+    return typeof completed === 'number' && completed > 0
+  }
   private normalizeOpenCodeMessages(raw: Object[], sessionId: string): ChatMessage[] {
     const out: ChatMessage[] = []
     for (let i = 0; i < raw.length; i++) {
       const item = raw[i] as Record<string, Object>
       const info = item['info'] as Record<string, Object>
 
-      // Support role from info or item level
-      let roleStr = ''
-      if (info) roleStr = (info['role'] as string) ?? ''
-      if (roleStr.length === 0) roleStr = (item['role'] as string) ?? ''
-
-      const id = info ? ((info['id'] as string) ?? '') : ''
-      const parts = (item['parts'] as Object[]) ?? []
+      const roleStr = this.extractMessageRole(item)
+      const itemId = (item['id'] as string) ?? ''
+      const id = info ? ((info['id'] as string) ?? itemId) : itemId
+      const parts = this.extractMessageParts(item)
 
       const msg = new ChatMessage()
       msg.id = id.length > 0 ? id : `msg_${Date.now()}_${i}`
       msg.sessionId = sessionId
       msg.role = roleStr === 'assistant' ? MessageRole.Assistant : MessageRole.User
-      msg.timestamp = Date.now()
-      msg.status = MessageStatus.Complete
-      msg.isStreaming = false
+      const time = item['time'] as Record<string, Object>
+      const infoTime = info ? (info['time'] as Record<string, Object>) : undefined
+      msg.timestamp = time ? ((time['created'] as number) ?? Date.now()) : (infoTime ? ((infoTime['created'] as number) ?? Date.now()) : Date.now())
+      const messageComplete = this.isMessageComplete(item, info)
+      msg.status = messageComplete ? MessageStatus.Complete : MessageStatus.Streaming
+      msg.isStreaming = roleStr === 'assistant' && !messageComplete
 
       const textParts: string[] = []
 
@@ -806,18 +1015,18 @@ export class MainViewModel {
           tool.result = text
           tool.status = type.includes('error') ? 'error' : 'complete'
           msg.toolCalls.push(tool)
-        } else if (text.length > 0) {
+        } else if (type !== 'reasoning' && type !== 'reasoning-delta' && text.length > 0) {
           textParts.push(text)
         }
       }
 
       // Support direct content/error at item level
+      const directText = item['text']
+      if (typeof directText === 'string' && directText.length > 0) textParts.push(directText)
       const directContent = item['content']
-      if (typeof directContent === 'string' && directContent.length > 0) {
-        textParts.push(directContent)
-      }
-      const directError = item['error']
-      if (typeof directError === 'string' && directError.length > 0) {
+      if (typeof directContent === 'string' && directContent.length > 0) textParts.push(directContent)
+      const directError = this.extractErrorText(item['error'])
+      if (directError.length > 0) {
         msg.isError = true
         msg.status = MessageStatus.Error
         textParts.push(directError)
@@ -878,9 +1087,37 @@ export class MainViewModel {
     }
     return ''
   }
-  private sessionMessagesPath(sessionId:string): string { return `/session/${sessionId}/message`; }
-  private sessionPromptAsyncPath(sessionId:string): string { return `/session/${sessionId}/prompt_async`; }
-  private sessionAbortPath(sessionId:string): string { return `/session/${sessionId}/abort`; }
+  private extractMessageRole(item: Record<string, Object>): string {
+    const info = item['info'] as Record<string, Object>
+    let role = info ? ((info['role'] as string) ?? '') : ''
+    if (role.length === 0) role = (item['role'] as string) ?? ''
+    if (role.length === 0) {
+      const type = (item['type'] as string) ?? ''
+      if (type === 'user' || type === 'assistant' || type === 'system') role = type
+    }
+    return role
+  }
+  private extractMessageParts(item: Record<string, Object>): Object[] {
+    const parts = item['parts']
+    if (Array.isArray(parts)) return parts as Object[]
+    const content = item['content']
+    if (Array.isArray(content)) return content as Object[]
+    return []
+  }
+  private extractErrorText(value: Object | undefined): string {
+    if (typeof value === 'string') return value
+    if (!value || typeof value !== 'object') return ''
+    const record = value as Record<string, Object>
+    const message = record['message']
+    if (typeof message === 'string') return message
+    const nested = record['error']
+    if (typeof nested === 'string') return nested
+    if (nested && typeof nested === 'object') {
+      const nestedMessage = (nested as Record<string, Object>)['message']
+      if (typeof nestedMessage === 'string') return nestedMessage
+    }
+    return ''
+  }
   private finalizeLastStreamingAssistant(): void { if(this.messages.length===0) return; const last=this.messages[this.messages.length-1]; if(last.role===MessageRole.Assistant&&last.isStreaming){ last.finalize(); this.messages=[...this.messages]; } }
   private async delay(ms:number): Promise<void> { return new Promise<void>((resolve)=>{ setTimeout(()=>resolve(), ms); }); }
   private newTurnId(): string { return `turn_${Date.now()}_${Math.floor(Math.random() * 100000)}` }
@@ -888,12 +1125,15 @@ export class MainViewModel {
   private findLastUserIndex(raw: Object[], text: string): number {
     for (let i = raw.length - 1; i >= 0; i--) {
       const item = raw[i] as Record<string, Object>
-      const info = item['info'] as Record<string, Object>
-      const role = info ? ((info['role'] as string) ?? '') : ''
+      const role = this.extractMessageRole(item)
       if (role !== 'user') continue
-      const parts = (item['parts'] as Object[]) ?? []
-      for (const pa of parts) {
-        const part = pa as Record<string, Object>
+      const directText = item['text']
+      if (typeof directText === 'string' && directText === text) return i
+      const directContent = item['content']
+      if (typeof directContent === 'string' && directContent === text) return i
+      const parts = this.extractMessageParts(item)
+      for (let j = 0; j < parts.length; j++) {
+        const part = parts[j] as Record<string, Object>
         const t = this.extractPartText(part)
         if (t === text) return i
       }
@@ -923,6 +1163,12 @@ export class MainViewModel {
       try {
         const raw = await this.getRawMessages(sessionId)
         r.messageCount = raw.length
+
+        // Reuse the current poll response for live UI updates. This avoids an
+        // extra HTTP request per tick and lets long answers grow on screen.
+        if (this.currentSessionId === sessionId && this.activeTurnId === turnId) {
+          this.messages = this.normalizeOpenCodeMessages(raw, sessionId)
+        }
 
         if (raw.length <= userIndex + 1) continue
 
@@ -964,12 +1210,125 @@ export class MainViewModel {
     r.message = `等待 assistant 超时。userIndex=${userIndex}`
     return r
   }
-  private onWsMessage(data:string): void { try { const parsed=JSON.parse(data) as Record<string,Object>; Logger.info(`Runtime ws event: ${(parsed['type'] as string)??'unknown'}`); } catch(err){ Logger.error(`onWsMessage parse error: ${errStr(err)}`); } }
-  private onWsStatus(connected:boolean): void { Logger.info(`WebSocket status: ${connected?'connected':'disconnected'}`); }
-  private startHealthCheck(): void { this.stopHealthCheck(); this.healthTimer=setInterval(()=>{ this.httpService.checkHealth().then((ok:boolean)=>{ this.serverInfo.healthOk=ok; if(!ok&&this.connectionStatus===ConnectionStatus.Connected){ this.connectionStatus=ConnectionStatus.Error; this.errorMessage='Runtime 健康检查失败，连接已断开。'; Logger.warn('Health check failed, marking disconnected'); } }); }, Constants.HEALTH_CHECK_INTERVAL_MS) as number; }
-  private stopHealthCheck(): void { if(this.healthTimer>=0){ clearInterval(this.healthTimer); this.healthTimer=-1; } }
+  private startHealthCheck(): void {
+    this.stopHealthCheck()
+    if (this.runtimeMode === 'local-embedded' || this.connectionStatus !== ConnectionStatus.Connected) return
+    this.healthCheckFailures = 0
+    const generation = this.healthCheckGeneration
+    this.healthTimer = setInterval(() => {
+      this.runHealthCheck(generation)
+    }, Constants.HEALTH_CHECK_INTERVAL_MS) as number
+  }
+
+  private runHealthCheck(generation: number): void {
+    if (this.healthCheckInFlight || generation !== this.healthCheckGeneration) return
+    this.healthCheckInFlight = true
+    this.httpService.checkHealth()
+      .then((ok: boolean) => {
+        if (generation !== this.healthCheckGeneration) return
+        this.serverInfo.healthOk = ok
+        this.healthCheckFailures = ok ? 0 : this.healthCheckFailures + 1
+        if (!ok && this.healthCheckFailures >= 3 && this.connectionStatus === ConnectionStatus.Connected) {
+          this.connectionStatus = ConnectionStatus.Error
+          this.errorMessage = 'Runtime 连续三次健康检查失败，连接已断开。'
+          Logger.warn('Health check failed three times, marking disconnected')
+          this.stopHealthCheck()
+          this.scheduleReconnect()
+        }
+      })
+      .catch((e: Error) => {
+        if (generation !== this.healthCheckGeneration) return
+        this.healthCheckFailures++
+        Logger.warn(`Health check request failed (${this.healthCheckFailures}/3): ${errStr(e)}`)
+        if (this.healthCheckFailures >= 3 && this.connectionStatus === ConnectionStatus.Connected) {
+          this.connectionStatus = ConnectionStatus.Error
+          this.errorMessage = 'Runtime 连续三次健康检查失败，连接已断开。'
+          this.stopHealthCheck()
+          this.scheduleReconnect()
+        }
+      })
+      .finally(() => {
+        if (generation === this.healthCheckGeneration) this.healthCheckInFlight = false
+      })
+  }
+
+  resumeHealthCheck(): void {
+    if (this.healthTimer < 0 && this.connectionStatus === ConnectionStatus.Connected && this.runtimeMode !== 'local-embedded') {
+      this.startHealthCheck()
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.runtimeMode === 'local-embedded' || this.reconnectTimer >= 0) return
+    if (!isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+      Logger.warn('Automatic reconnect suppressed until a valid Runtime URL is configured')
+      return
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = -1
+      if (this.connectionStatus !== ConnectionStatus.Error &&
+          this.connectionStatus !== ConnectionStatus.StartFailed) return
+      Logger.info('Attempting automatic OpenCode reconnect')
+      this.connect().then(() => {
+        if (this.connectionStatus !== ConnectionStatus.Connected) this.scheduleReconnect()
+      }).catch((e: Error) => {
+        Logger.warn(`Automatic reconnect failed: ${errStr(e)}`)
+        this.scheduleReconnect()
+      })
+    }, 5000) as number
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer >= 0) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = -1
+    }
+  }
+  /**
+   * 停止健康检查定时器。须在页面销毁 / ViewModel 释放时调用, 防止 setInterval 泄漏 (BUG-01)。
+   * 对外公开, 供 Index.aboutToDisappear 调用。
+   */
+  stopHealthCheck(): void {
+    this.healthCheckGeneration++
+    this.healthCheckInFlight = false
+    this.healthCheckFailures = 0
+    if (this.healthTimer >= 0) {
+      clearInterval(this.healthTimer)
+      this.healthTimer = -1
+    }
+  }
 
   // Safe error-to-string is provided by the imported errStr() from utils/ErrorUtil
+
+  private permissionResourceText(record: Record<string, Object>): string {
+    const value = record['resources'] ?? record['patterns']
+    if (!Array.isArray(value)) return ''
+    const labels: string[] = []
+    for (const item of value as Object[]) {
+      if (typeof item === 'string') labels.push(item)
+    }
+    return labels.join('\n')
+  }
+
+  private parsePendingQuestionItem(record: Record<string, Object>): PendingQuestionItem {
+    const item = new PendingQuestionItem()
+    item.header = (record['header'] as string) || ''
+    item.question = (record['question'] as string) || ''
+    item.multiSelect = record['multiple'] === true || record['multiSelect'] === true
+    const optionsValue = record['options']
+    if (Array.isArray(optionsValue)) {
+      for (const optionValue of optionsValue as Object[]) {
+        if (!optionValue || typeof optionValue !== 'object') continue
+        const source = optionValue as Record<string, Object>
+        const option = new QuestionOption()
+        option.label = (source['label'] as string) || ''
+        option.id = (source['id'] as string) || option.label
+        option.description = (source['description'] as string) || ''
+        if (option.label.length > 0) item.options.push(option)
+      }
+    }
+    return item
+  }
 
   // ══════════ Permission Handling ══════════
 
@@ -979,15 +1338,15 @@ export class MainViewModel {
    */
   async loadPendingPermissions(): Promise<void> {
     try {
-      const raw = await this.apiAdapter.listPermissionRequests()
+      const raw = await this.apiAdapter.listPermissionRequests(this.currentSessionId)
       this.pendingPermissions = raw.map((item: Object) => {
         const r = item as Record<string, Object>
         const p = new PendingPermission()
         p.id = (r['id'] as string) || ''
         p.sessionID = (r['sessionID'] as string) || this.currentSessionId
-        p.type = (r['type'] as string) || ''
-        p.title = (r['title'] as string) || (r['description'] as string) || 'Permission Request'
-        p.description = (r['description'] as string) || ''
+        p.type = (r['type'] as string) || (r['action'] as string) || (r['permission'] as string) || ''
+        p.title = (r['title'] as string) || (r['action'] as string) || (r['permission'] as string) || 'Permission Request'
+        p.description = (r['description'] as string) || this.permissionResourceText(r)
         p.riskLevel = (r['riskLevel'] as string) || ''
         return p
       })
@@ -1003,7 +1362,8 @@ export class MainViewModel {
     const reply = always ? 'always' : 'once'
     const sessionId = this.currentSessionId
     try {
-      await this.apiAdapter.replyPermission(sessionId, requestId, reply)
+      const accepted = await this.apiAdapter.replyPermission(sessionId, requestId, reply)
+      if (!accepted) throw new Error('OpenCode 未接受权限回复')
       // Remove from pending list
       this.pendingPermissions = this.pendingPermissions.filter(p => p.id !== requestId)
       // Add system message
@@ -1026,7 +1386,8 @@ export class MainViewModel {
   async rejectPermission(requestId: string): Promise<void> {
     const sessionId = this.currentSessionId
     try {
-      await this.apiAdapter.replyPermission(sessionId, requestId, 'deny')
+      const accepted = await this.apiAdapter.replyPermission(sessionId, requestId, 'reject')
+      if (!accepted) throw new Error('OpenCode 未接受拒绝操作')
       this.pendingPermissions = this.pendingPermissions.filter(p => p.id !== requestId)
       this.messages = [...this.messages, ChatMessage.createSystemMessage('权限已拒绝')]
       await this.loadMessages(sessionId)
@@ -1054,36 +1415,67 @@ export class MainViewModel {
   async loadPendingQuestions(): Promise<void> {
     try {
       const raw = await this.apiAdapter.listQuestions(this.currentSessionId)
-      this.pendingQuestions = raw.map((item: Object) => {
+      const pending: PendingQuestion[] = []
+      for (const item of raw) {
         const r = item as Record<string, Object>
+        const sessionID = (r['sessionID'] as string) || this.currentSessionId
+        if (sessionID !== this.currentSessionId) continue
         const q = new PendingQuestion()
         q.id = (r['id'] as string) || ''
-        q.sessionID = (r['sessionID'] as string) || this.currentSessionId
-        q.header = (r['header'] as string) || ''
-        q.question = (r['question'] as string) || ''
-        q.multiSelect = r['multiSelect'] === true
+        q.sessionID = sessionID
         q.status = (r['status'] as string) || ''
-        const opts = r['options'] as Object[] | undefined
-        if (opts) {
-          for (const o of opts) {
-            const opt = o as Record<string, Object>
-            q.options.push({
-              id: (opt['id'] as string) || '',
-              label: (opt['label'] as string) || '',
-              description: (opt['description'] as string) || ''
-            })
+        const questionsValue = r['questions']
+        if (Array.isArray(questionsValue)) {
+          for (const questionValue of questionsValue as Object[]) {
+            if (!questionValue || typeof questionValue !== 'object') continue
+            q.questions.push(this.parsePendingQuestionItem(questionValue as Record<string, Object>))
+            q.answers.push([])
           }
+        } else {
+          q.questions.push(this.parsePendingQuestionItem(r))
+          q.answers.push([])
         }
-        return q
-      })
+        if (q.id.length > 0 && q.questions.length > 0) pending.push(q)
+      }
+      this.pendingQuestions = pending
     } catch (e) {
       Logger.warn(`loadPendingQuestions failed: ${errStr(e)}`)
     }
   }
 
-  async replyQuestion(requestId: string, optionIDs: string[]): Promise<void> {
+  selectQuestionOption(requestId: string, questionIndex: number, label: string): void {
+    const request = this.pendingQuestions.find(q => q.id === requestId)
+    if (!request || questionIndex < 0 || questionIndex >= request.questions.length) return
+    const info = request.questions[questionIndex]
+    const selected = request.answers[questionIndex]
+    if (info.multiSelect) {
+      request.answers[questionIndex] = selected.includes(label)
+        ? selected.filter(value => value !== label)
+        : [...selected, label]
+    } else {
+      request.answers[questionIndex] = [label]
+    }
+    this.pendingQuestions = [...this.pendingQuestions]
+  }
+
+  isQuestionOptionSelected(requestId: string, questionIndex: number, label: string): boolean {
+    const request = this.pendingQuestions.find(q => q.id === requestId)
+    if (!request || questionIndex < 0 || questionIndex >= request.answers.length) return false
+    return request.answers[questionIndex].includes(label)
+  }
+
+  canSubmitQuestion(requestId: string): boolean {
+    const request = this.pendingQuestions.find(q => q.id === requestId)
+    if (!request || request.answers.length !== request.questions.length) return false
+    return request.answers.every(answer => answer.length > 0)
+  }
+
+  async replyQuestion(requestId: string): Promise<void> {
     try {
-      await this.apiAdapter.replyQuestion(this.currentSessionId, requestId, optionIDs)
+      const request = this.pendingQuestions.find(q => q.id === requestId)
+      if (!request || !this.canSubmitQuestion(requestId)) return
+      const accepted = await this.apiAdapter.replyQuestion(this.currentSessionId, requestId, request.answers)
+      if (!accepted) throw new Error('OpenCode 未接受问题回复')
       this.pendingQuestions = this.pendingQuestions.filter(q => q.id !== requestId)
       this.messages = [...this.messages, ChatMessage.createSystemMessage('问题已回答')]
       await this.loadMessages(this.currentSessionId)
@@ -1095,7 +1487,8 @@ export class MainViewModel {
 
   async rejectQuestion(requestId: string): Promise<void> {
     try {
-      await this.apiAdapter.rejectQuestion(this.currentSessionId, requestId)
+      const accepted = await this.apiAdapter.rejectQuestion(this.currentSessionId, requestId)
+      if (!accepted) throw new Error('OpenCode 未接受拒绝操作')
       this.pendingQuestions = this.pendingQuestions.filter(q => q.id !== requestId)
       this.messages = [...this.messages, ChatMessage.createSystemMessage('问题已拒绝')]
       await this.loadMessages(this.currentSessionId)
@@ -1153,15 +1546,20 @@ export class PendingPermission {
 export class PendingQuestion {
   id: string = ''
   sessionID: string = ''
-  header: string = ''
-  question: string = ''
-  multiSelect: boolean = false
   status: string = ''
-  options: QuestionOption[] = []
+  questions: PendingQuestionItem[] = []
+  answers: string[][] = []
 }
 
 export class QuestionOption {
   id: string = ''
   label: string = ''
   description: string = ''
+}
+
+export class PendingQuestionItem {
+  header: string = ''
+  question: string = ''
+  multiSelect: boolean = false
+  options: QuestionOption[] = []
 }

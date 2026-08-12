@@ -2,11 +2,11 @@
 
 版本：v1.0  
 日期：2026-06-12  
-适用项目：`/Volumes/MyDisk/coding/ohopencode`  
+适用项目：当前 HarmonyOS 项目根目录
 对比对象：
 
-- `/Applications/OpenCode.app`，OpenCode Desktop 1.16.2 Electron 打包版本。
-- `/Users/phoenix/Downloads/opencode-dev 2`，新版 OpenCode monorepo 源码。
+- OpenCode Desktop 1.16.2 Electron 打包版本。
+- `opencode-dev 2` 新版 OpenCode monorepo 源码。
 
 ---
 

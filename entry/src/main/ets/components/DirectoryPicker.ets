@@ -75,7 +75,7 @@ export struct DirectoryPicker {
 
           // ── Header: title + dismiss ──
           Row() {
-            Text('SELECT PROJECT')
+            Text('选择电脑端项目')
               .fontSize(Theme.fs.sm)
               .fontColor(Theme.TEXT_MUTED)
               .fontFamily(Theme.FONT_MONO)
@@ -109,7 +109,7 @@ export struct DirectoryPicker {
               .fontFamily(Theme.FONT_MONO)
               .margin({ right: Theme.sp.md })
 
-            TextInput({ placeholder: 'filter projects...', text: this.searchQuery })
+            TextInput({ placeholder: '筛选 OpenCode 项目...', text: this.searchQuery })
               .fontSize(Theme.fs.sm)
               .fontColor(Theme.TEXT_PRIMARY)
               .placeholderColor(Theme.TEXT_MUTED)
@@ -145,7 +145,7 @@ export struct DirectoryPicker {
               if (this.getFilteredProjects().length === 0) {
                 // Empty state
                 Column() {
-                  Text('no matching projects')
+                  Text('没有匹配的电脑端项目')
                     .fontSize(Theme.fs.sm)
                     .fontColor(Theme.TEXT_MUTED)
                     .fontFamily(Theme.FONT_MONO)
@@ -236,7 +236,7 @@ export struct DirectoryPicker {
               .strokeWidth(1)
               .layoutWeight(1)
 
-            Text('recent projects \u00B7 ' + this.projects.length)
+            Text('OpenCode 项目 · ' + this.projects.length)
               .fontSize(Theme.fs.xs)
               .fontColor(Theme.TEXT_MUTED)
               .fontFamily(Theme.FONT_MONO)
@@ -256,8 +256,8 @@ export struct DirectoryPicker {
           })
           .alignItems(VerticalAlign.Center)
         }
-        .width(400)
-        .constraintSize({ maxHeight: 500 })
+        .width('90%')
+        .constraintSize({ maxWidth: 520, maxHeight: 500 })
         .backgroundColor(Theme.PANEL)
         .borderRadius(Theme.rd.lg)
         .borderWidth(1)

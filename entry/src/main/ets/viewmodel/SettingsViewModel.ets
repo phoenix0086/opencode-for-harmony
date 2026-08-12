@@ -1,4 +1,4 @@
-import { StorageService } from '../service/StorageService';
+import { StorageService } from '../services/StorageService';
 import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 
@@ -20,7 +20,7 @@ export class SettingsViewModel {
     this.storage = storage;
     this.serverUrl = await storage.getString(Constants.KEY_SERVER_URL, Constants.DEFAULT_SERVER_URL);
     this.username = await storage.getString(Constants.KEY_AUTH_USERNAME, '');
-    this.password = await storage.getString(Constants.KEY_AUTH_PASSWORD, '');
+    this.password = await storage.loadServerPassword();
     this.model = await storage.getString(Constants.KEY_MODEL, Constants.DEFAULT_MODEL);
     this.theme = await storage.getString(Constants.KEY_THEME, Constants.DEFAULT_THEME);
     this.language = await storage.getString(Constants.KEY_LANGUAGE, Constants.DEFAULT_LANGUAGE);
@@ -31,7 +31,7 @@ export class SettingsViewModel {
     if (!this.storage) return;
     await this.storage.setString(Constants.KEY_SERVER_URL, this.serverUrl);
     await this.storage.setString(Constants.KEY_AUTH_USERNAME, this.username);
-    await this.storage.setString(Constants.KEY_AUTH_PASSWORD, this.password);
+    await this.storage.saveServerPassword(this.password);
     await this.storage.setString(Constants.KEY_MODEL, this.model);
     await this.storage.setString(Constants.KEY_THEME, this.theme);
     await this.storage.setString(Constants.KEY_LANGUAGE, this.language);

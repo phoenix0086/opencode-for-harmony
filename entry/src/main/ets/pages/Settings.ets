@@ -1,4 +1,3 @@
-import { router } from '@kit.ArkUI';
 import { MainViewModel } from '../viewmodel/MainViewModel';
 import { ConnectionStatus } from '../model/AppState';
 import { Constants } from '../utils/Constants';
@@ -38,7 +37,7 @@ struct Settings {
         .height(36)
         .backgroundColor(Color.Transparent)
         .onClick(() => {
-          router.back();
+          this.goBack();
         })
 
         Text('Settings')
@@ -221,6 +220,14 @@ struct Settings {
       case ConnectionStatus.Connecting: return '#FFB300';
       case ConnectionStatus.Error: return '#FF5252';
       default: return '#666666';
+    }
+  }
+
+  private goBack(): void {
+    try {
+      this.getUIContext().getRouter().back()
+    } catch (_) {
+      // The page may already be leaving.
     }
   }
 

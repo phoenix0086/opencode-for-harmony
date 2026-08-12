@@ -37,7 +37,7 @@ export struct ProviderSettingsPage {
       'xiaomi-mimo',
       'Xiaomi MiMo',
       'https://token-plan-cn.xiaomimimo.com/anthropic',
-      'tp-ctgx27ynv0rkbt1jod87kkt779afid0eqrcmu68kst5zr13o',
+      '',
       ''
     )
     if (!created) return
@@ -68,7 +68,7 @@ export struct ProviderSettingsPage {
     input.displayName = p.name
     input.apiType = 'anthropic'
     input.baseURL = p.baseURL
-    input.apiKey = p.apiKey || 'tp-ctgx27ynv0rkbt1jod87kkt779afid0eqrcmu68kst5zr13o'
+    input.apiKey = p.apiKey
     input.models = []
     for (const m of p.models) {
       const mi = new ProviderModelInput()
