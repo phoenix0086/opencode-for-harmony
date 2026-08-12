@@ -8,7 +8,7 @@ import { Constants } from '../utils/Constants';
 import { Logger } from '../utils/Logger';
 import { errStr } from '../utils/ErrorUtil';
 import { localOpenCodeServerManager, LocalServerStatus } from '../services/LocalOpenCodeServerManager';
-import { RuntimeMode, toRuntimeMode, needsServerUrl } from '../services/RuntimeMode';
+import { RuntimeMode, toRuntimeMode, needsServerUrl, isValidExternalRuntimeUrl, normalizeExternalRuntimeUrl } from '../services/RuntimeMode';
 import { localRuntimeClient } from '../services/LocalRuntimeClient';
 import { OpenCodeApiAdapter, PromptInput } from '../services/OpenCodeApiAdapter';
 import { ServerMode } from '../services/OpenCodeCapabilities';
@@ -63,6 +63,21 @@ export class MainViewModel {
     this.lastSyncedModel = '';
 
     try {
+      if (needsServerUrl(this.runtimeMode)) {
+        this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+      }
+      if (needsServerUrl(this.runtimeMode) && !isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+        this.connectionStatus = ConnectionStatus.StartFailed
+        this.serverInfo.connected = false
+        this.serverInfo.healthOk = false
+        this.serverStatusMessage = this.runtimeMode === 'dev-pc'
+          ? '请先填写电脑的局域网地址，例如 http://192.168.1.85:4096。'
+          : '请先填写远程 OpenCode Server 地址。'
+        this.errorMessage = this.serverStatusMessage
+        Logger.warn(`Connection skipped: invalid external Runtime URL (${this.serverInfo.url})`)
+        return
+      }
+
       // Set runtime mode on adapter
       this.apiAdapter.setRuntimeMode(this.runtimeMode);
 
@@ -174,6 +189,16 @@ export class MainViewModel {
     // Do not silently replace it with local-embedded: that makes the UI report a
     // successful LAN connection while all requests still use the in-process runtime.
     if (needsServerUrl(this.runtimeMode)) {
+      this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+      if (!isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+        this.connectionStatus = ConnectionStatus.StartFailed
+        this.serverStatusMessage = this.runtimeMode === 'dev-pc'
+          ? '请先在设置 > 服务器填写电脑的局域网地址。'
+          : '请先在设置 > 服务器填写远程 Runtime 地址。'
+        this.errorMessage = this.serverStatusMessage
+        Logger.warn(`Auto-start skipped: invalid external Runtime URL (${this.serverInfo.url})`)
+        return
+      }
       Logger.info(`[Auto-start] connecting configured external runtime: ${this.runtimeMode}`)
       try {
         await this.connect()
@@ -583,6 +608,9 @@ export class MainViewModel {
   }
   async saveServerConfig(): Promise<void> {
     if (!this.storageService) return
+    if (needsServerUrl(this.runtimeMode)) {
+      this.serverInfo.url = normalizeExternalRuntimeUrl(this.serverInfo.url)
+    }
     await this.storageService.setString(Constants.KEY_SERVER_URL, this.serverInfo.url)
     await this.storageService.setString(Constants.KEY_AUTH_USERNAME, this.serverInfo.username)
     await this.storageService.saveServerPassword(this.serverInfo.password)
@@ -1232,6 +1260,10 @@ export class MainViewModel {
 
   private scheduleReconnect(): void {
     if (this.runtimeMode === 'local-embedded' || this.reconnectTimer >= 0) return
+    if (!isValidExternalRuntimeUrl(this.serverInfo.url, this.runtimeMode)) {
+      Logger.warn('Automatic reconnect suppressed until a valid Runtime URL is configured')
+      return
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = -1
       if (this.connectionStatus !== ConnectionStatus.Error &&

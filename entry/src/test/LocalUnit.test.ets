@@ -14,6 +14,7 @@ import {
 import { UnsupportedV2Endpoint } from '../main/ets/services/V2Type'
 import { i18n } from '../main/ets/services/I18nService'
 import { ServerInfo } from '../main/ets/model/ServerInfo'
+import { isValidExternalRuntimeUrl, normalizeExternalRuntimeUrl } from '../main/ets/services/RuntimeMode'
 
 export default function slashCommandUnitTest() {
   describe('SlashCommandService', () => {
@@ -104,6 +105,34 @@ export default function slashCommandUnitTest() {
       const server = new ServerInfo()
       server.username = 'opencode'
       expect(server.getAuthHeader()).assertEqual('')
+    })
+  })
+
+  describe('RuntimeMode URL validation', () => {
+    it('accepts LAN and HTTPS server addresses', 0, () => {
+      expect(isValidExternalRuntimeUrl('http://192.168.1.85:4096', 'dev-pc')).assertTrue()
+      expect(isValidExternalRuntimeUrl('https://opencode.example.com', 'remote')).assertTrue()
+      expect(isValidExternalRuntimeUrl('Http://192.168.1.85:4096', 'dev-pc')).assertTrue()
+    })
+
+    it('normalizes protocol casing before connecting', 0, () => {
+      expect(normalizeExternalRuntimeUrl('Http://192.168.1.85:4096')).assertEqual('http://192.168.1.85:4096')
+    })
+
+    it('rejects missing hosts and malformed addresses', 0, () => {
+      expect(isValidExternalRuntimeUrl('', 'dev-pc')).assertFalse()
+      expect(isValidExternalRuntimeUrl('http://:4096', 'dev-pc')).assertFalse()
+      expect(isValidExternalRuntimeUrl('192.168.1.85:4096', 'dev-pc')).assertFalse()
+    })
+
+    it('rejects loopback addresses for a computer on the LAN', 0, () => {
+      expect(isValidExternalRuntimeUrl('http://127.0.0.1:4096', 'dev-pc')).assertFalse()
+      expect(isValidExternalRuntimeUrl('http://localhost:4096', 'dev-pc')).assertFalse()
+    })
+
+    it('rejects out-of-range ports', 0, () => {
+      expect(isValidExternalRuntimeUrl('http://192.168.1.85:0', 'dev-pc')).assertFalse()
+      expect(isValidExternalRuntimeUrl('http://192.168.1.85:65536', 'dev-pc')).assertFalse()
     })
   })
 }

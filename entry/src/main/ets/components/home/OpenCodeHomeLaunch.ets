@@ -1,7 +1,7 @@
 import { Runner } from '../../models/Runner'
 import { SessionInfo } from '../../model/AppState'
 import { ProjectEntry } from '../DirectoryPicker'
-import { formatRelativeTime } from '../../utils/DateTimeUtil'
+import { formatRelativeTime, formatServerTitle } from '../../utils/DateTimeUtil'
 
 /**
  * OpenCodeHomeLaunch
@@ -50,6 +50,7 @@ export struct OpenCodeHomeLaunch {
   @Prop serverName: string = 'Local Server'
   @Prop isServerReady: boolean = false
   @Prop hasMissingApiKey: boolean = false
+  @State searchQuery: string = ''
 
   onInputChange: (value: string) => void = () => {}
   onSend: () => void = () => {}
@@ -65,6 +66,9 @@ export struct OpenCodeHomeLaunch {
   onOpenModels: () => void = () => {}
   onOpenProject: (directory: string) => void = () => {}
   onOpenProviders: () => void = () => {}
+  onConnectComputer: () => void = () => {}
+  onOpenLocalRuntime: () => void = () => {}
+  onOpenSession: (sessionId: string) => void = () => {}
 
   // 修复 W2: 删死代码 serverLabel/serverDotColor,CenterPane 不用了,
   // LocalServerButton 也已删。保留 serverName/isServerReady/isConnected
@@ -120,13 +124,34 @@ export struct OpenCodeHomeLaunch {
     return list
   }
 
+  private projectLabel(project: ProjectEntry): string {
+    if (project.name.length > 0) return project.name
+    const path = project.directory.length > 0 ? project.directory : project.worktree
+    const parts = path.split('/')
+    return parts.length > 0 ? parts[parts.length - 1] : path
+  }
+
+  private sessionLabel(session: SessionInfo): string {
+    return session.title.length > 0 ? formatServerTitle(session.title) : '新会话'
+  }
+
+  private filteredSessions(): SessionInfo[] {
+    if (this.searchQuery.trim().length === 0) return this.sessions
+    const query = this.searchQuery.trim().toLowerCase()
+    const result: SessionInfo[] = []
+    for (let i = 0; i < this.sessions.length; i++) {
+      const session = this.sessions[i]
+      if (this.sessionLabel(session).toLowerCase().indexOf(query) >= 0) result.push(session)
+    }
+    return result
+  }
+
   build() {
     Column() {
-      this.TitleBar()
-
+      this.DesktopTitleBar()
       Row() {
-        this.ActivityRail()
-        this.CenterPane()
+        this.ProjectSidebar()
+        this.SessionHome()
       }
       .layoutWeight(1)
       .width('100%')
@@ -134,6 +159,257 @@ export struct OpenCodeHomeLaunch {
     .width('100%')
     .height('100%')
     .backgroundColor('#101010')
+  }
+
+  @Builder
+  DesktopTitleBar() {
+    Row() {
+      Row() {
+        Circle().width(20).height(20).fill('#FF4D5A').margin({ right: 14 })
+        Circle().width(20).height(20).fill('#FFBE2E').margin({ right: 14 })
+        Circle().width(20).height(20).fill('#28C840')
+      }
+      .margin({ left: 18 })
+
+      Button('▦')
+        .width(52)
+        .height(38)
+        .fontSize(22)
+        .fontColor('#FFFFFF')
+        .backgroundColor('#2B2B2B')
+        .borderRadius(8)
+        .margin({ left: 28 })
+        .onClick(() => this.onOpenDirectoryPicker())
+
+      Button('+')
+        .width(42)
+        .height(38)
+        .fontSize(24)
+        .fontColor('#BEBEBE')
+        .backgroundColor(Color.Transparent)
+        .margin({ left: 8 })
+        .onClick(() => this.onNewSession())
+
+      Blank()
+
+      Row() {
+        Circle()
+          .width(8)
+          .height(8)
+          .fill(this.isConnected ? '#42D77D' : '#777777')
+        Text(this.isConnected ? '已连接电脑' : '未连接电脑')
+          .fontSize(12)
+          .fontColor('#A8A8A8')
+          .margin({ left: 8 })
+      }
+      .margin({ right: 24 })
+    }
+    .width('100%')
+    .height(60)
+    .backgroundColor('#0D0D0D')
+    .borderWidth({ bottom: 1 })
+    .borderColor('#272727')
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  ProjectSidebar() {
+    Column() {
+      Row() {
+        Text('项目')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+        Button('+')
+          .width(34)
+          .height(30)
+          .fontSize(20)
+          .fontColor('#A7A7A7')
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.onOpenDirectoryPicker())
+      }
+      .width('100%')
+      .padding({ left: 22, right: 16, top: 24, bottom: 12 })
+
+      if (this.projects.length === 0) {
+        Column() {
+          Text(this.isConnected ? '电脑端暂无项目' : '连接电脑后显示项目')
+            .fontSize(13)
+            .fontColor('#8D8D8D')
+            .textAlign(TextAlign.Center)
+          if (!this.isConnected) {
+            Button('连接电脑')
+              .height(34)
+              .fontSize(12)
+              .fontColor('#FFFFFF')
+              .backgroundColor('#2B2B2B')
+              .borderRadius(7)
+              .margin({ top: 14 })
+              .onClick(() => this.onConnectComputer())
+          }
+        }
+        .width('100%')
+        .padding({ left: 18, right: 18, top: 30 })
+        .alignItems(HorizontalAlign.Center)
+      } else {
+        Scroll() {
+          Column() {
+            ForEach(this.recentProjects(), (project: ProjectEntry) => {
+              Row() {
+                Text(this.projectLabel(project).substring(0, 1).toUpperCase())
+                  .width(24)
+                  .height(24)
+                  .fontSize(12)
+                  .fontColor('#FFFFFF')
+                  .textAlign(TextAlign.Center)
+                  .backgroundColor(project.isActive ? '#5B4AA8' : '#5A5A5A')
+                  .borderRadius(5)
+                Text(this.projectLabel(project))
+                  .fontSize(14)
+                  .fontColor('#D8D8D8')
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ left: 10 })
+              }
+              .width('100%')
+              .height(42)
+              .padding({ left: 10, right: 10 })
+              .backgroundColor(project.isActive ? '#3B3B3B' : Color.Transparent)
+              .borderRadius(7)
+              .onClick(() => this.onOpenProject(project.directory))
+            }, (project: ProjectEntry) => project.directory)
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Auto)
+      }
+
+      Column() {
+        Button('⚙  设置')
+          .width('100%')
+          .height(40)
+          .fontSize(14)
+          .fontColor('#A8A8A8')
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.onOpenSettings())
+        Button('?  帮助')
+          .width('100%')
+          .height(40)
+          .fontSize(14)
+          .fontColor('#A8A8A8')
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.onOpenHelp())
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, bottom: 20 })
+    }
+    .width('22%')
+    .constraintSize({ minWidth: 260, maxWidth: 520 })
+    .height('100%')
+    .backgroundColor('#151515')
+    .borderWidth({ right: 1 })
+    .borderColor('#292929')
+  }
+
+  @Builder
+  SessionHome() {
+    Column() {
+      TextInput({ placeholder: '搜索会话', text: this.searchQuery })
+        .width('72%')
+        .height(42)
+        .fontSize(14)
+        .fontColor('#D7D7D7')
+        .placeholderColor('#777777')
+        .backgroundColor('#252525')
+        .borderRadius(7)
+        .onChange((value: string) => { this.searchQuery = value })
+        .margin({ top: 56, bottom: 34 })
+
+      Row() {
+        Text('最近会话')
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+        Button('✎  新建会话')
+          .height(36)
+          .fontSize(14)
+          .fontColor('#D0D0D0')
+          .backgroundColor(Color.Transparent)
+          .onClick(() => this.onNewSession())
+      }
+      .width('78%')
+      .margin({ bottom: 16 })
+
+      if (!this.isConnected) {
+        Column() {
+          Text('连接电脑后显示最近会话')
+            .fontSize(14)
+            .fontColor('#8D8D8D')
+          Button('连接电脑')
+            .height(36)
+            .fontSize(13)
+            .fontColor('#FFFFFF')
+            .backgroundColor('#2B2B2B')
+            .borderRadius(7)
+            .margin({ top: 16 })
+            .onClick(() => this.onConnectComputer())
+        }
+        .width('78%')
+        .padding({ top: 60 })
+        .alignItems(HorizontalAlign.Center)
+      } else if (this.filteredSessions().length === 0) {
+        Text('暂无会话')
+          .fontSize(14)
+          .fontColor('#777777')
+          .width('78%')
+          .padding({ top: 30 })
+          .textAlign(TextAlign.Center)
+      } else {
+        Scroll() {
+          Column() {
+            ForEach(this.filteredSessions(), (session: SessionInfo) => {
+              Row() {
+                Text(this.sessionLabel(session).substring(0, 1))
+                  .width(26)
+                  .height(26)
+                  .fontSize(13)
+                  .fontColor('#FFFFFF')
+                  .textAlign(TextAlign.Center)
+                  .backgroundColor('#5A5A5A')
+                  .borderRadius(5)
+                Text(this.sessionLabel(session))
+                  .fontSize(15)
+                  .fontColor('#E0E0E0')
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ left: 12 })
+              }
+              .width('78%')
+              .height(52)
+              .padding({ left: 12, right: 12 })
+              .borderRadius(7)
+              .onClick(() => this.onOpenSession(session.id))
+            }, (session: SessionInfo) => session.id)
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('78%')
+        .scrollBar(BarState.Auto)
+      }
+      Blank()
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor('#151515')
+    .alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -251,7 +527,11 @@ export struct OpenCodeHomeLaunch {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
 
-      // 下半部:最近项目
+      // 两种工作方式。当前优先完成电脑端 OpenCode 连接；
+      // 本地运行保留清晰入口，但不进入尚未完成的流程。
+      this.WorkModeChoices()
+
+      // 下半部:连接电脑后显示最近项目
       Column() {
         this.RecentProjectsSection()
       }
@@ -264,6 +544,99 @@ export struct OpenCodeHomeLaunch {
   }
 
   // 修复 W2: 删 LocalServerButton,CenterPane 顶部只留 Logo
+
+  @Builder
+  WorkModeChoices() {
+    Column() {
+      Text('选择使用方式')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('#FFFFFF')
+        .width('100%')
+        .margin({ bottom: 10 })
+
+      Row() {
+        Column() {
+          Row() {
+            Text('连接电脑')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+              .layoutWeight(1)
+            Text('当前主功能')
+              .fontSize(10)
+              .fontColor('#101010')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#78D98B')
+              .borderRadius(10)
+          }
+          .width('100%')
+
+          Text('连接电脑上的 OpenCode Server，在电脑端读取项目、运行命令和编译代码。')
+            .fontSize(12)
+            .fontColor('#B8B8B8')
+            .lineHeight(18)
+            .width('100%')
+            .margin({ top: 8 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text('›')
+          .fontSize(24)
+          .fontColor('#FFFFFF')
+          .margin({ left: 14 })
+      }
+      .width('100%')
+      .padding(16)
+      .backgroundColor('#1D2A22')
+      .borderRadius(10)
+      .borderWidth(1)
+      .borderColor('#315E3B')
+      .onClick(() => this.onConnectComputer())
+
+      Row() {
+        Column() {
+          Row() {
+            Text('本地运行')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+              .layoutWeight(1)
+            Text('开发中')
+              .fontSize(10)
+              .fontColor('#D0D0D0')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#333333')
+              .borderRadius(10)
+          }
+          .width('100%')
+
+          Text('直接调用第三方模型 API，并在设备上管理项目和执行本地编译。后续版本开放。')
+            .fontSize(12)
+            .fontColor('#8F8F8F')
+            .lineHeight(18)
+            .width('100%')
+            .margin({ top: 8 })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .padding(16)
+      .margin({ top: 10 })
+      .backgroundColor('#181818')
+      .borderRadius(10)
+      .borderWidth(1)
+      .borderColor('#2A2A2A')
+      .opacity(0.82)
+      .onClick(() => this.onOpenLocalRuntime())
+    }
+    .width('100%')
+    .constraintSize({ maxWidth: 680 })
+    .padding({ left: 24, right: 24, bottom: 20 })
+    .alignItems(HorizontalAlign.Start)
+  }
 
   @Builder
   MissingApiKeyBanner() {
@@ -328,7 +701,9 @@ export struct OpenCodeHomeLaunch {
   @Builder
   RecentProjectsSection() {
     Column() {
-      if (this.projects.length > 0) {
+      if (!this.isConnected) {
+        // 工作模式入口已承担未连接引导，避免重复出现第二组操作按钮。
+      } else if (this.projects.length > 0) {
         this.RecentProjectsHeader()
         this.RecentProjectsList()
       } else if (!this.isServerReady) {
@@ -418,6 +793,33 @@ export struct OpenCodeHomeLaunch {
         .fontSize(12)
         .fontColor('#FFFFFF')
         .margin({ top: 10 })
+    }
+    .width('100%')
+    .padding({ top: 16, bottom: 16 })
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  @Builder
+  ConnectionRequiredState() {
+    Column() {
+      Text('尚未连接电脑')
+        .fontSize(16)
+        .fontColor('#FFFFFF')
+        .fontWeight(FontWeight.Medium)
+
+      Text('先填写电脑上 OpenCode Server 的局域网地址')
+        .fontSize(12)
+        .fontColor('#FFFFFF')
+        .margin({ top: 8 })
+
+      Button('打开服务器设置')
+        .height(36)
+        .fontSize(13)
+        .fontColor('#FFFFFF')
+        .backgroundColor('#1f1f1f')
+        .borderRadius(6)
+        .margin({ top: 16 })
+        .onClick(() => this.onOpenSettings())
     }
     .width('100%')
     .padding({ top: 16, bottom: 16 })

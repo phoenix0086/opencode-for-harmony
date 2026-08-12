@@ -18,8 +18,10 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 import { ProviderConnectDialog } from '../components/provider/ProviderConnectDialog';
 import { providerConnectionService, ProviderConnectInput, ProviderModelInput } from '../services/ProviderConnectionService';
 import { providerRegistry } from '../services/ProviderRegistry';
-import { toRuntimeMode } from '../services/RuntimeMode';
+import { toRuntimeMode, needsServerUrl, isValidExternalRuntimeUrl, normalizeExternalRuntimeUrl } from '../services/RuntimeMode';
 import { i18n } from '../services/I18nService';
+import web_webview from '@ohos.web.webview';
+import { util } from '@kit.ArkTS';
 
 class RemoteFileEntry {
   name: string = ''
@@ -57,6 +59,13 @@ struct Index {
   @State fileError: string = ''
   // S1 fix: Provider 缺 API key 时 home 顶部显示 banner;onPageShow 每次重读
   @State hasMissingApiKey: boolean = false
+
+  // 官方 OpenCode Web UI 工作区。Agent、项目和会话仍由电脑端 Server 提供。
+  @State officialWebViewUrl: string = ''
+  @State officialWebViewLoading: boolean = true
+  @State officialWebViewError: string = ''
+  @State officialWebStateSeededUrl: string = ''
+  private officialWebController: web_webview.WebviewController = new web_webview.WebviewController()
 
   // ── Settings 页面状态 ──
   @State settingsTab: string = 'general'
@@ -115,6 +124,11 @@ struct Index {
   onPageShow(): void {
     this.refreshProviderMissingState()
     this.viewModel.resumeHealthCheck()
+    // 连接成功后，项目和会话首页交给官方 OpenCode Web UI，避免出现第二套首页。
+    if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+        this.officialWebViewUrl.length === 0) {
+      this.openOfficialWebView('')
+    }
   }
 
   private refreshProviderMissingState(): void {
@@ -155,11 +169,41 @@ struct Index {
       // 一边 put 一边 get 容易读到旧值。现在统一用 storageSingleton (initStorageService 已初始化)。
       await this.viewModel.init(storageSingleton);
       this.viewModel.runtimeMode = toRuntimeMode(this.runtimeConnectionMode)
+      if (needsServerUrl(this.viewModel.runtimeMode)) {
+        this.viewModel.serverInfo.url = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+      }
+
+      // External modes must not probe an empty/localhost URL on a tablet.
+      // Keep the user on the setup path instead of showing an endless loader.
+      if (needsServerUrl(this.viewModel.runtimeMode) &&
+          !isValidExternalRuntimeUrl(this.viewModel.serverInfo.url, this.viewModel.runtimeMode)) {
+        this.viewModel.serverInfo.url = ''
+      }
+
+      // Repair configs written by older builds that stored an empty host
+      // while the URL preference still contained the actual LAN address.
+      // This must run after ViewModel.init so the persisted URL is available.
+      if (this.runtimeConnectionMode === 'dev-pc') {
+        const savedCfg = await localOpenCodeServerManager.loadLastConfig()
+        if (savedCfg.host.length === 0) {
+          const savedUrl: string = this.viewModel.serverInfo.url
+          const hostMatch = savedUrl.match(/^https?:\/\/([^:/]+)(?::\d+)?/)
+          const recoveredHost: string = hostMatch && hostMatch.length > 1 ? hostMatch[1] : ''
+          if (recoveredHost.length > 0 && recoveredHost !== '127.0.0.1') {
+            savedCfg.host = recoveredHost
+            this.viewModel.serverInfo.url = `${savedCfg.protocol}://${savedCfg.host}:${savedCfg.port}`
+            await localOpenCodeServerManager.saveLastConfig(savedCfg)
+            Logger.info(`Recovered LAN Runtime host from saved URL: ${savedCfg.host}`)
+          }
+        }
+      }
 
       // After init: fix URL to match current mode (especially after auto-fallback)
       if (autoFallbackDone) {
         const cfg = await localOpenCodeServerManager.loadLastConfig()
-        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`
+        this.viewModel.serverInfo.url = isValidExternalRuntimeUrl(`http://${cfg.host}:${cfg.port}`, 'dev-pc')
+          ? `http://${cfg.host}:${cfg.port}`
+          : ''
         Logger.info(`URL auto-updated to: ${this.viewModel.serverInfo.url}`)
       }
 
@@ -178,6 +222,10 @@ struct Index {
       // Refresh once connected so remote OpenCode workspaces replace the
       // storage-only fallback list.
       await this.loadRecentProjects()
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+          this.currentView === AppView.Home && this.officialWebViewUrl.length === 0) {
+        this.openOfficialWebView('')
+      }
     }
   }
 
@@ -273,7 +321,8 @@ struct Index {
       await storageSingleton.addRecentWorkspace(directory)
 
       await this.loadRecentProjects()
-      this.currentView = AppView.Chat
+      // 官方首页负责项目选择；这个方法只保留给旧入口的兼容跳转。
+      this.openOfficialWebView(directory)
     } catch (err) {
       Logger.error(`openProject failed: ${errStr(err)}`)
     }
@@ -331,6 +380,19 @@ struct Index {
     }
   }
 
+  /**
+   * Keep the source of truth on the computer: ask the connected OpenCode
+   * session to edit the selected remote file, then review/approve the change
+   * through the normal permission and diff flow.
+   */
+  private requestRemoteFileEdit(): void {
+    if (this.selectedFilePath.length === 0) return
+    this.inputText = `请修改电脑端项目文件 ${this.selectedFilePath}：`
+    this.currentView = AppView.Chat
+    this.sidebarCollapsed = true
+    this.showToast('已带入文件路径，请补充修改内容后发送。', 2200)
+  }
+
   private fileName(path: string): string {
     const normalized = path.endsWith('/') ? path.substring(0, path.length - 1) : path
     return normalized.split('/').pop() || normalized
@@ -364,6 +426,9 @@ struct Index {
       // 真正的 "opencode 风格启动屏"。其它视图(Chat/Provider/...)走侧栏+内容。
       if (this.currentView === AppView.Home) {
         this.FullScreenHome()
+      } else if (this.currentView === AppView.WebView) {
+        // 官方工作区全屏展示，避免再套一层原生侧栏造成视觉割裂。
+        this.WebViewContent()
       } else {
         this.SidebarLayout()
       }
@@ -466,16 +531,16 @@ struct Index {
                         this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ||
                         this.viewModel.connectionStatus === ConnectionStatus.Connecting ||
                         this.viewModel.connectionStatus === ConnectionStatus.StartFailed,
-        // S1 fix: 缺 API key 时 home 顶部显示 banner
-        hasMissingApiKey: this.hasMissingApiKey,
+        // 本地运行尚未开放，不用本地 Provider 提示干扰连接电脑主路径。
+        hasMissingApiKey: false,
         onNewSession: () => {
-          this.newSessionAndOpenChat()
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
         },
         onOpenChat: () => {
-          this.currentView = AppView.Chat
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
         },
         onOpenSettings: () => {
-          this.settingsTab = 'general'
+          this.settingsTab = this.viewModel.connectionStatus === ConnectionStatus.Connected ? 'general' : 'servers'
           this.showSettings = true
         },
         onOpenHelp: () => {
@@ -495,6 +560,23 @@ struct Index {
           this.settingsTab = 'providers'
           this.showSettings = true
           this.refreshProviderData()
+        },
+        onConnectComputer: () => {
+          if (this.viewModel.connectionStatus === ConnectionStatus.Connected &&
+              this.runtimeConnectionMode === 'dev-pc') {
+            this.openOfficialWebView('')
+          } else {
+            this.switchRuntimeMode('dev-pc')
+            this.settingsTab = 'servers'
+            this.showSettings = true
+          }
+        },
+        onOpenLocalRuntime: () => {
+          this.showToast('本地运行功能正在开发中，当前请先使用“连接电脑”。', 2600)
+        },
+        onOpenSession: (sessionId: string) => {
+          // 会话详情交给官方 Web UI，避免移动端重复实现 Agent 工作区。
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath, sessionId)
         }
       })
 
@@ -716,6 +798,15 @@ struct Index {
     .borderRadius(8)
     .margin({ left: 8, right: 8, top: 2, bottom: 2 })
     .onClick(() => {
+      if (view === AppView.Chat) {
+        if (this.viewModel.connectionStatus === ConnectionStatus.Connected) {
+          this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
+        } else {
+          this.settingsTab = 'servers'
+          this.showSettings = true
+        }
+        return
+      }
       this.currentView = view;
       this.showSettings = false;
       this.sidebarCollapsed = true;
@@ -725,8 +816,12 @@ struct Index {
 
   private async openSessionFromDrawer(sessionId: string): Promise<void> {
     this.sidebarCollapsed = true
-    this.currentView = AppView.Chat
-    await this.viewModel.selectSession(sessionId)
+    if (this.viewModel.connectionStatus !== ConnectionStatus.Connected) {
+      this.settingsTab = 'servers'
+      this.showSettings = true
+      return
+    }
+    this.openOfficialWebView(this.viewModel.serverInfo.projectPath, sessionId)
   }
 
   @Builder
@@ -982,6 +1077,28 @@ struct Index {
     Column() {
       // Chat header
       Row() {
+        // 固定的项目首页入口：抽屉只负责历史会话，不能代替项目导航。
+        Button() {
+          Row() {
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+              .fontSize(15)
+              .fontColor(['#FFFFFF'])
+            Text('项目首页')
+              .fontSize(13)
+              .fontColor('#FFFFFF')
+              .margin({ left: 5 })
+          }
+        }
+        .height(34)
+        .padding({ left: 10, right: 10 })
+        .backgroundColor('#2D2D2D')
+        .borderRadius(7)
+        .margin({ right: 10 })
+        .onClick(() => {
+          this.sidebarCollapsed = true
+          this.currentView = AppView.Home
+          this.loadRecentProjects()
+        })
         Text(this.currentSessionTitle())
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
@@ -1344,18 +1461,182 @@ struct Index {
 
   @Builder
   WebViewContent() {
-    Column() {
-      Text('Web View')
-        .fontSize(18)
-        .fontColor('#FFFFFF')
-        .margin(16)
-      Text('连接本地 OpenCode Runtime 后可继续使用')
-        .fontSize(14)
-        .fontColor('#FFFFFF')
+    Stack({ alignContent: Alignment.TopStart }) {
+      if (this.officialWebViewError.length > 0) {
+        Column() {
+          Text('电脑端 OpenCode 页面加载失败')
+            .fontSize(18)
+            .fontColor('#FFFFFF')
+            .margin({ bottom: 10 })
+          Text(this.officialWebViewError)
+            .fontSize(13)
+            .fontColor('#AAAAAA')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 16 })
+          Button('重新加载')
+            .height(40)
+            .width(120)
+            .backgroundColor('#007DFF')
+            .fontColor('#FFFFFF')
+            .borderRadius(8)
+            .onClick(() => {
+              this.officialWebViewError = ''
+              this.officialWebViewLoading = true
+              this.officialWebController.loadUrl(this.officialWebViewUrl)
+            })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .padding(32)
+      } else {
+        Web({ src: this.officialWebViewUrl, controller: this.officialWebController })
+          .width('100%')
+          .height('100%')
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .zoomAccess(false)
+          .keyboardAvoidMode(WebKeyboardAvoidMode.RESIZE_CONTENT)
+          .onPageBegin(() => {
+            this.officialWebViewLoading = true
+            this.officialWebViewError = ''
+          })
+          .onPageEnd(() => {
+            this.officialWebViewLoading = false
+            this.applyOfficialWebState()
+          })
+          .onErrorReceive(() => {
+            this.officialWebViewLoading = false
+            // 不把包含 auth_token 的完整 URL 显示到页面，避免凭据泄露。
+            this.officialWebViewError = '无法连接电脑端 OpenCode Server，请检查网络、地址或登录密码。'
+            Logger.warn(`Official OpenCode WebView failed to load: ${this.viewModel.serverInfo.url}`)
+          })
+
+      }
+
+      if (this.officialWebViewLoading && this.officialWebViewError.length === 0) {
+        LoadingProgress()
+          .width(20)
+          .height(20)
+          .color('#8A8A8A')
+          .position({ x: '96%', y: 18 })
+      }
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#111111')
+  }
+
+  private async applyOfficialWebState(): Promise<void> {
+    const serverScope = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+    if (serverScope.length === 0) return
+    const projectPaths: string[] = []
+    for (const project of this.homeProjects) {
+      if (project.directory.length > 0 && project.directory !== '/') projectPaths.push(project.directory)
+    }
+    const scopeJson = JSON.stringify(serverScope)
+    const pathJson = JSON.stringify(this.viewModel.serverInfo.projectPath)
+    const projectsJson = JSON.stringify(projectPaths)
+    const script = `(() => {
+      const themeKey = 'opencode-color-scheme';
+      localStorage.setItem(themeKey, 'dark');
+      document.documentElement.dataset.colorScheme = 'dark';
+      document.documentElement.style.colorScheme = 'dark';
+      document.documentElement.style.backgroundColor = '#080808';
+      const metas = document.querySelectorAll('meta[name="theme-color"]');
+      if (metas.length > 0) metas[0].setAttribute('content', '#080808');
+      const serverKey = 'opencode.global.dat:server';
+      const scope = ${scopeJson};
+      const paths = ${projectsJson};
+      const currentDirectory = ${pathJson};
+      let state = {};
+      try {
+        const raw = localStorage.getItem(serverKey);
+        if (raw) state = JSON.parse(raw) || {};
+      } catch (_) { state = {}; }
+      if (!state.projects || typeof state.projects !== 'object') state.projects = {};
+      if (!state.lastProject || typeof state.lastProject !== 'object') state.lastProject = {};
+      const existing = Array.isArray(state.projects[scope]) ? state.projects[scope] : [];
+      const seedKey = 'ohopencode.official-projects-seeded:' + scope;
+      const hasSeededProjects = localStorage.getItem(seedKey) === '1';
+      let changed = false;
+      if (!hasSeededProjects && existing.length === 0 && paths.length > 0) {
+        state.projects[scope] = paths.map((worktree) => ({ worktree, expanded: true }));
+        localStorage.setItem(seedKey, '1');
+        changed = true;
+      } else if (!hasSeededProjects && existing.length > 0) {
+        // Existing official state predates this compatibility marker. Mark it
+        // as initialized without changing the user's project choices.
+        localStorage.setItem(seedKey, '1');
+      }
+      if (currentDirectory && !state.lastProject[scope]) {
+        state.lastProject[scope] = currentDirectory;
+        changed = true;
+      }
+      if (changed) {
+        localStorage.setItem(serverKey, JSON.stringify(state));
+        return 'reload';
+      }
+      return 'ready';
+    })()`
+    try {
+      const result = await this.officialWebController.runJavaScript(script)
+      if (result.indexOf('reload') >= 0 && this.officialWebStateSeededUrl !== serverScope) {
+        this.officialWebStateSeededUrl = serverScope
+        this.officialWebViewLoading = true
+        this.officialWebController.refresh()
+      }
+    } catch (err) {
+      Logger.warn(`applyOfficialWebState: ${errStr(err)}`)
+    }
+  }
+
+  private encodeDirectoryForOpenCode(directory: string): string {
+    if (directory.length === 0) return ''
+    const encoder = new util.TextEncoder()
+    const bytes = encoder.encodeInto(directory)
+    const helper = new util.Base64Helper()
+    return helper.encodeToStringSync(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  }
+
+  private openOfficialWebView(directory: string = '', sessionId: string = ''): void {
+    let url = normalizeExternalRuntimeUrl(this.viewModel.serverInfo.url)
+    if (url.length === 0) {
+      this.settingsTab = 'servers'
+      this.showSettings = true
+      this.showToast('请先连接电脑端 OpenCode Server')
+      return
+    }
+    if (!url.endsWith('/')) url += '/'
+    const encodedDirectory = this.encodeDirectoryForOpenCode(directory)
+    if (encodedDirectory.length > 0) {
+      url += encodedDirectory
+      if (sessionId.length > 0) {
+        url += `/session/${encodeURIComponent(sessionId)}`
+      } else {
+        url += '/'
+      }
+    }
+    if (this.viewModel.serverInfo.password.length > 0) {
+      const username = this.viewModel.serverInfo.username.length > 0
+        ? this.viewModel.serverInfo.username
+        : 'opencode'
+      const token = this.encodeBase64(`${username}:${this.viewModel.serverInfo.password}`)
+      url += `?auth_token=${encodeURIComponent(token)}`
+    }
+    this.officialWebViewUrl = url
+    this.officialWebViewError = ''
+    this.officialWebViewLoading = true
+    this.showSettings = false
+    this.sidebarCollapsed = true
+    this.currentView = AppView.WebView
+  }
+
+  private encodeBase64(value: string): string {
+    const encoder = new util.TextEncoder()
+    const bytes = encoder.encodeInto(value)
+    const helper = new util.Base64Helper()
+    return helper.encodeToStringSync(bytes)
   }
 
   @Builder
@@ -1471,6 +1752,14 @@ struct Index {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .margin({ left: 10 })
+            Button('让 OpenCode 修改')
+              .height(32)
+              .fontSize(12)
+              .backgroundColor('#007DFF')
+              .fontColor('#FFFFFF')
+              .borderRadius(6)
+              .margin({ left: 10 })
+              .onClick(() => { this.requestRemoteFileEdit() })
           }
           .width('100%')
           .margin({ bottom: 10 })
@@ -2285,7 +2574,12 @@ struct Index {
 
     this.SSection('Web & Terminal')
     this.AdvancedLinkRow('Web UI', '内置 OpenCode Web 界面', () => {
-      this.currentView = AppView.WebView
+      if (this.viewModel.connectionStatus === ConnectionStatus.Connected) {
+        this.openOfficialWebView(this.viewModel.serverInfo.projectPath)
+      } else {
+        this.settingsTab = 'servers'
+        this.showSettings = true
+      }
     })
     Divider().color('#222222')
     this.AdvancedLinkRow('Terminal', '本地 shell 终端', () => {
@@ -2379,7 +2673,7 @@ struct Index {
       .fontSize(14)
       .fontColor('#FFFFFF')
       .margin({ bottom: 8 })
-    TextInput({ placeholder: 'http://127.0.0.1:4096', text: this.viewModel.serverInfo.url })
+    TextInput({ placeholder: '例如 http://192.168.1.85:4096', text: this.viewModel.serverInfo.url })
       .width('100%')
       .height(40)
       .backgroundColor('#2D2D2D')
@@ -2487,34 +2781,6 @@ struct Index {
     .width('100%')
     .margin({ top: 20 })
 
-    // ── 内置 Runtime 控制 ──
-    this.SSection('内置 Runtime')
-    Row() {
-      Button(this.viewModel.connectionStatus === ConnectionStatus.AutoStarting ? '启动中...' : '启动内置 Runtime')
-        .height(36)
-        .backgroundColor('#007DFF')
-        .fontColor('#FFFFFF')
-        .borderRadius(6)
-        .layoutWeight(1)
-        .enabled(this.viewModel.connectionStatus !== ConnectionStatus.AutoStarting)
-        .onClick(() => {
-          this.viewModel.autoStartAndConnect();
-        })
-
-      Button('停止 Runtime')
-        .height(36)
-        .backgroundColor('#FF5252')
-        .fontColor('#FFFFFF')
-        .borderRadius(6)
-        .margin({ left: 8 })
-        .layoutWeight(1)
-        .onClick(() => {
-          this.viewModel.shutdown();
-        })
-    }
-    .width('100%')
-    .margin({ top: 8 })
-
     if (this.viewModel.errorMessage.length > 0) {
       Text(this.viewModel.errorMessage)
         .fontSize(13)
@@ -2553,11 +2819,17 @@ struct Index {
         cfg.host = '127.0.0.1';
         this.viewModel.serverInfo.url = `http://127.0.0.1:${cfg.port}`;
       } else if (mode === 'dev-pc') {
-        // dev-pc: keep previous host if non-empty and not localhost
+        // dev-pc: preserve the host already shown in the URL when the saved
+        // runtime config was created by an older build with an empty host.
+        // Clearing it here produced an invalid `http://:4096` URL on tablets.
         if (cfg.host.length === 0 || cfg.host === '127.0.0.1') {
-          cfg.host = '';  // 用户需要手动输入局域网 IP
+          const currentUrl: string = this.viewModel.serverInfo.url;
+          const hostMatch = currentUrl.match(/^https?:\/\/([^:/]+)(?::\d+)?/);
+          const currentHost: string = hostMatch && hostMatch.length > 1 ? hostMatch[1] : '';
+          cfg.host = currentHost.length > 0 && currentHost !== '127.0.0.1' ? currentHost : '';
         }
-        this.viewModel.serverInfo.url = `http://${cfg.host}:${cfg.port}`;
+        const nextUrl = cfg.host.length > 0 ? `http://${cfg.host}:${cfg.port}` : '';
+        this.viewModel.serverInfo.url = isValidExternalRuntimeUrl(nextUrl, 'dev-pc') ? nextUrl : '';
       }
       localOpenCodeServerManager.saveLastConfig(cfg).catch((e: Error) => {
         Logger.warn(`Failed to save runtime mode: ${errStr(e)}`)
